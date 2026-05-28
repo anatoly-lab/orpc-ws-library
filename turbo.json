@@ -1,0 +1,73 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "index.html",
+        "vite.config.ts",
+        "tsconfig.json",
+        "package.json",
+        "../../tsconfig.base.json"
+      ],
+      "outputs": ["dist/**", "*.tsbuildinfo"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "tsconfig.json",
+        "package.json",
+        "../../tsconfig.base.json"
+      ],
+      "outputs": []
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "eslint.config.js",
+        "../../eslint.config.js",
+        "package.json"
+      ],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "vitest.config.ts",
+        "../../vitest.config.base.ts",
+        "package.json"
+      ],
+      "outputs": []
+    },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "tests/**",
+        "vitest.config.ts",
+        "../../vitest.config.base.ts",
+        "package.json"
+      ],
+      "outputs": ["coverage/**"]
+    },
+    "test:e2e": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": ["playwright-report/**", "test-results/**", "junit.xml"]
+    },
+    "clean": {
+      "cache": false,
+      "outputs": []
+    }
+  }
+}

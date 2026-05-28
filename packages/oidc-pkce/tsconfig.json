@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    // Browser-only package: lib includes DOM so `crypto.subtle`,
+    // `window.location`, `sessionStorage`, `localStorage`, `URLSearchParams`
+    // and `fetch` are all in scope without extra @types installs.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/__tests__/**"
+  ]
+}

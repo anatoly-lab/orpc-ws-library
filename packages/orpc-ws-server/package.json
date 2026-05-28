@@ -1,0 +1,36 @@
+{
+  "name": "@repo/orpc-ws-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Framework-free ORPC-over-WebSocket server core. Node + ws + @orpc/server. Framework adapters live in sibling packages.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@orpc/contract": "1.14.4",
+    "@orpc/server": "1.14.4",
+    "@repo/orpc-ws-shared": "0.1.0",
+    "ws": "8.21.0"
+  },
+  "devDependencies": {
+    "@orpc/client": "1.14.4",
+    "@types/ws": "8.18.1",
+    "rimraf": "6.0.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.7"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@demo/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NestJS demo server for the orpc-ws-library e2e suite. Verifies Keycloak tokens, hosts the OrpcWsModule, serves the built SPA on the same port.",
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --env-file-if-exists=.env --watch --import tsx src/main.ts",
+    "start": "node --env-file-if-exists=.env dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@demo/contract": "0.1.0",
+    "@nestjs/common": "11.1.24",
+    "@nestjs/core": "11.1.24",
+    "@nestjs/platform-express": "11.1.24",
+    "@orpc/contract": "1.14.4",
+    "@orpc/server": "1.14.4",
+    "@repo/oidc-verifier-jose": "0.1.0",
+    "@repo/orpc-ws-server-nestjs": "0.1.0",
+    "express": "5.1.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.0",
+    "@types/node": "25.9.1",
+    "rimraf": "6.0.1",
+    "tsx": "4.22.3",
+    "typescript": "5.9.3"
+  }
+}

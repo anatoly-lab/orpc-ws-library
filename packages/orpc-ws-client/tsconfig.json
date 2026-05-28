@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    // Browser-targeted core: lib includes DOM so the websocket / event
+    // types are recognized. The React sub-path uses the same project.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // JSX for the React adapter sub-path. `react-jsx` is the modern
+    // (React 17+) automatic runtime — no `import React from "react"`
+    // needed at every JSX site. Scoped to the whole project; only files
+    // under `src/react/` actually use JSX.
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**"
+  ]
+}

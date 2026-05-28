@@ -1,0 +1,58 @@
+{
+  "name": "@repo/orpc-ws-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Framework-free ORPC-over-WebSocket client core. React adapter exposed via the './react' sub-path.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@orpc/client": "1.14.4",
+    "@orpc/contract": "1.14.4",
+    "@repo/orpc-ws-shared": "0.1.0",
+    "partysocket": "1.1.19"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "@types/ws": "8.18.1",
+    "happy-dom": "20.9.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "rimraf": "6.0.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.7",
+    "ws": "8.21.0"
+  }
+}

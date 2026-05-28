@@ -1,0 +1,34 @@
+{
+  "name": "@repo/oidc-pkce",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-side OIDC + PKCE auth helper. Vanilla TS, framework-free. Uses OIDC Discovery (RFC 8414) — works against any compliant provider (Keycloak, Auth0, Okta, Cognito, ...). Produces a TokenProvider structurally compatible with @repo/orpc-ws-client.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.1",
+    "happy-dom": "20.9.0",
+    "rimraf": "6.0.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.7"
+  }
+}

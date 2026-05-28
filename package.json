@@ -1,0 +1,48 @@
+{
+  "name": "orpc-ws-library",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo for the @repo/orpc-ws-* library family (framework-agnostic ORPC over WebSocket).",
+  "type": "module",
+  "packageManager": "npm@11.5.2",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tests-e2e"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "ci": "turbo run lint typecheck test build",
+    "clean": "turbo run clean && rimraf .turbo node_modules",
+
+    "build:demo": "turbo run build --filter=@demo/contract --filter=@demo/spa --filter=@demo/server",
+    "predev:demo": "npm run build -w @demo/spa",
+    "dev:demo": "turbo run dev --filter=@demo/server --filter=@demo/spa",
+    "dev:server": "npm run dev -w @demo/server",
+    "dev:spa": "npm run dev -w @demo/spa",
+    "start:demo": "npm run start -w @demo/server"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.1",
+    "@typescript-eslint/eslint-plugin": "8.60.0",
+    "@typescript-eslint/parser": "8.60.0",
+    "eslint": "9.39.4",
+    "@eslint/js": "9.39.4",
+    "globals": "17.6.0",
+    "eslint-import-resolver-typescript": "4.4.4",
+    "eslint-plugin-import": "2.32.0",
+    "happy-dom": "20.9.0",
+    "rimraf": "6.0.1",
+    "turbo": "2.9.16",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.60.0",
+    "vitest": "4.1.7"
+  }
+}

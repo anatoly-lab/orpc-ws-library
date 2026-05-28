@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Cancel in-progress runs when a new commit is pushed to the same PR/branch.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: lint + typecheck + test + build (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-node${{ matrix.node-version }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-node${{ matrix.node-version }}-
+
+      - name: Install dependencies
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: npm ci
+
+      - name: Lint + typecheck + test + build
+        run: npx turbo run lint typecheck test build
+
+  e2e:
+    name: Playwright E2E (Keycloak + demo app)
+    runs-on: ubuntu-latest
+    # Heavier than the unit job: builds Keycloak in Docker, spawns demo server,
+    # drives real Chromium login flow. Runs in parallel with `verify`.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-e2e-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-e2e-${{ runner.os }}-
+
+      - name: Install dependencies (with Playwright browser)
+        # Allow the @repo/tests-e2e postinstall to download Chromium normally.
+        # The `--with-deps` flag installs OS-level browser dependencies via apt.
+        run: npm ci
+
+      - name: Ensure Playwright Chromium + OS deps
+        # Belt-and-suspenders: postinstall in tests-e2e tries `--with-deps`
+        # then falls back; we explicitly call here so OS deps land.
+        working-directory: tests-e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Build demo apps + library packages
+        # Playwright globalSetup runs `turbo run build --filter=@demo/*` but
+        # pre-building once with the turbo cache is faster and surfaces build
+        # errors before the Keycloak container starts.
+        run: npx turbo run build
+
+      - name: Run Playwright E2E
+        working-directory: tests-e2e
+        run: npm run test:e2e
+        env:
+          CI: "true"
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            tests-e2e/playwright-report/
+            tests-e2e/test-results/
+            tests-e2e/junit.xml
+          retention-days: 14
+          if-no-files-found: ignore

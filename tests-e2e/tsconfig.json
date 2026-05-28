@@ -1,0 +1,24 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // Tests run via Playwright's own bundler — we never emit JS from
+    // this package; typecheck only.
+    "noEmit": true,
+    // DOM lib for Playwright test files (window/document/URLSearchParams
+    // etc. are referenced from page objects when navigating).
+    "lib": ["ES2022", "DOM"],
+    // Resolve `.js` extensions to .ts source — same as the rest of the
+    // monorepo (NodeNext + verbatimModuleSyntax in the base).
+    "types": ["node"]
+  },
+  // Tests ARE the surface here — typecheck must read them. The base
+  // tsconfig excludes `**/*.test.ts` / `**/*.spec.ts`; we override.
+  "include": [
+    "setup/**/*.ts",
+    "pages/**/*.ts",
+    "fixtures/**/*.ts",
+    "workflows/**/*.ts",
+    "playwright.config.ts"
+  ],
+  "exclude": ["node_modules", "playwright-report", "test-results"]
+}

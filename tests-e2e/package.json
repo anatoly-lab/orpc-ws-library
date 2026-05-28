@@ -1,0 +1,25 @@
+{
+  "name": "@repo/tests-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright end-to-end tests driving the demo SPA + demo server + real Keycloak (testcontainers). Exercises the full PKCE → WS → ORPC flow no single-package test can cover.",
+  "type": "module",
+  "scripts": {
+    "test": "node -e \"console.log('[tests-e2e] skipped — run npm run test:e2e to run Playwright (requires Docker)')\"",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:list": "playwright test --list",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf .turbo playwright-report test-results *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0",
+    "@types/node": "25.9.1",
+    "rimraf": "6.0.1",
+    "testcontainers": "12.0.1",
+    "tsx": "4.22.3",
+    "typescript": "5.9.3"
+  }
+}

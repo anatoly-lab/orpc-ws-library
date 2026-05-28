@@ -1,0 +1,32 @@
+{
+  "name": "@demo/spa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vite + React SPA for the orpc-ws-library e2e demo. Auths via Keycloak PKCE; talks to the demo server via @repo/orpc-ws-client.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "dev:vite": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@demo/contract": "0.1.0",
+    "@repo/oidc-pkce": "0.1.0",
+    "@repo/orpc-ws-client": "0.1.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-router-dom": "7.16.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "rimraf": "6.0.1",
+    "typescript": "5.9.3",
+    "vite": "8.0.14"
+  }
+}
