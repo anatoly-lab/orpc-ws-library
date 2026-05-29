@@ -48,12 +48,20 @@ message and exits 0. Use `test:e2e` to actually run Playwright.
 ## Architecture
 
 - `setup/containers.ts` — Testcontainers wrapper around Keycloak
-  26.5.5. Waits on `/realms/orpc-ws-demo` (NOT `/health/ready`,
-  which goes green before `--import-realm` finishes).
-- `setup/demo-process.ts` — Spawns the built demo server as a child
-  process. Pipes stdout/stderr into a ring buffer so green runs stay
-  clean; flushed on failure.
+  26.5.5. Pins the host port to `18080` so the SPA's
+  `VITE_OIDC_ISSUER_URL` (inlined at build time) and the server's
+  `OIDC_ISSUER_URL` (read at process start) match a known URL. Waits
+  on `/realms/orpc-ws-demo` (NOT `/health/ready`, which goes green
+  before `--import-realm` finishes).
 - `setup/global-setup.ts` / `global-teardown.ts` — Boot/stop the
-  Keycloak container + demo server child process once per run.
+  Keycloak container once per run. The demo server and SPA are
+  managed by Playwright's `webServer` config (see below), not here.
+- `playwright.config.ts` `webServer:` — Array of two:
+    1. `demo-server` on `:18081` (`turbo build && node dist/main.js`).
+       Readiness via `port:` (Nest has no HTTP routes — only `/ws` upgrades —
+       so a `url:` check would 404).
+    2. `demo-spa` on `:4173` (`turbo build && vite preview`). The
+       build step receives the `VITE_*` env so Vite inlines the right
+       issuer/client/WS URL into the bundle.
 - `pages/` — Page Objects for the SPA and Keycloak login form.
 - `fixtures/` — Seed test data + optional `authenticatedPage` fixture.

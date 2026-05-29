@@ -1,16 +1,20 @@
-// Runtime config the SPA reads from `window.__APP_CONFIG__`.
+// Demo SPA build-time config.
 //
-// The demo server injects this at index.html serve time. We do NOT use
-// Vite env vars (`import.meta.env`) because that bakes config into the
-// bundle — the whole point of the runtime-config seam is "build once,
-// deploy to many IdPs / endpoints".
+// Vite inlines `import.meta.env.VITE_*` at build time — these become
+// literal strings in the bundle. To re-target a different IdP or WS
+// endpoint, change `.env` (or the build's env vars) and rebuild.
 //
-// The names here describe the *protocol contract* the SPA consumes
-// (OIDC issuer URL, OIDC client ID), NOT the deployment specifics. The
-// server's env vars can keep their IdP-shaped names (`KEYCLOAK_URL`,
-// `KEYCLOAK_REALM`, etc.) — the server derives the SPA's `OIDC_*`
-// shape from them. That boundary lets the SPA stay generic-OIDC while
-// the deployment surface stays human-friendly for operators.
+// This is the demo's stance, not the library's. A real consumer can
+// still choose runtime config injection (server-rendered index.html
+// template, /config.json fetched before bootstrap, etc.) — the
+// library's auth + WS clients accept the values as plain options and
+// don't care where they come from. The demo picks the simpler
+// per-process build because it pairs with a real `vite preview`
+// process in the e2e harness.
+//
+// The names here describe the protocol contract the SPA consumes (OIDC
+// issuer URL, OIDC client ID) — NOT IdP-shaped names, because the SPA's
+// `@repo/oidc-pkce` library is provider-agnostic.
 
 export interface AppConfig {
   /** OIDC issuer URL — passed verbatim to `@repo/oidc-pkce`'s `createOidcAuth`. */
@@ -21,25 +25,26 @@ export interface AppConfig {
   WS_URL: string;
 }
 
-declare global {
-  interface Window {
-    __APP_CONFIG__?: AppConfig;
+function requireEnv(name: string, value: string | undefined): string {
+  if (value === undefined || value === "") {
+    // Fail loudly at module load — a build with missing env produces a
+    // bundle that throws before any UI renders. Far better than a
+    // silent fallback that mis-targets the wrong IdP / endpoint.
+    throw new Error(
+      `${name} is required (set it in apps/demo-spa/.env or the build environment). See .env.example.`,
+    );
   }
+  return value;
 }
 
-function readConfig(): AppConfig {
-  const cfg = window.__APP_CONFIG__;
-  if (!cfg) {
-    // Fallback for `vite dev` standalone (no server-side substitution).
-    // The placeholder in index.html stays as a literal `{{...}}` and
-    // never gets parsed; without a fallback the app would crash on import.
-    return {
-      OIDC_ISSUER_URL: "http://localhost:18080/realms/orpc-ws-demo",
-      OIDC_CLIENT_ID: "orpc-ws-demo-spa",
-      WS_URL: `ws://${window.location.host}/ws`,
-    };
-  }
-  return cfg;
-}
-
-export const config: AppConfig = readConfig();
+export const config: AppConfig = {
+  OIDC_ISSUER_URL: requireEnv(
+    "VITE_OIDC_ISSUER_URL",
+    import.meta.env.VITE_OIDC_ISSUER_URL,
+  ),
+  OIDC_CLIENT_ID: requireEnv(
+    "VITE_OIDC_CLIENT_ID",
+    import.meta.env.VITE_OIDC_CLIENT_ID,
+  ),
+  WS_URL: requireEnv("VITE_WS_URL", import.meta.env.VITE_WS_URL),
+};

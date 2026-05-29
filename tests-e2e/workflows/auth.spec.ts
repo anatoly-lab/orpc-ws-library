@@ -24,7 +24,7 @@ test("login -> logout -> re-login", async ({ page }) => {
   await login.waitForKeycloakRedirect();
   await login.fillKeycloakCredentials(user);
   await login.submitKeycloakForm();
-  await page.waitForURL("http://localhost:18081/", { timeout: 20_000 });
+  await page.waitForURL("http://localhost:4173/", { timeout: 20_000 });
 
   await expect(home.userEmail).toContainText(user.email);
   await expect(home.connectionStatus).toContainText("connected", {
@@ -36,8 +36,8 @@ test("login -> logout -> re-login", async ({ page }) => {
 
   // After logout we end up back on `/` with the signin button visible.
   // The end-session round-trip goes through Keycloak (`/protocol/openid-connect/logout`)
-  // and bounces back to `post_logout_redirect_uri` (`http://localhost:18081/`).
-  await page.waitForURL("http://localhost:18081/", { timeout: 20_000 });
+  // and bounces back to `post_logout_redirect_uri` (`http://localhost:4173/`).
+  await page.waitForURL("http://localhost:4173/", { timeout: 20_000 });
   await expect(home.signinButton).toBeVisible({ timeout: 10_000 });
 
   // ---- Re-login ----
@@ -49,7 +49,7 @@ test("login -> logout -> re-login", async ({ page }) => {
 
   await login.fillKeycloakCredentials(user);
   await login.submitKeycloakForm();
-  await page.waitForURL("http://localhost:18081/", { timeout: 20_000 });
+  await page.waitForURL("http://localhost:4173/", { timeout: 20_000 });
 
   await expect(home.userEmail).toContainText(user.email);
   await expect(home.connectionStatus).toContainText("connected", {

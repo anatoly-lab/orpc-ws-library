@@ -1,22 +1,11 @@
 // Playwright globalTeardown.
 //
-// Stops the demo server child process and the Keycloak container.
-// Each stop is wrapped so one failure doesn't mask the other —
-// otherwise we'd routinely leak Keycloak containers when the demo
-// server fails to die cleanly.
+// Stops the Keycloak container. The demo server and SPA are managed by
+// Playwright's `webServer` config and are torn down automatically;
+// we only own the testcontainer.
 
 export default async function globalTeardown(): Promise<void> {
-  const demo = globalThis.__demo;
   const keycloak = globalThis.__keycloak;
-
-  if (demo) {
-    try {
-      console.log("[teardown] Stopping demo server...");
-      await demo.stop();
-    } catch (err) {
-      console.error("[teardown] demo-server stop failed:", err);
-    }
-  }
 
   if (keycloak) {
     try {

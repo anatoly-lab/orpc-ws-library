@@ -38,7 +38,7 @@ export const test = base.extend<Fixtures>({
     await login.waitForKeycloakRedirect();
     await login.fillKeycloakCredentials(keycloakUser);
     await login.submitKeycloakForm();
-    await page.waitForURL("http://localhost:18081/", { timeout: 20_000 });
+    await page.waitForURL("http://localhost:4173/", { timeout: 20_000 });
 
     await use(page);
   },

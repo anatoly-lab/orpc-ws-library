@@ -11,10 +11,17 @@
 //     Instead we poll `/realms/<realm>` for 200, which is only true
 //     after import completes.
 //
-// We don't use a `withNetwork` here: the demo server runs as a host
-// process (cleaner stack trace, faster iteration than building yet
-// another container image just for tests), so Keycloak only needs to
-// be reachable from the host via its mapped port.
+// PORT: pinned to 18080 on the host (testcontainers normally picks
+// a random ephemeral port). Two reasons:
+//   1. The SPA's OIDC issuer URL is baked at `vite build` time
+//      (`import.meta.env.VITE_OIDC_ISSUER_URL`) — it can't depend on
+//      a port chosen after the build runs.
+//   2. The JWT `iss` claim the server validates against must match
+//      what the browser saw at PKCE-token-exchange time — same URL
+//      on both sides, no exceptions.
+// Trade-off: only one Keycloak can run at a time on the host. Fine for
+// our single-worker Playwright setup; documented as "host-port
+// conflict" should anyone parallelise later.
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -29,11 +36,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const KEYCLOAK_IMAGE = "quay.io/keycloak/keycloak:26.5.5";
 const KEYCLOAK_REALM = "orpc-ws-demo";
 const KEYCLOAK_INTERNAL_PORT = 8080;
+const KEYCLOAK_HOST_PORT = 18080;
 // 5 min — first run pulls the 600+ MB image; subsequent runs are seconds.
 const KEYCLOAK_STARTUP_TIMEOUT_MS = 5 * 60_000;
 
 export interface KeycloakHandle {
-  /** Base URL on the host, e.g. `http://localhost:54321`. */
+  /** Base URL on the host: `http://localhost:18080`. */
   url: string;
   container: StartedTestContainer;
   stop(): Promise<void>;
@@ -43,7 +51,10 @@ export async function startKeycloak(): Promise<KeycloakHandle> {
   const realmDir = path.join(here, "keycloak");
 
   const container = await new GenericContainer(KEYCLOAK_IMAGE)
-    .withExposedPorts(KEYCLOAK_INTERNAL_PORT)
+    .withExposedPorts({
+      container: KEYCLOAK_INTERNAL_PORT,
+      host: KEYCLOAK_HOST_PORT,
+    })
     .withCommand(["start-dev", "--import-realm"])
     .withEnvironment({
       KC_BOOTSTRAP_ADMIN_USERNAME: "admin",
@@ -63,9 +74,7 @@ export async function startKeycloak(): Promise<KeycloakHandle> {
     )
     .start();
 
-  const host = container.getHost();
-  const port = container.getMappedPort(KEYCLOAK_INTERNAL_PORT);
-  const url = `http://${host}:${port}`;
+  const url = `http://localhost:${KEYCLOAK_HOST_PORT}`;
 
   return {
     url,

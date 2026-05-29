@@ -1,11 +1,21 @@
-// Demo server entry. Same Node process serves:
-//   - the built SPA on `/` (`spa-static.middleware`)
-//   - the ORPC-over-WS endpoint on `/ws` (`OrpcWsModule`)
+// Demo server entry. This process owns ONE responsibility: host the
+// ORPC-over-WS endpoint on `/ws`. The Vite SPA is a separate process
+// (`apps/demo-spa`), reached on its own port — see the root README's
+// "Demo" section.
 //
-// Single-process layout is intentional — no CORS to configure, no
-// second dev server to babysit, no port juggling for Playwright. The
-// SPA's static bundle gets `window.__APP_CONFIG__` substituted in at
-// request time so we can flip Keycloak URLs without rebuilding.
+// Why split: the previous single-process layout (server-side
+// `index.html` template + express.static) entangled the server with
+// SPA build artifacts and forced runtime-config injection per request.
+// That gave us one fewer port to babysit in dev, but it (a) leaked
+// build artifacts into the server's runtime, and (b) made the demo a
+// poor reference for consumers who'll run their SPA on their own
+// host/CDN. Two processes mirrors the real deployment shape.
+//
+// No CORS middleware: the only HTTP surface is the `/ws` WebSocket
+// upgrade endpoint, and WS upgrades are not subject to CORS (browsers
+// gate them via `Origin` checks at the server's discretion, not via
+// preflight). If/when this demo grows an `uploads:` config, CORS will
+// need to be added then.
 
 import "reflect-metadata";
 import { Logger } from "@nestjs/common";
@@ -15,21 +25,16 @@ import {
   type NestExpressApplication,
 } from "@nestjs/platform-express";
 import express from "express";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { AppModule } from "./app.module.js";
 import { readEnvConfig } from "./config.js";
-import {
-  spaStaticMiddleware,
-  type SpaRuntimeConfig,
-} from "./spa-static.middleware.js";
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger("Bootstrap");
 
-  // Use an explicit Express instance so we can mount middleware
-  // pre-Nest. Nest 11's default factory accepts a server arg.
+  // Use an explicit Express instance so we keep the option of mounting
+  // future HTTP middleware (CORS, /healthz, uploads) without changing
+  // Nest's factory call.
   const server = express();
   const app = await NestFactory.create<NestExpressApplication>(
     AppModule,
@@ -43,34 +48,14 @@ async function bootstrap(): Promise<void> {
   // packages/orpc-ws-server-nestjs/README.md "Common gotchas".)
   app.enableShutdownHooks();
 
-  // Single source of truth for env reads. `app.module.ts` calls the
-  // same helper inside its OIDC verify-client useFactory — both sides
-  // see identical defaults.
-  const { port, oidc, wsUrl } = readEnvConfig();
+  const { port, oidc } = readEnvConfig();
 
-  const runtimeConfig: SpaRuntimeConfig = {
-    OIDC_ISSUER_URL: oidc.issuerUrl,
-    OIDC_CLIENT_ID: oidc.clientId,
-    WS_URL: wsUrl,
-  };
-
-  // Resolve the SPA `dist/` relative to this compiled file. After
-  // `tsc`, `main.js` lives at `apps/demo-server/dist/main.js`, so the
-  // SPA dist is `../../demo-spa/dist`.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const spaDist =
-    process.env.SPA_DIST ?? join(here, "../../demo-spa/dist");
-
-  app.use(
-    spaStaticMiddleware({
-      dir: spaDist,
-      runtimeConfig,
-    }),
-  );
-
-  await app.listen(port);
+  // Bind to loopback only. The demo is a local-dev / CI fixture, not
+  // a network service — exposing `/ws` on every interface (LAN, VPN)
+  // serves no purpose and broadens the trust surface.
+  await app.listen(port, "127.0.0.1");
   logger.log(`demo-server listening on http://localhost:${port}`);
-  logger.log(`SPA bundle: ${spaDist}`);
+  logger.log(`WS endpoint: ws://localhost:${port}/ws`);
   logger.log(`OIDC: issuer=${oidc.issuerUrl}, client=${oidc.clientId}`);
 }
 

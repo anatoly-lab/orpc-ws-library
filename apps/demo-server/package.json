@@ -2,7 +2,7 @@
   "name": "@demo/server",
   "version": "0.1.0",
   "private": true,
-  "description": "NestJS demo server for the orpc-ws-library e2e suite. Verifies Keycloak tokens, hosts the OrpcWsModule, serves the built SPA on the same port.",
+  "description": "NestJS demo server for the orpc-ws-library e2e suite. Verifies Keycloak tokens and hosts the OrpcWsModule on /ws. The demo SPA runs as a separate process (apps/demo-spa).",
   "type": "module",
   "main": "./dist/main.js",
   "scripts": {

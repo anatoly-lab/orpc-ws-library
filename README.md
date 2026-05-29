@@ -86,6 +86,9 @@ const { pong } = await wsClient.rpc.ping(); // fully typed
 
 Full demo (React SPA + NestJS server against a real Keycloak):
 [`apps/demo-spa`](./apps/demo-spa) + [`apps/demo-server`](./apps/demo-server).
+The SPA and server are **two separate processes** (Vite on `:5173`, Nest
+on `:18081`). Mirrors how a real deploy ships — SPA on a CDN / static
+host, API on its own process.
 
 ## Status
 
@@ -104,8 +107,13 @@ tests-e2e/        # Playwright + Testcontainers Keycloak
 docs/             # implementation-plan, migration guide, mermaid diagrams
 ```
 
-`npm install` from the root. `npx turbo run test` for the unit suite;
-`npm run dev:demo` boots the demo end-to-end against your local IdP.
+`npm install` from the root. `npx turbo run test` for the unit suite.
+
+For `npm run dev:demo`: first copy `apps/demo-spa/.env.example` →
+`apps/demo-spa/.env` (the SPA reads `VITE_OIDC_ISSUER_URL`,
+`VITE_OIDC_CLIENT_ID`, `VITE_WS_URL` at build time and fails loudly if
+they're missing). A local Keycloak (or any OIDC IdP) must be running
+separately; the e2e suite spins one up in a Testcontainer.
 
 ## See also
 

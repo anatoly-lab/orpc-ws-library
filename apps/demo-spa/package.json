@@ -2,13 +2,12 @@
   "name": "@demo/spa",
   "version": "0.1.0",
   "private": true,
-  "description": "Vite + React SPA for the orpc-ws-library e2e demo. Auths via Keycloak PKCE; talks to the demo server via @repo/orpc-ws-client.",
+  "description": "Vite + React SPA for the orpc-ws-library e2e demo. Auths via Keycloak PKCE; talks to the demo server via @repo/orpc-ws-client. Runs as a standalone process (dev: vite on 5173, e2e: vite preview on 4173).",
   "type": "module",
   "scripts": {
-    "dev": "vite build --watch --mode development",
-    "dev:vite": "vite",
+    "dev": "vite --port 5173 --strictPort",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "clean": "rimraf dist .turbo *.tsbuildinfo"

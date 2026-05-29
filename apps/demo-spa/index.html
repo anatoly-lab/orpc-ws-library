@@ -4,20 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>orpc-ws-library demo</title>
-    <!--
-      Runtime config injection seam.
-
-      Vite ships this index.html into `dist/` verbatim. The demo server
-      replaces `{{APP_CONFIG_JSON}}` with a real JSON blob at request
-      time, so a single built bundle can target any Keycloak realm.
-      During `npm run dev` (Vite dev server, no server-side template),
-      Vite will serve this placeholder literally — that's fine for the
-      e2e flow (we always test against the production-style server),
-      and a developer running `vite dev` standalone can hand-edit it.
-    -->
-    <script id="app-config">
-      window.__APP_CONFIG__ = {{APP_CONFIG_JSON}};
-    </script>
   </head>
   <body>
     <div id="root"></div>

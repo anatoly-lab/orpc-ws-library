@@ -26,7 +26,7 @@ test("login -> connection -> ping -> echo", async ({ page }) => {
 
   // Back on the SPA. The redirect lands on /auth/callback, then the
   // callback handler navigates to /. Wait for the final URL.
-  await page.waitForURL("http://localhost:18081/", { timeout: 20_000 });
+  await page.waitForURL("http://localhost:4173/", { timeout: 20_000 });
 
   await expect(home.userEmail).toContainText(KNOWN_TEST_USERS.free.email);
   await expect(home.connectionStatus).toContainText("connected", {
