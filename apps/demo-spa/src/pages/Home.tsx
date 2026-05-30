@@ -2,8 +2,8 @@
 //
 // Two modes:
 //   - signed out: shows the "Sign in with Keycloak" button
-//   - signed in:  shows decoded user info, connection state, ping/echo
-//                 buttons, sign-out
+//   - signed in:  shows decoded user info, connection state, ping/echo/
+//                 getUser buttons, live tick display, sign-out
 //
 // Every interactive element carries a `data-testid` for Playwright.
 // Selectors are intentionally simple — no class chains, no nth-child.
@@ -11,6 +11,8 @@
 import { useEffect, useState, type CSSProperties, type ReactElement } from "react";
 
 import { useConnectionState } from "@repo/orpc-ws-client/react";
+
+import type { TickEvent } from "@demo/contract";
 
 import { authClient } from "../lib/auth.js";
 import { wsClient } from "../lib/ws-client.js";
@@ -25,11 +27,19 @@ interface EchoResult {
   user: string;
 }
 
+interface GetUserResult {
+  sub: string;
+  email?: string;
+  name?: string;
+}
+
 export function Home(): ReactElement {
   const loggedIn = authClient.hasToken();
   const connection = useConnectionState(wsClient);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
   const [echoResult, setEchoResult] = useState<EchoResult | null>(null);
+  const [getUserResult, setGetUserResult] = useState<GetUserResult | null>(null);
+  const [lastTick, setLastTick] = useState<TickEvent | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Auto-connect on mount when the user is already signed in.
@@ -38,6 +48,43 @@ export function Home(): ReactElement {
     // No cleanup: the singleton survives across renders; dispose only
     // happens on explicit logout.
   }, [loggedIn]);
+
+  // Auto-subscribe to the server-pushed `tick` stream whenever the WS
+  // is connected. AbortController teardown handles unmount and any
+  // future disconnect: the effect re-runs on connection.status change,
+  // the cleanup aborts the previous iteration, and the new run kicks
+  // off a fresh subscription when (and only when) we're connected again.
+  //
+  // Call signature — `await wsClient.rpc.tick(undefined, { signal })`:
+  //   - `signal` lives in the SECOND argument (the client options),
+  //     NOT inside the input slot. The first arg is procedure input
+  //     (`undefined` because `tick` takes no input). ORPC docs:
+  //     "Stop an event stream manually" — `await client.streaming(
+  //     undefined, { signal: controller.signal })`.
+  //   - The proxy returns Promise<AsyncIterable<TickEvent>>; we await
+  //     it before `for await`, matching the library's own heartbeat
+  //     subscriber.
+  useEffect(() => {
+    if (!loggedIn || connection.status !== "connected") return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const iter = await wsClient.rpc.tick(undefined, { signal: ac.signal });
+        for await (const ev of iter) {
+          if (ac.signal.aborted) break;
+          setLastTick(ev);
+        }
+      } catch (err) {
+        // Abort surfaces as a throw on the next pump; quiet by design.
+        if (ac.signal.aborted) return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        console.error("[tick] stream error", err);
+      }
+    })();
+    return () => {
+      ac.abort();
+    };
+  }, [loggedIn, connection.status]);
 
   if (!loggedIn) {
     return (
@@ -86,6 +133,16 @@ export function Home(): ReactElement {
     }
   };
 
+  const onGetUser = async (): Promise<void> => {
+    setActionError(null);
+    try {
+      const r = await wsClient.rpc.getUser();
+      setGetUserResult(r);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const onSignOut = (): void => {
     // Dispose the WS BEFORE the page navigates to Keycloak's end-session
     // endpoint — gets us a clean close frame instead of an abrupt teardown
@@ -116,9 +173,21 @@ export function Home(): ReactElement {
         <button data-testid="echo-button" onClick={() => void onEcho()} style={buttonStyle}>
           Echo &quot;hello&quot;
         </button>
+        <button data-testid="get-user-button" onClick={() => void onGetUser()} style={buttonStyle}>
+          Get user
+        </button>
         <button data-testid="signout-button" onClick={onSignOut} style={buttonStyle}>
           Sign out
         </button>
+      </section>
+
+      <section>
+        <h2>Live tick</h2>
+        <p data-testid="last-tick">
+          {lastTick
+            ? `tick #${lastTick.tick} at ${new Date(lastTick.at).toISOString()}`
+            : "waiting..."}
+        </p>
       </section>
 
       {pingResult && (
@@ -126,6 +195,9 @@ export function Home(): ReactElement {
       )}
       {echoResult && (
         <pre data-testid="echo-result">{JSON.stringify(echoResult, null, 2)}</pre>
+      )}
+      {getUserResult && (
+        <pre data-testid="get-user-result">{JSON.stringify(getUserResult, null, 2)}</pre>
       )}
       {actionError && (
         <pre data-testid="action-error" style={{ color: "red" }}>{actionError}</pre>

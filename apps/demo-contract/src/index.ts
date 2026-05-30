@@ -1,12 +1,21 @@
 // Shared ORPC contract for the orpc-ws-library demo.
 //
-// Two procedures, deliberately tiny:
-//   - `ping`: liveness check. No input; output is a small payload the
-//             SPA can render.
-//   - `echo`: round-trips a string AND surfaces the authenticated user
-//             principal in the response so the e2e suite can verify the
-//             server's `verifyClient` context propagated through to the
-//             handler.
+// Four procedures, deliberately tiny:
+//   - `ping`:    liveness check. No input; output is a small payload the
+//                SPA can render.
+//   - `echo`:    round-trips a string AND surfaces the authenticated user
+//                principal in the response so the e2e suite can verify the
+//                server's `verifyClient` context propagated through to the
+//                handler.
+//   - `getUser`: server-roundtrip version of "who am I" — proves the
+//                library propagates the `context.user` populated by
+//                `verifyClient` into the handler. The SPA already has
+//                a client-side `authClient.getUser()` that parses claims
+//                out of the id_token; this is the typed-RPC equivalent.
+//   - `tick`:    server-pushed AsyncIterable. Server yields a `TickEvent`
+//                every 15s; client cancels via the standard ORPC
+//                `signal: AbortSignal`. Exercises the same wire framing
+//                the library uses internally for its stealth heartbeat.
 //
 // This is the *only* file that defines the wire shape both sides agree
 // on. The SPA imports the typed contract; the NestJS server imports it
@@ -38,5 +47,38 @@ const echo = oc
     }),
   );
 
-export const appContract = oc.router({ ping, echo });
+// The shape is intentionally narrow: only the three standard OIDC claims
+// the library's `OidcUser` exposes. If the demo ever needs IdP-specific
+// claims (Keycloak `realm_access`, etc.), the contract widens — but the
+// server-side `mapUser` would have to widen first.
+const getUser = oc
+  .input(z.void())
+  .output(
+    z.object({
+      sub: z.string(),
+      email: z.string().optional(),
+      name: z.string().optional(),
+    }),
+  );
+
+/**
+ * Per-yield event of the `tick` subscription.
+ *
+ * Exported so the SPA can type its local state. The contract owns the
+ * shape; consumers should not redeclare it.
+ */
+export interface TickEvent {
+  tick: number;
+  at: number;
+}
+
+// AsyncIterable output. Pattern mirrors the library's own
+// `__orpc_ws_lib__.heartbeat` and the origin app's `quota.subscribe`:
+//   oc.output(z.custom<AsyncIterable<TickEvent>>())
+// No `.input(...)` — the procedure takes no input, matching the
+// heartbeat reference. ORPC's wire serializer probes the handler's
+// returned value at runtime; the schema is the typing channel only.
+const tick = oc.output(z.custom<AsyncIterable<TickEvent>>());
+
+export const appContract = oc.router({ ping, echo, getUser, tick });
 export type AppContract = typeof appContract;

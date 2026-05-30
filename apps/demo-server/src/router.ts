@@ -13,7 +13,7 @@
 
 import { implement } from "@orpc/server";
 
-import { appContract } from "@demo/contract";
+import { appContract, type TickEvent } from "@demo/contract";
 import type { OidcUser } from "@repo/oidc-verifier-jose";
 
 // The demo uses the library's default `OidcUser` shape verbatim —
@@ -38,7 +38,60 @@ const echo = os.echo.handler(({ input, context }) => ({
   user: context.user.email ?? context.user.sub,
 }));
 
+// Server-roundtrip "who am I". The library populates `context.user`
+// from the verified id_token in `verifyClient`; this handler is the
+// proof that propagation reaches the procedure intact.
+const getUser = os.getUser.handler(({ context }) => ({
+  sub: context.user.sub,
+  email: context.user.email,
+  name: context.user.name,
+}));
+
+// One tick every 15 seconds until the client aborts (disconnect,
+// dispose, or unmount → ORPC threads the AbortSignal into the handler).
+//
+// Abort handling matches the library's heartbeat publisher
+// (`packages/orpc-ws-server/src/heartbeat/publisher.ts`):
+//   - sleep RESOLVES on abort (it does not reject) so the generator's
+//     loop condition cleanly observes `signal.aborted` and returns.
+//     Rejecting from the sleep would throw out of `gen()` and surface
+//     to the WS adapter as a spurious stream error instead of a clean
+//     close.
+//   - the abort listener removes itself on resolve so we don't leak
+//     listeners across iterations.
+const TICK_INTERVAL_MS = 15_000;
+
+const tick = os.tick.handler(
+  async function* ({ signal }): AsyncGenerator<TickEvent> {
+    // Demo guard: if ORPC's WS adapter ever stops supplying a signal,
+    // refuse to start rather than leak a forever-running setTimeout.
+    // In practice the adapter always supplies one; this is belt-and-
+    // suspenders to keep the loop honest.
+    if (!signal) return;
+
+    let n = 0;
+    while (!signal.aborted) {
+      yield { tick: ++n, at: Date.now() };
+      if (signal.aborted) return;
+
+      await new Promise<void>((resolve) => {
+        const onAbort = (): void => {
+          clearTimeout(id);
+          resolve();
+        };
+        const id = setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, TICK_INTERVAL_MS);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+    }
+  },
+);
+
 export const appRouter = {
   ping,
   echo,
+  getUser,
+  tick,
 };
