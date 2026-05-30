@@ -54,7 +54,7 @@ async function bootstrap(): Promise<void> {
   // a network service — exposing `/ws` on every interface (LAN, VPN)
   // serves no purpose and broadens the trust surface.
   await app.listen(port, "127.0.0.1");
-  logger.log(`demo-server listening on http://localhost:${port}`);
+  logger.log(`demo-server bound on 127.0.0.1:${port}`);
   logger.log(`WS endpoint: ws://localhost:${port}/ws`);
   logger.log(`OIDC: issuer=${oidc.issuerUrl}, client=${oidc.clientId}`);
 }
