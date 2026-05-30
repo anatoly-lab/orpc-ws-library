@@ -136,17 +136,16 @@ export type AuthStatus = "authenticated" | "expired" | "anonymous";
  * UI can show actionable messages rather than a single "auth failed"
  * lump.
  *
- * The `keycloak_error` variant name is preserved (despite the package
- * being IdP-generic) because the OIDC authorization-response error
- * format is identical across providers — `?error=...&error_description=...`
- * is the standard shape (OAuth 2.0 §4.1.2.1). The variant name is just
- * a label; renaming would force every consumer through a switch-update.
+ * `idp_error` carries the OAuth 2.0 authorization-response error
+ * (§4.1.2.1): the IdP redirected back with `?error=...&error_description=...`
+ * instead of `?code=...`. Provider-agnostic — the wire format is the
+ * same across Keycloak, Auth0, Okta, etc.
  */
 export type CallbackError =
   | { type: "state_mismatch" }
   | { type: "missing_code" }
   | { type: "exchange_failed"; status: number; body: string }
-  | { type: "keycloak_error"; error: string; description?: string };
+  | { type: "idp_error"; error: string; description?: string };
 
 /** Discriminated-union result of `handleCallback`. */
 export type CallbackResult =

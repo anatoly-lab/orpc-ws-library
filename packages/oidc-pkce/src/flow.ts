@@ -93,7 +93,7 @@ export async function handleCallback(
     return {
       ok: false,
       error: {
-        type: "keycloak_error",
+        type: "idp_error",
         error: errParam,
         ...(description ? { description } : {}),
       },

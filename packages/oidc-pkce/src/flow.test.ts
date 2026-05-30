@@ -118,9 +118,9 @@ describe("handleCallback — error branches", () => {
     expect(result.error).toEqual({ type: "state_mismatch" });
   });
 
-  it("returns keycloak_error when ?error is present (after PKCE planted)", async () => {
+  it("returns idp_error when ?error is present (after PKCE planted)", async () => {
     // Spec ordering: PKCE-presence check runs BEFORE ?error inspection.
-    // So to exercise the keycloak_error branch we must plant valid state.
+    // So to exercise the idp_error branch we must plant valid state.
     plantPkceState();
     const result = await handleCallback(
       new URLSearchParams({
@@ -134,7 +134,7 @@ describe("handleCallback — error branches", () => {
     expect(result).toEqual({
       ok: false,
       error: {
-        type: "keycloak_error",
+        type: "idp_error",
         error: "access_denied",
         description: "user said no",
       },
@@ -143,7 +143,7 @@ describe("handleCallback — error branches", () => {
     expect(sessionStorage.getItem("pkce_state")).toBeNull();
   });
 
-  it("returns keycloak_error without description when error_description is absent", async () => {
+  it("returns idp_error without description when error_description is absent", async () => {
     plantPkceState();
     const result = await handleCallback(
       new URLSearchParams({ error: "server_error" }),
@@ -153,7 +153,7 @@ describe("handleCallback — error branches", () => {
     );
     expect(result).toEqual({
       ok: false,
-      error: { type: "keycloak_error", error: "server_error" },
+      error: { type: "idp_error", error: "server_error" },
     });
   });
 

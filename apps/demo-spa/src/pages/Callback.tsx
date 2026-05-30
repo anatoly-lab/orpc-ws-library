@@ -52,7 +52,7 @@ function formatCallbackError(err: CallbackError): string {
       return "Authorization code missing from callback URL.";
     case "exchange_failed":
       return `Token exchange failed: HTTP ${err.status}\n${err.body}`;
-    case "keycloak_error":
-      return `Keycloak error: ${err.error}${err.description ? "\n" + err.description : ""}`;
+    case "idp_error":
+      return `IdP error: ${err.error}${err.description ? "\n" + err.description : ""}`;
   }
 }
