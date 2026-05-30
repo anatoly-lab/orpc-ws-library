@@ -8,12 +8,19 @@
 // restarting the process via a `ConfigService` — keeping `forRootAsync`
 // makes that drop-in.
 
-import { Module } from "@nestjs/common";
+import { Logger, Module } from "@nestjs/common";
 import { createOidcVerifyClient } from "@repo/oidc-verifier-jose";
-import { OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
+import { fromNestShape, OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
 
 import { readEnvConfig } from "./config.js";
 import { appRouter } from "./router.js";
+
+// Bridge the library's Logger seam to Nest's structured Logger so events
+// show up alongside the rest of the app's logs. Nest's Logger.debug only
+// renders when the process log level includes 'debug' (set via
+// `app.useLogger(['error','warn','log','debug'])` in main.ts or the
+// LOG_LEVEL env var).
+const nestLogger = new Logger("OrpcWs");
 
 @Module({
   imports: [
@@ -30,6 +37,7 @@ import { appRouter } from "./router.js";
             expectedClientId: oidc.clientId,
           }),
           connection: { path: "/ws" },
+          logger: fromNestShape(nestLogger),
         };
       },
     }),

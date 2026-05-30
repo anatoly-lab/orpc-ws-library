@@ -5,8 +5,13 @@
 // See CLAUDE.md "Configurable, not hardcoded" and "Tests from day 0 —
 // non-negotiable" for why these are interfaces rather than concretions.
 
-export type { Logger } from "./logger.js";
-export { noopLogger } from "./logger.js";
+export type { Logger, NestShape, PinoShape } from "./logger.js";
+export {
+  consoleLogger,
+  fromNestShape,
+  fromPinoShape,
+  noopLogger,
+} from "./logger.js";
 
 export type { Clock, TimerHandle } from "./clock.js";
 export { systemClock } from "./clock.js";

@@ -89,6 +89,16 @@ export type {
 
 export type { HeartbeatEvent } from "@repo/orpc-ws-shared";
 
+// Logger seam + universal/Node-friendly bridges, re-exported so consumers
+// stay on one import surface. `fromNestShape` lives only in the nestjs
+// adapter package — server core is framework-free.
+export type { Logger, PinoShape } from "@repo/orpc-ws-shared";
+export {
+  noopLogger,
+  consoleLogger,
+  fromPinoShape,
+} from "@repo/orpc-ws-shared";
+
 export type {
   UploadHttpConfig,
 } from "./upload/http-config.js";

@@ -36,3 +36,14 @@ export {
   DEFAULT_UPLOAD_HTTP_CONFIG,
   extractBearerToken,
 } from "@repo/orpc-ws-server";
+
+// Logger seam + bridges. `fromNestShape` is the nestjs-adapter-only bridge;
+// universal `consoleLogger` and Node `fromPinoShape` come along too so the
+// adapter exposes the full logger surface to consumers.
+export type { Logger, NestShape, PinoShape } from "@repo/orpc-ws-shared";
+export {
+  noopLogger,
+  consoleLogger,
+  fromNestShape,
+  fromPinoShape,
+} from "@repo/orpc-ws-shared";

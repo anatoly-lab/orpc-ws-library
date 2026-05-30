@@ -39,6 +39,48 @@ honest: both cores depend on a non-published leaf.
   against this path. One source of truth. Source:
   [`src/heartbeat.ts`](./src/heartbeat.ts).
 
+## Logger bridges
+
+Tiny adapter factories for plugging common logger shapes into the `Logger`
+seam without writing a 4-line object literal at every call site.
+
+Consumers don't import from this package — the bridges surface on the
+public packages they already depend on:
+
+| Bridge              | Re-exported from                                          |
+| ------------------- | --------------------------------------------------------- |
+| `consoleLogger`     | `@repo/orpc-ws-client`, `@repo/orpc-ws-server`, `@repo/orpc-ws-server-nestjs` |
+| `fromPinoShape`     | `@repo/orpc-ws-client`, `@repo/orpc-ws-server`, `@repo/orpc-ws-server-nestjs` |
+| `fromNestShape`     | `@repo/orpc-ws-server-nestjs` only (Nest is a server-side concept) |
+
+Usage:
+
+- **`consoleLogger(prefix?)`** — wraps the global `console`. Universal,
+  zero-dep, fine for SPAs and quick scripts.
+  ```ts
+  import { consoleLogger, createOrpcWsClient } from "@repo/orpc-ws-client";
+  createOrpcWsClient({ logger: consoleLogger("orpc-ws"), ... });
+  ```
+- **`fromPinoShape(pino)`** — adapts a Pino-style logger. Swaps to Pino's
+  native `(obj, msg)` arg order when meta is present.
+  ```ts
+  import pino from "pino";
+  import { fromPinoShape } from "@repo/orpc-ws-server";
+  // pass to OrpcWsServer / OrpcWsModule.forRoot({ logger: ... })
+  ```
+- **`fromNestShape(nestLogger)`** — adapts a NestJS `Logger`. Routes `info`
+  to Nest's `log` (Nest has no `info`) and merges meta into a single
+  `{ msg, ...meta }` payload.
+  ```ts
+  import { Logger } from "@nestjs/common";
+  import { fromNestShape, OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
+  OrpcWsModule.forRoot({ logger: fromNestShape(new Logger("OrpcWs")), ... });
+  ```
+
+Input shapes (`PinoShape`, `NestShape`) are duck-typed interfaces — this
+package takes no runtime dependency on Pino or `@nestjs/common`. The
+consumer brings their own logger instance.
+
 ## Adding a new shared type
 
 The bar is "two cores need to agree on this and neither owns the
