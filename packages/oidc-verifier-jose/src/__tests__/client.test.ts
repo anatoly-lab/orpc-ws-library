@@ -31,8 +31,8 @@ import {
 
 import type { IncomingMessage } from "http";
 
-import { createOidcVerifyClient } from "./client.js";
-import { __resetMetadataCache } from "./discovery.js";
+import { createOidcVerifyClient } from "../client.js";
+import { __resetMetadataCache } from "../discovery.js";
 
 // ----- Test fixtures -----
 

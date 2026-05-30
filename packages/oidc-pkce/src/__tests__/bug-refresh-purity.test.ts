@@ -19,9 +19,9 @@
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
-import { createOidcAuth } from "./client.js";
-import { __resetMetadataCache } from "./discovery.js";
-import type { OidcConfig, Storage, Tokens } from "./types.js";
+import { createOidcAuth } from "../client.js";
+import { __resetMetadataCache } from "../discovery.js";
+import type { OidcConfig, Storage, Tokens } from "../types.js";
 
 const CONFIG: OidcConfig = {
   issuerUrl: "https://auth.example.com/realms/demo",

@@ -17,8 +17,8 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
   __resetMetadataCache,
   fetchMetadata,
-} from "./discovery.js";
-import { OidcDiscoveryError } from "./types.js";
+} from "../discovery.js";
+import { OidcDiscoveryError } from "../types.js";
 
 /**
  * Build a Keycloak-shaped discovery doc for `issuer`. Matches the

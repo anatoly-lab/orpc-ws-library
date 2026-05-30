@@ -11,8 +11,8 @@
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
-import { handleCallback, redirectToLogin, logout } from "./flow.js";
-import type { OidcConfig, OidcMetadata, Storage, Tokens } from "./types.js";
+import { handleCallback, redirectToLogin, logout } from "../flow.js";
+import type { OidcConfig, OidcMetadata, Storage, Tokens } from "../types.js";
 
 const CONFIG: OidcConfig = {
   issuerUrl: "https://auth.example.com/realms/demo",

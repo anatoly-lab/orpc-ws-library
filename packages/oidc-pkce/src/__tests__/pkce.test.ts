@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { generateState, generateVerifier, pkceChallenge } from "./pkce.js";
+import { generateState, generateVerifier, pkceChallenge } from "../pkce.js";
 
 describe("pkce", () => {
   describe("generateVerifier", () => {

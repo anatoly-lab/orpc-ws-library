@@ -8,8 +8,8 @@
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
-import { __resetMetadataCache, fetchMetadata } from "./discovery.js";
-import { OidcDiscoveryError } from "./types.js";
+import { __resetMetadataCache, fetchMetadata } from "../discovery.js";
+import { OidcDiscoveryError } from "../types.js";
 
 /**
  * Build a Keycloak-shaped discovery doc. Keycloak emits more fields

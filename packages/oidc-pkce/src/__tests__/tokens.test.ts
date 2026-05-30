@@ -14,8 +14,8 @@ import {
   parseJwt,
   refreshTokens,
   tokenResponseToBundle,
-} from "./tokens.js";
-import type { OidcMetadata } from "./types.js";
+} from "../tokens.js";
+import type { OidcMetadata } from "../types.js";
 
 // id_token fixture: header.payload(.sig). Payload has sub, email, name,
 // preferred_username. (We INTENTIONALLY do NOT extract realm_access.roles

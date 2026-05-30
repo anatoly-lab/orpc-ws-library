@@ -11,9 +11,9 @@
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
-import { createOidcAuth, type OidcAuth } from "./client.js";
-import { __resetMetadataCache } from "./discovery.js";
-import type { OidcConfig, Storage, Tokens } from "./types.js";
+import { createOidcAuth, type OidcAuth } from "../client.js";
+import { __resetMetadataCache } from "../discovery.js";
+import type { OidcConfig, Storage, Tokens } from "../types.js";
 
 // Compile-time guard: the returned tokenProvider must remain
 // structurally compatible with @repo/orpc-ws-client's TokenProvider.
