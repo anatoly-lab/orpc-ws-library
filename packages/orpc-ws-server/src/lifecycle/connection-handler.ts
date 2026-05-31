@@ -28,7 +28,7 @@
 //      racing the message pump (a misbehaving hook still shouldn't
 //      break us — we wrap in try/catch).
 //
-// rpcHandler.upgrade returns a Promise but we do not `await` it. The
+// rpcHandler.upgrade returns a Promise, but we do not `await` it. The
 // promise resolves when the WS disconnects; the source app left it
 // dangling for the same reason. We mark it with `void` to satisfy the
 // linter.
@@ -42,6 +42,7 @@ import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
 import type { ConnectionRegistry } from "../state/connection-registry.js";
 import type { WsPingPong } from "../heartbeat/ws-ping-pong.js";
 
+import { extractClientIp, extractToken } from "./request-helpers.js";
 import type {
   VerifyClientOrchestrator,
   VerifyClientResult,
@@ -138,7 +139,11 @@ export class ConnectionHandler<TUser> {
     // re-extract here. Token is the SAME literal the client sent, so
     // consumers using it in context (e.g. proxying to upstream services)
     // get the original.
-    const token = this.extractTokenFromReq(req);
+    const token = extractToken(req);
+    // Match the orchestrator's `clientIp` shape so the verify-time
+    // "rejected" log and the connect-time "client connected" log
+    // surface consistent values for the same request.
+    const clientIp = extractClientIp(req);
 
     // Sync from here to `upgrade()` — see file header.
     this.registry.register(connectionKey, ws, user);
@@ -154,7 +159,17 @@ export class ConnectionHandler<TUser> {
       this.pingPong.register(ws, user);
     }
 
-    ws.on("close", (code) => {
+    ws.on("close", (code, reason: Buffer) => {
+      // `reason` arrives as a Buffer from `ws`; decode for human-readable
+      // log output. Empty buffer → `undefined` so structured-log viewers
+      // render the field as absent rather than an ambiguous empty string
+      // (matches how `clientIp` is logged on connect).
+      const reasonStr = reason.length > 0 ? reason.toString() : undefined;
+      this.logger.info("connection-handler: client disconnected", {
+        connectionKey,
+        code,
+        reason: reasonStr,
+      });
       this.registry.unregisterIfSame(connectionKey, ws);
       this.pingPong.unregister(ws);
       if (this.hooks.onDisconnected) {
@@ -170,6 +185,16 @@ export class ConnectionHandler<TUser> {
 
     ws.on("error", (err: Error) => {
       this.logger.error("connection-handler: ws error", { error: err.message });
+    });
+
+    // Log AFTER the sync-critical pipeline (registry / upgrade / pingPong /
+    // close+error handlers) is in place but BEFORE the consumer's
+    // onConnected hook — that way the log lands even if the hook throws,
+    // and we don't pay logger latency inside the message-pump-attach
+    // window.
+    this.logger.info("connection-handler: client connected", {
+      connectionKey,
+      clientIp,
     });
 
     if (this.hooks.onConnected) {
@@ -199,18 +224,4 @@ export class ConnectionHandler<TUser> {
     return auth.connectionKey ?? JSON.stringify(auth.user);
   }
 
-  /**
-   * Pull the token from the request URL. Mirrors the orchestrator's
-   * extractor — kept inline to avoid a circular dep on a helper module.
-   */
-  private extractTokenFromReq(req: IncomingMessage): string | null {
-    if (!req.url) return null;
-    const host = req.headers.host ?? "localhost";
-    try {
-      const url = new URL(req.url, `http://${host}`);
-      return url.searchParams.get("token");
-    } catch {
-      return null;
-    }
-  }
 }

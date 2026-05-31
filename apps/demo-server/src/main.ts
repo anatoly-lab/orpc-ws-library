@@ -36,9 +36,14 @@ async function bootstrap(): Promise<void> {
   // future HTTP middleware (CORS, /healthz, uploads) without changing
   // Nest's factory call.
   const server = express();
+  // Dev mode wants full visibility — including the library's
+  // `debug`-level traces (e.g. `heartbeat-publisher: tick`) which Nest
+  // silences by default. A production deployment of this same shape
+  // would scope these down to `["error", "warn", "log"]`.
   const app = await NestFactory.create<NestExpressApplication>(
     AppModule,
     new ExpressAdapter(server),
+    { logger: ["error", "warn", "log", "debug", "verbose"] },
   );
 
   // Critical: `enableShutdownHooks()` is what makes

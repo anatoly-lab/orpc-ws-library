@@ -155,6 +155,12 @@ export class HeartbeatPublisher {
     if (this.timer !== null) return;
     this.timer = this.clock.setInterval(() => {
       const ts = this.clock.now();
+      // Debug-only — gated by the consumer's logger level. Lets a future
+      // deep-dive session confirm the ticker is alive and observe the
+      // current fan-out width without enabling info-level chatter.
+      this.logger.debug("heartbeat-publisher: tick", {
+        subscriberCount: this.publisher.size,
+      });
       try {
         this.publisher.publish("ping", { ts });
       } catch (err) {

@@ -27,6 +27,8 @@ import type { IncomingMessage } from "http";
 
 import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
 
+import { extractClientIp, extractToken } from "./request-helpers.js";
+
 /**
  * Argument the library passes to the consumer's verify callback. The
  * consumer reads `token` for the default flow; `req` is escape-hatch
@@ -175,33 +177,3 @@ export class VerifyClientOrchestrator<TUser> {
   }
 }
 
-/**
- * Pulls the first hop from `x-forwarded-for` when present (matches the
- * source app behind a proxy), else falls back to the socket's address.
- * Defensive split on the forwarded-for header — some proxies pass a
- * comma-separated list with leading whitespace.
- */
-function extractClientIp(req: IncomingMessage): string | undefined {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length > 0) {
-    const first = fwd.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return req.socket.remoteAddress;
-}
-
-/**
- * Extracts `?token=` from the request URL. Defensive against partial
- * URLs (we synthesize the base from the Host header; in test harnesses
- * with no host, falls back to `localhost`). Returns `null` when missing.
- */
-function extractToken(req: IncomingMessage): string | null {
-  if (!req.url) return null;
-  const host = req.headers.host ?? "localhost";
-  try {
-    const url = new URL(req.url, `http://${host}`);
-    return url.searchParams.get("token");
-  } catch {
-    return null;
-  }
-}
