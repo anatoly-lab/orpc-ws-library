@@ -14,8 +14,7 @@ import { useConnectionState } from "@repo/orpc-ws-client/react";
 
 import type { TickEvent } from "@demo/contract";
 
-import { authClient } from "../lib/auth.js";
-import { wsClient } from "../lib/ws-client.js";
+import { authClient, wsClient } from "../lib/ws-client.js";
 
 interface PingResult {
   pong: true;

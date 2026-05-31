@@ -2,8 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App.js";
-import { authClient } from "./lib/auth.js";
-import { wsClient } from "./lib/ws-client.js";
+import { authClient, wsClient } from "./lib/ws-client.js";
 
 // Auto-connect if we already have a token. The Home page's effect
 // also calls connect() — both calls are safe because connect() is

@@ -3,11 +3,24 @@
 // one exposed by `@repo/oidc-pkce` — structurally compatible
 // with `@repo/orpc-ws-client`'s seam (CLAUDE.md "Auth flow contract").
 
-import type { AppContract } from "@demo/contract";
 import { consoleLogger, createOrpcWsClient } from "@repo/orpc-ws-client";
+import { createOidcAuth } from "@repo/oidc-pkce";
 
-import { authClient } from "./auth.js";
+import type { AppContract } from "@demo/contract";
 import { config } from "./config.js";
+
+// Composition root for the demo SPA's OIDC auth.
+//
+// The entire PKCE / discovery / storage / refresh dance lives in
+// `@repo/oidc-pkce`; this file is just the binding of runtime config
+// to the library. Single module-level instance — every page imports
+// the same `authClient`.
+export const authClient = createOidcAuth({
+  issuerUrl: config.OIDC_ISSUER_URL,
+  clientId: config.OIDC_CLIENT_ID,
+  redirectUri: `${window.location.origin}/auth/callback`,
+  scopes: ["openid", "email", "profile"],
+});
 
 // Console bridge so the library's events are visible in devtools. In
 // production an SPA would swap this for a real telemetry sink (Sentry,

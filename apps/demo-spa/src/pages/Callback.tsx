@@ -11,8 +11,7 @@ import { useNavigate } from "react-router-dom";
 
 import type { CallbackError } from "@repo/oidc-pkce";
 
-import { authClient } from "../lib/auth.js";
-import { wsClient } from "../lib/ws-client.js";
+import { authClient, wsClient } from "../lib/ws-client.js";
 
 export function Callback(): ReactElement {
   const navigate = useNavigate();
