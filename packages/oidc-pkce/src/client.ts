@@ -15,13 +15,15 @@
 // the `Map.get` lookup on every method call after the first; it's safe
 // because metadata never invalidates within a tab.
 
+import { type AuthSnapshot, createAuthStore } from "./auth-store.js";
+import { createAuthView } from "./auth-view.js";
 import { fetchMetadata } from "./discovery.js";
 import {
   handleCallback as flowHandleCallback,
   logout as flowLogout,
   redirectToLogin as flowRedirectToLogin,
 } from "./flow.js";
-import { isTokenExpired, parseIdToken, refreshTokens } from "./tokens.js";
+import { isTokenExpired, refreshTokens } from "./tokens.js";
 import type {
   AuthStatus,
   CallbackResult,
@@ -61,6 +63,28 @@ export interface OidcAuth {
   clearTokens(): void;
 
   /**
+   * Synchronous, referentially-stable snapshot of `{ status, user }`.
+   *
+   * The PUSH counterpart to `getAuthStatus()` / `getUser()`: same data, but
+   * paired with {@link OidcAuth.subscribe} so reactive UIs can observe
+   * changes. The returned object identity is stable across calls while
+   * nothing changes — required by React's `useSyncExternalStore`
+   * (`Object.is` snapshot bail-out). Additive; the pull methods are
+   * unchanged.
+   */
+  getAuthState(): AuthSnapshot;
+  /**
+   * Register a change listener; returns an unsubscribe function. The listener
+   * fires AFTER any auth-state mutation (callback, logout, clear, refresh) and
+   * on cross-tab login/logout when using the default localStorage Storage.
+   *
+   * Does NOT fire on registration — read the current value via
+   * `getAuthState()`. Stable method identity (bound once at factory time), so
+   * it can be passed straight to `useSyncExternalStore` without `useCallback`.
+   */
+  subscribe(listener: () => void): () => void;
+
+  /**
    * Optional eager warmup. Fetches the discovery document into the
    * cache so the first `redirectToLogin()` doesn't pay the discovery
    * round-trip. Safe to call multiple times; subsequent calls are
@@ -79,6 +103,19 @@ export interface OidcAuth {
 }
 
 /**
+ * localStorage key for the default `Storage`. Package-prefixed, not
+ * IdP-prefixed. Two instances against the same origin would collide on this
+ * key; the library assumes one auth instance per origin, which matches every
+ * realistic SPA layout.
+ *
+ * SINGLE SOURCE OF TRUTH: `defaultStorage()` writes under it, and the
+ * cross-tab 'storage' listener (auth-store.ts) filters window events by it.
+ * Re-declaring the literal in two places would be a silent drift bug — keep
+ * it here.
+ */
+const DEFAULT_STORAGE_KEY = "oidc.tokens";
+
+/**
  * Default `Storage` implementation backed by `localStorage`. Tokens are
  * serialized as a single JSON blob under one key so reads/writes are
  * atomic with respect to other tabs.
@@ -86,14 +123,9 @@ export interface OidcAuth {
  * Security note: localStorage is XSS-readable. Documented in the README
  * as the SPA-friendly tradeoff. Apps with stricter requirements pass
  * their own `Storage` via `createOidcAuth(config, { storage })`.
- *
- * Storage key is `oidc.tokens` — package-prefixed, not IdP-prefixed.
- * Two instances against the same origin would collide on this key; the
- * library assumes one auth instance per origin, which matches every
- * realistic SPA layout.
  */
 function defaultStorage(): Storage {
-  const KEY = "oidc.tokens";
+  const KEY = DEFAULT_STORAGE_KEY;
   return {
     read(): Tokens | null {
       const raw = localStorage.getItem(KEY);
@@ -127,7 +159,24 @@ export function createOidcAuth(
   config: OidcConfig,
   opts?: { storage?: Storage },
 ): OidcAuth {
+  const usingDefaultStorage = opts?.storage === undefined;
   const storage: Storage = opts?.storage ?? defaultStorage();
+
+  // Read-side projection of storage → `{ status, user }`. Defined once so
+  // BOTH the public pull methods and the observable store read through the
+  // same logic (DRY) — and so `readUser()` is referentially stable per
+  // id_token (snapshot-stability contract). See auth-view.ts.
+  const view = createAuthView(storage);
+
+  // Observable seam. Cross-tab wiring is enabled ONLY on the default
+  // localStorage path: a custom/in-memory Storage never produces window
+  // 'storage' events, so passing its (non-existent) key would be meaningless.
+  // See AuthStoreDeps.storageKey jsdoc for the full rationale.
+  const authStore = createAuthStore({
+    getStatus: view.readStatus,
+    getUser: view.readUser,
+    storageKey: usingDefaultStorage ? DEFAULT_STORAGE_KEY : null,
+  });
 
   // Per-instance memoization of the metadata promise. The underlying
   // cache is module-level (`discovery.ts`); this field just avoids the
@@ -183,6 +232,9 @@ export function createOidcAuth(
         // would keep returning the stale token forever and the
         // ws-client would never recover.
         storage.write(fresh);
+        // A refresh swaps the access token (and possibly the id-token, hence
+        // the user). Notify so reactive UIs see e.g. `expired` → `authenticated`.
+        authStore.emit();
         return fresh.accessToken;
       })().finally(() => {
         inflight = null;
@@ -217,7 +269,18 @@ export function createOidcAuth(
           },
         };
       }
-      return flowHandleCallback(searchParams, config, metadata, storage);
+      const result = await flowHandleCallback(
+        searchParams,
+        config,
+        metadata,
+        storage,
+      );
+      // Emit unconditionally: on `ok:true` the token write changed state; on
+      // `ok:false` nothing was written, and the store's value-compare guard
+      // turns the emit into a no-op (no spurious re-render). Unconditional +
+      // dedup is fewer branches to get wrong than gating on `result.ok`.
+      authStore.emit();
+      return result;
     },
     async logout(logoutOpts?: { redirectTo?: string }): Promise<void> {
       // Best-effort: if discovery fails, still clear local tokens so the
@@ -235,7 +298,10 @@ export function createOidcAuth(
           jwks_uri: "",
         };
       }
+      // `flowLogout` clears storage (and may navigate away). Emit so any
+      // still-mounted reactive UI flips to `anonymous` before navigation.
       flowLogout(config, metadata, storage, logoutOpts);
+      authStore.emit();
     },
 
     hasToken(): boolean {
@@ -246,18 +312,18 @@ export function createOidcAuth(
       return t !== null && !isTokenExpired(t);
     },
     getAuthStatus(): AuthStatus {
-      const t = storage.read();
-      if (!t) return "anonymous";
-      return isTokenExpired(t) ? "expired" : "authenticated";
+      return view.readStatus();
     },
     getUser(): OidcUser | null {
-      const t = storage.read();
-      if (!t) return null;
-      return parseIdToken(t.idToken);
+      return view.readUser();
     },
     clearTokens(): void {
       storage.clear();
+      authStore.emit();
     },
+
+    getAuthState: authStore.getAuthState,
+    subscribe: authStore.subscribe,
 
     async prefetchMetadata(): Promise<void> {
       await getMetadata();

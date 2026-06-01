@@ -5,6 +5,8 @@
 
 export { createOidcAuth, type OidcAuth } from "./client.js";
 
+export type { AuthSnapshot } from "./auth-store.js";
+
 export {
   OidcDiscoveryError,
   type AuthStatus,

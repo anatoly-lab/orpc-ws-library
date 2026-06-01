@@ -120,8 +120,8 @@ not aspirational:
 
 | Package                              | Purpose                                                                   | Framework deps     |
 | ------------------------------------ | ------------------------------------------------------------------------- | ------------------ |
-| `@repo/orpc-ws-client`               | **Client core.** Vanilla TS. Reconnect, heartbeat, sleep detect, etc.     | none               |
-| `@repo/orpc-ws-client/react`         | React adapter (sub-path of client). `useConnectionState`, optional provider. | `react` peer       |
+| `@repo/orpc-ws-client`               | **Client core.** Vanilla TS, fully framework-free. Reconnect, heartbeat, sleep detect, etc. No React sub-path. | none               |
+| `@repo/orpc-ws-oidc-react`           | **The library's single React adapter.** Hosts the React bindings for both cores (WS connection-state hooks + OIDC auth hooks) only. Does **not** re-export the cores — consumers import the framework-free APIs directly from `@repo/orpc-ws-client` / `@repo/oidc-pkce`. | `react` peer       |
 | `@repo/orpc-ws-server`               | **Server core.** Pure Node + `ws` + `@orpc/server`. Verifier-pluggable.   | none               |
 | `@repo/orpc-ws-server-nestjs`        | NestJS adapter (separate package — decorator metadata can't share a sub-path with vanilla TS without bundler pain). | `@nestjs/common` peer |
 
@@ -131,8 +131,28 @@ with future-us: any of them must be addable as a thin (~50–150 LOC)
 sibling package without touching the core. If a future adapter requires
 core changes, the seam is wrong — fix the seam, not the adapter.
 
-**Sub-path vs separate sibling package.** A sub-path adapter (e.g.
-`@repo/orpc-ws-client/react`) is appropriate when (a) it targets the
+**Framework adapters are siblings, one merged adapter per framework
+(resolved).** Framework adapters for this library are **separate
+sibling packages, never sub-paths** — and there is **one merged
+adapter per framework, not one-per-core**. The first instance is
+`@repo/orpc-ws-oidc-react`, which depends on *both* cores
+(`@repo/orpc-ws-client` + `@repo/oidc-pkce`) and exposes the React
+bindings for both. It does **not** re-export the cores — consumers
+import the framework-free APIs directly from each core.
+
+Why merged, not per-core: the library's scope is "browser↔server WS
+connection using OIDC" as a unit — every consumer needs *both* cores,
+so a single merged React adapter (rather than a separate WS-react and
+OIDC-react) keeps the React glue in one place. Per-core React siblings
+(e.g. a standalone OIDC-react) were explicitly **rejected**: auth-only,
+non-WS reuse of an OIDC-react package is out of scope. Future framework
+adapters follow the same shape — one `@repo/orpc-ws-oidc-svelte`, one
+`@repo/orpc-ws-oidc-vue`, each depending on both cores and exposing
+framework bindings only. Cores stay framework-free; adapters add only
+the framework glue.
+
+**Sub-path vs separate sibling package (cores and server-side
+helpers).** A sub-path adapter is appropriate when (a) it targets the
 same runtime environment as the core (browser/browser, Node/Node),
 AND (b) it only adds peer dependencies, doesn't drag runtime deps
 into the core's `package.json`. A separate sibling package is required
@@ -142,6 +162,38 @@ a helper requires a heavy library like `jose` that the core shouldn't
 carry). Example today: `@repo/oidc-pkce` (browser, zero deps) +
 `@repo/oidc-verifier-jose` (Node, depends on `jose`) live as siblings
 because both conditions fail.
+
+### Adapter wiring convention
+
+- **Cores are pinned, framework is peer.** The adapter depends on each
+  core via **exact-version `dependencies`** (e.g. `"0.1.0"`, consistent
+  with the repo's `save-exact=true`; never `workspace:*`). The
+  framework (`react`) is the only `peerDependencies` entry, with a wide
+  range (e.g. `">=18.0.0"`).
+- **Adapter exposes framework bindings only; cores are imported
+  directly.** The adapter does **not** re-export the cores. It exports
+  only its React bindings: `useConnectionState`, `OrpcWsProvider`,
+  `useOrpcWs`, `OrpcWsProviderProps`, `useAuthState`, `useUser`.
+  Consumers import the framework-free APIs straight from each core. The
+  cores remain regular `dependencies` of the adapter (the hooks
+  `import type` from them, and the emitted `.d.ts` references those
+  types, so the dep must resolve) — `react` is the sole peer.
+- **Consumer usage:**
+  ```ts
+  import { createOrpcWsClient } from "@repo/orpc-ws-client";
+  import { createOidcAuth } from "@repo/oidc-pkce";
+  import { useConnectionState, useAuthState }
+    from "@repo/orpc-ws-oidc-react";
+  // createOrpcWsClient(...) ; createOidcAuth(...) from the cores;
+  // hooks from the adapter.
+  ```
+
+Validated against TanStack / XState / Zag.js: core + per-framework
+sibling, exact-pinned core dep, framework as peer, lockstep versions.
+Lockstep versioning keeps adapter↔core skew unrepresentable. (We
+deliberately do **not** re-export the cores the way
+`@tanstack/react-query` re-exports `@tanstack/query-core` — keeping each
+core the single source of its own public surface.)
 
 ### Discipline that enforces "framework-free core"
 
@@ -207,6 +259,28 @@ to one client object.
   means "no token, browser handles auth via cookies if any." Cookie
   auth is therefore supported without library changes; it's a
   consumer decision, not a library feature.
+
+### Reactive auth seam — observable `@repo/oidc-pkce`
+
+The `@repo/oidc-pkce` core now exposes an **observable seam** alongside
+its existing pull API:
+
+- **`getAuthState(): AuthSnapshot`** where
+  `AuthSnapshot = { status: AuthStatus; user: OidcUser | null }`, plus
+  **`subscribe(listener): () => void`**.
+- **Cross-tab sync** via the `window` `'storage'` event, lazy-attached
+  on the first subscriber and removed on the last; only active with the
+  default localStorage-backed `Storage`.
+- **The snapshot is referentially stable** (id-token-keyed memoization
+  of the decoded user) so it satisfies `useSyncExternalStore`'s
+  `Object.is` bail-out.
+
+Why: this is the same `{ getState/getSnapshot + subscribe }` state
+contract the client core already follows, so the React hooks
+(`useAuthState` / `useUser`) wrap it via `useSyncExternalStore` and
+future Svelte/Vue adapters reuse it unmodified. The pull API
+(`hasToken` / `getAuthStatus` / `getUser`) is **unchanged** — the
+observable seam is purely additive.
 
 ### Uploads
 

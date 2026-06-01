@@ -1,4 +1,4 @@
-// React adapter — optional `OrpcWsProvider` + `useOrpcWs()` (Phase 2).
+// React adapter — optional `OrpcWsProvider` + `useOrpcWs()`.
 //
 // Most apps construct ONE `OrpcWsClient` for the whole tree. Threading it
 // through props is noise; threading it through React Context is the
@@ -16,7 +16,7 @@ import { createContext, useContext, type ReactNode } from "react";
 
 import type { AnyContractRouter } from "@orpc/contract";
 
-import type { OrpcWsClient } from "../index.js";
+import type { OrpcWsClient } from "@repo/orpc-ws-client";
 
 // Context value is typed as `OrpcWsClient<AnyContractRouter> | null`. The
 // `AnyContractRouter` upper bound keeps the context usable for any

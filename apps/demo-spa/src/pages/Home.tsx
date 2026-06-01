@@ -10,7 +10,7 @@
 
 import { useEffect, useState, type CSSProperties, type ReactElement } from "react";
 
-import { useConnectionState } from "@repo/orpc-ws-client/react";
+import { useAuthState, useConnectionState } from "@repo/orpc-ws-oidc-react";
 
 import type { TickEvent } from "@demo/contract";
 
@@ -33,7 +33,13 @@ interface GetUserResult {
 }
 
 export function Home(): ReactElement {
-  const loggedIn = authClient.hasToken();
+  // Reactive auth read, matching AppLayout's guard: tokens present
+  // (authenticated OR expired) renders the signed-in branch; "anonymous"
+  // renders signed-out. The WS connect itself is owned by AppLayout — Home
+  // only reads the state to pick which UI to show and to gate the tick
+  // subscription below.
+  const { status } = useAuthState(authClient);
+  const loggedIn = status !== "anonymous";
   const connection = useConnectionState(wsClient);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
   const [echoResult, setEchoResult] = useState<EchoResult | null>(null);
@@ -41,12 +47,9 @@ export function Home(): ReactElement {
   const [lastTick, setLastTick] = useState<TickEvent | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Auto-connect on mount when the user is already signed in.
-  useEffect(() => {
-    if (loggedIn) wsClient.connect();
-    // No cleanup: the singleton survives across renders; dispose only
-    // happens on explicit logout.
-  }, [loggedIn]);
+  // NOTE: the "if logged in, connect the WS" guard lives in AppLayout now
+  // (the shared layout route), so it is not repeated here. Home only consumes
+  // the connection — it never initiates it.
 
   // Auto-subscribe to the server-pushed `tick` stream whenever the WS
   // is connected. AbortController teardown handles unmount and any

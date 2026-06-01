@@ -7,23 +7,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { ConnectionStateManager } from "../../state/connection-state.js";
-import { disconnected, type ConnectionState } from "../../state/types.js";
-import type { OrpcWsClient } from "../../index.js";
+import { disconnected, type ConnectionState } from "@repo/orpc-ws-client";
+import type { OrpcWsClient } from "@repo/orpc-ws-client";
 
 import { OrpcWsProvider, useOrpcWs } from "../provider.js";
+import { makeFakeClient } from "./fake-client.js";
 
-function makeClient(initial: ConnectionState = disconnected({ willRetry: false })): OrpcWsClient<never> {
-  const manager = new ConnectionStateManager(initial);
-  return {
-    rpc: {} as never,
-    state: {
-      getState: () => manager.getState(),
-      subscribe: (cb: () => void) => manager.subscribe(cb),
-    },
-    connect: () => {},
-    dispose: () => {},
-  } as unknown as OrpcWsClient<never>;
+function makeClient(
+  initial: ConnectionState = disconnected({ willRetry: false }),
+): OrpcWsClient<never> {
+  return makeFakeClient(initial).client;
 }
 
 describe("OrpcWsProvider + useOrpcWs", () => {

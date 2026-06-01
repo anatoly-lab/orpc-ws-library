@@ -2,7 +2,7 @@
   "name": "@repo/orpc-ws-client",
   "version": "0.1.0",
   "private": true,
-  "description": "Framework-free ORPC-over-WebSocket client core. React adapter exposed via the './react' sub-path.",
+  "description": "Framework-free ORPC-over-WebSocket client core. Vanilla TS — reconnect, heartbeat, sleep detection, uploads. React bindings live in @repo/orpc-ws-oidc-react.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,10 +10,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js"
     }
   },
   "files": [
@@ -33,23 +29,9 @@
     "@repo/orpc-ws-shared": "0.1.0",
     "partysocket": "1.1.19"
   },
-  "peerDependencies": {
-    "react": ">=18.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
-  },
   "devDependencies": {
-    "@testing-library/jest-dom": "6.9.1",
-    "@testing-library/react": "16.3.2",
-    "@types/react": "19.2.15",
-    "@types/react-dom": "19.2.3",
     "@types/ws": "8.18.1",
     "happy-dom": "20.9.0",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
     "rimraf": "6.0.1",
     "typescript": "5.9.3",
     "vitest": "4.1.7",

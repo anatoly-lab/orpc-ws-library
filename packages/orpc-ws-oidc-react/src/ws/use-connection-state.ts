@@ -1,4 +1,4 @@
-// React adapter — `useConnectionState` hook (Phase 2).
+// React adapter — `useConnectionState` hook.
 //
 // One-liner over `useSyncExternalStore`. Subscribes a React component to a
 // client's connection state using the framework-free
@@ -11,14 +11,14 @@
 // double-mount therefore does not tear: both mounts read the same snapshot,
 // and React only re-renders on a real subscription notification.
 //
-// Reference stability: `ConnectionStateManager.setState` dedupes by
-// structural equality (`connectionStatesEqual`) and only replaces the
+// Reference stability: the core's `ConnectionStateManager.setState` dedupes
+// by structural equality (`connectionStatesEqual`) and only replaces the
 // internal `state` reference when it actually changes. Successive
 // `getState()` calls between transitions return the SAME object, so
 // `useSyncExternalStore`'s identity-based bail-out works correctly and
 // React never sees a tear caused by the snapshot looking new on every
-// render. See `state/__tests__/connection-state.test.ts` for the pinning
-// tests of this invariant.
+// render. See the core's `state/__tests__/connection-state.test.ts` for the
+// pinning tests of this invariant.
 //
 // SSR: `getServerSnapshot` is identical to `getSnapshot` — the client is
 // the same object on server and client, and a tagged-record state is
@@ -30,8 +30,7 @@ import { useSyncExternalStore } from "react";
 
 import type { AnyContractRouter } from "@orpc/contract";
 
-import type { OrpcWsClient } from "../index.js";
-import type { ConnectionState } from "../state/types.js";
+import type { OrpcWsClient, ConnectionState } from "@repo/orpc-ws-client";
 
 /**
  * Subscribe to a client's connection state in a React component.

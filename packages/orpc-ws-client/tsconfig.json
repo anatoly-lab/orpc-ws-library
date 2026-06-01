@@ -5,20 +5,15 @@
     "outDir": "./dist",
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     // Browser-targeted core: lib includes DOM so the websocket / event
-    // types are recognized. The React sub-path uses the same project.
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    // JSX for the React adapter sub-path. `react-jsx` is the modern
-    // (React 17+) automatic runtime — no `import React from "react"`
-    // needed at every JSX site. Scoped to the whole project; only files
-    // under `src/react/` actually use JSX.
-    "jsx": "react-jsx"
+    // types are recognized. No `jsx` — the React adapter moved to
+    // `@repo/orpc-ws-oidc-react`; the core carries no JSX anymore.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": ["src/**/*.ts"],
   "exclude": [
     "dist",
     "node_modules",
     "**/*.test.ts",
-    "**/*.test.tsx",
     "**/__tests__/**"
   ]
 }

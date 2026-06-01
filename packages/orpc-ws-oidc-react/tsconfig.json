@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    // DOM lib: this is a browser-targeted React adapter — the hooks touch
+    // React's DOM renderer and the core's browser state shape.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // `react-jsx`: modern automatic runtime — no `import React` at every
+    // JSX site. The whole package is React, so it applies project-wide.
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**"
+  ]
+}

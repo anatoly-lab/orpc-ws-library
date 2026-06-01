@@ -2,14 +2,12 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App.js";
-import { authClient, wsClient } from "./lib/ws-client.js";
 
-// Auto-connect if we already have a token. The Home page's effect
-// also calls connect() — both calls are safe because connect() is
-// idempotent (see @repo/orpc-ws-client README "Lifecycle").
-if (authClient.hasToken()) {
-  wsClient.connect();
-}
+// The eager "connect on reload if a token is present" guard used to live here.
+// It now lives in AppLayout, which mounts synchronously on first render of any
+// route under it (including "/"). Consolidating to a single connect owner
+// avoids the previous double-trigger (module load + Home effect) and keeps the
+// guard reactive to auth-state changes.
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {

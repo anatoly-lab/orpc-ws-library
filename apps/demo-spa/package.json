@@ -16,6 +16,7 @@
     "@demo/contract": "0.1.0",
     "@repo/oidc-pkce": "0.1.0",
     "@repo/orpc-ws-client": "0.1.0",
+    "@repo/orpc-ws-oidc-react": "0.1.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-router-dom": "7.16.0"

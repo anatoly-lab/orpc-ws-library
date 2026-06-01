@@ -1,0 +1,47 @@
+{
+  "name": "@repo/orpc-ws-oidc-react",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The single React entry point for the library: re-exports the ORPC-WS client core and OIDC-PKCE core under namespaces, plus the React bindings (useConnectionState, OrpcWsProvider, useOrpcWs). OIDC react hooks land in a later change.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@orpc/contract": "1.14.4",
+    "@repo/oidc-pkce": "0.1.0",
+    "@repo/orpc-ws-client": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "happy-dom": "20.9.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "rimraf": "6.0.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.7"
+  }
+}

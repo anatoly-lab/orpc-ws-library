@@ -2,10 +2,10 @@
 //
 // Enforces the "framework-free core" discipline from CLAUDE.md:
 //   - packages/orpc-ws-client/src       — no react/vue/svelte/solid/nest imports
-//   - packages/orpc-ws-client/src/react — react allowed, but core internals
-//                                          accessed via public surface only
 //   - packages/orpc-ws-server/src       — no nest/express/fastify imports
 //   - packages/orpc-ws-server-nestjs/src — nest allowed (it's the adapter)
+//   - packages/orpc-ws-oidc-react/src   — react allowed (it IS the adapter);
+//                                          inherits baseline rules only
 //
 // Note: the implementation-plan.md showed the legacy .eslintrc shape with
 // `from: ["node_modules/react", ...]` for `import/no-restricted-paths`.
@@ -41,6 +41,29 @@ const SERVER_CORE_FORBIDDEN_PACKAGES = [
   "express",
   "fastify",
   "reflect-metadata",
+];
+
+/**
+ * Packages forbidden in the browser-only OIDC React adapter. It may use
+ * react / react-dom plus the browser-safe libs (@repo/orpc-ws-client,
+ * @repo/oidc-pkce, @orpc/contract, @orpc/client); everything below is
+ * either a server core, a Node-only dep, or a different UI framework.
+ */
+const REACT_ADAPTER_FORBIDDEN_PACKAGES = [
+  "@nestjs/common",
+  "@nestjs/core",
+  "@nestjs/platform-express",
+  "reflect-metadata",
+  "@repo/orpc-ws-server",
+  "@repo/orpc-ws-server-nestjs",
+  "@repo/oidc-verifier-jose",
+  "jose",
+  "ws",
+  "express",
+  "fastify",
+  "vue",
+  "svelte",
+  "solid-js",
 ];
 
 const restrictedImportRule = (patterns, message) => [
@@ -131,40 +154,17 @@ export default tseslint.config(
   },
 
   // ---- Client core: framework-free ----
+  //
+  // The React bindings moved to `@repo/orpc-ws-oidc-react`, so there's no
+  // longer a `src/react/` exemption — the WHOLE client core src must obey
+  // this rule. React etc. are forbidden everywhere under the core.
   {
     files: ["packages/orpc-ws-client/src/**/*.{ts,tsx}"],
-    ignores: ["packages/orpc-ws-client/src/react/**"],
     rules: {
       "no-restricted-imports": restrictedImportRule(
         CLIENT_CORE_FORBIDDEN_PACKAGES,
-        "Client core must remain framework-free; framework code lives in adapters (src/react/, etc.).",
+        "Client core must remain framework-free; framework code lives in adapters (orpc-ws-oidc-react, etc.).",
       ),
-    },
-  },
-
-  // ---- Client React adapter: react allowed; core consumed via public surface ----
-  {
-    files: ["packages/orpc-ws-client/src/react/**/*.{ts,tsx}"],
-    plugins: { import: importPlugin },
-    rules: {
-      "import/no-restricted-paths": [
-        "error",
-        {
-          zones: [
-            {
-              target: "./packages/orpc-ws-client/src/react",
-              from: "./packages/orpc-ws-client/src",
-              except: [
-                "./index.ts",
-                "./state/connection-state.ts",
-                "./react",
-              ],
-              message:
-                "React adapter consumes the public composition root only.",
-            },
-          ],
-        },
-      ],
     },
   },
 
@@ -175,6 +175,17 @@ export default tseslint.config(
       "no-restricted-imports": restrictedImportRule(
         SERVER_CORE_FORBIDDEN_PACKAGES,
         "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.).",
+      ),
+    },
+  },
+
+  // ---- OIDC React adapter: browser-only ----
+  {
+    files: ["packages/orpc-ws-oidc-react/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": restrictedImportRule(
+        REACT_ADAPTER_FORBIDDEN_PACKAGES,
+        "The React adapter is browser-only; do not import server cores, Node-only deps, or other UI frameworks.",
       ),
     },
   },

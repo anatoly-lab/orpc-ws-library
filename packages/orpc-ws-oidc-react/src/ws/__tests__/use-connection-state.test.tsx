@@ -1,43 +1,24 @@
 // Unit tests for `useConnectionState`.
 //
-// Build a minimal `OrpcWsClient`-shaped stub backed by the real
-// `ConnectionStateManager` — testing through the public state contract
-// (`getState` / `subscribe`) avoids coupling these tests to anything other
-// than what the React adapter actually depends on.
+// Drive the hook through a fake client implementing only the public state
+// contract (`getState` / `subscribe`) plus a test-only `emit` — testing
+// through the same seam the React binding actually depends on, with no
+// reach into core internals. See `fake-client.ts` for the behaviors it
+// faithfully reproduces (no-immediate-invoke subscribe + structural dedupe).
 
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 
-import { ConnectionStateManager } from "../../state/connection-state.js";
 import {
   connected,
   connecting,
   disconnected,
   type ConnectionState,
-} from "../../state/types.js";
-import type { OrpcWsClient } from "../../index.js";
+} from "@repo/orpc-ws-client";
+import type { OrpcWsClient } from "@repo/orpc-ws-client";
 
 import { useConnectionState } from "../use-connection-state.js";
-
-/** Minimal client stub that satisfies the bits `useConnectionState` reads. */
-function makeClient(initial: ConnectionState): {
-  client: OrpcWsClient<never>;
-  manager: ConnectionStateManager;
-} {
-  const manager = new ConnectionStateManager(initial);
-  const client = {
-    // Unused by these tests, but the shape requires them. The hook never
-    // touches `rpc`, `connect`, or `dispose`.
-    rpc: {} as never,
-    state: {
-      getState: () => manager.getState(),
-      subscribe: (cb: () => void) => manager.subscribe(cb),
-    },
-    connect: () => {},
-    dispose: () => {},
-  } as unknown as OrpcWsClient<never>;
-  return { client, manager };
-}
+import { makeFakeClient } from "./fake-client.js";
 
 /** Reusable test component reading the hook and reporting the state. */
 function StateProbe({
@@ -54,15 +35,15 @@ function StateProbe({
 
 describe("useConnectionState", () => {
   it("returns the initial state on first render", () => {
-    const { client } = makeClient(disconnected({ willRetry: false }));
+    const { client } = makeFakeClient(disconnected({ willRetry: false }));
 
     render(<StateProbe client={client} />);
 
     expect(screen.getByTestId("status")).toHaveTextContent("disconnected");
   });
 
-  it("re-renders when state changes via setState()", () => {
-    const { client, manager } = makeClient(
+  it("re-renders when state changes via emit()", () => {
+    const { client, emit } = makeFakeClient(
       disconnected({ willRetry: false }),
     );
 
@@ -70,18 +51,18 @@ describe("useConnectionState", () => {
     expect(screen.getByTestId("status")).toHaveTextContent("disconnected");
 
     act(() => {
-      manager.setState(connecting());
+      emit(connecting());
     });
     expect(screen.getByTestId("status")).toHaveTextContent("connecting");
 
     act(() => {
-      manager.setState(connected());
+      emit(connected());
     });
     expect(screen.getByTestId("status")).toHaveTextContent("connected");
   });
 
   it("multiple components subscribe independently and all see the same value", () => {
-    const { client, manager } = makeClient(
+    const { client, emit } = makeFakeClient(
       disconnected({ willRetry: false }),
     );
 
@@ -104,7 +85,7 @@ describe("useConnectionState", () => {
     }
 
     act(() => {
-      manager.setState(connected());
+      emit(connected());
     });
 
     for (const id of ["probe-a", "probe-b", "probe-c"]) {
@@ -113,7 +94,7 @@ describe("useConnectionState", () => {
   });
 
   it("unmount removes the subscription — no memory leak", () => {
-    const { client, manager } = makeClient(
+    const { client, emit } = makeFakeClient(
       disconnected({ willRetry: false }),
     );
 
@@ -133,11 +114,12 @@ describe("useConnectionState", () => {
     expect(unsubscribeSpies).toHaveLength(1);
     expect(unsubscribeSpies[0]).not.toHaveBeenCalled();
 
-    // A setState before unmount should reach the still-mounted component.
+    // A separate listener on the SAME bus verifies emit() works and stays
+    // wired across the still-mounted component's update.
     const onChange = vi.fn();
-    manager.subscribe(onChange); // separate listener to verify the bus works
+    client.state.subscribe(onChange);
     act(() => {
-      manager.setState(connecting());
+      emit(connecting());
     });
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("status")).toHaveTextContent("connecting");
@@ -149,16 +131,16 @@ describe("useConnectionState", () => {
     expect(unsubscribeSpies[0]).toHaveBeenCalled();
 
     // Post-unmount, a state change should NOT cause the hook's listener
-    // to fire (manager listener count drops back to the separate `onChange`).
+    // to fire; only the separate `onChange` listener remains on the bus.
     onChange.mockClear();
     act(() => {
-      manager.setState(connected());
+      emit(connected());
     });
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it("the returned ConnectionState carries the tagged-record shape", () => {
-    const { client, manager } = makeClient(
+    const { client, emit } = makeFakeClient(
       disconnected({ code: 1006, willRetry: true }),
     );
 
@@ -179,7 +161,7 @@ describe("useConnectionState", () => {
     });
 
     act(() => {
-      manager.setState(connecting());
+      emit(connecting());
     });
 
     expect(captured).toEqual({ status: "connecting" });
@@ -190,20 +172,20 @@ describe("useConnectionState", () => {
     // bail-out works: between real transitions, `getState()` must return
     // the same object reference. If this regresses, React will tear the
     // tree under StrictMode.
-    const { client, manager } = makeClient(connecting());
+    const { client, emit } = makeFakeClient(connecting());
 
     const a = client.state.getState();
     const b = client.state.getState();
     expect(a).toBe(b);
 
-    // setState with structurally-equal value is a no-op for the manager;
-    // the cached reference must persist.
-    manager.setState(connecting());
+    // emit with a structurally-equal value is a no-op for the fake (mirrors
+    // the core's setState dedupe); the cached reference must persist.
+    emit(connecting());
     const c = client.state.getState();
     expect(c).toBe(a);
 
     // A real transition produces a NEW reference.
-    manager.setState(connected());
+    emit(connected());
     const d = client.state.getState();
     expect(d).not.toBe(a);
   });

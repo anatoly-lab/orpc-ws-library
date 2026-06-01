@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 
 import type { CallbackError } from "@repo/oidc-pkce";
 
-import { authClient, wsClient } from "../lib/ws-client.js";
+import { authClient } from "../lib/ws-client.js";
 
 export function Callback(): ReactElement {
   const navigate = useNavigate();
@@ -28,7 +28,12 @@ export function Callback(): ReactElement {
         setError(formatCallbackError(result.error));
         return;
       }
-      wsClient.connect();
+      // No explicit connect() here. handleCallback() persists the tokens
+      // before it resolves; navigating to "/" then mounts AppLayout, which
+      // reads the CURRENT auth state on its first render (useAuthState calls
+      // getAuthState during render, not via a deferred notification). The
+      // tokens are already written, so the guard sees a non-anonymous status
+      // on mount and connects. AppLayout is the single connect owner.
       navigate("/", { replace: true });
     })();
   }, [navigate]);
