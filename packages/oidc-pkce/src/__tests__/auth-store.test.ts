@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createOidcAuth } from "../client.js";
+import { __resetMetadataCache } from "../discovery.js";
 import type { OidcConfig, Storage, Tokens } from "../types.js";
 
 // Minimal in-memory Storage. Reads always reflect the latest write — the
@@ -57,11 +58,24 @@ const config: OidcConfig = {
   redirectUri: "https://app.example.com/callback",
 };
 
-// Fire the browser `storage` event the cross-tab seam listens for. The
-// library filters on `e.key === "oidc.tokens"` (or null for full clears).
-function fireStorageEvent(): void {
-  window.dispatchEvent(new StorageEvent("storage", { key: "oidc.tokens" }));
+// Minimal Keycloak-shaped discovery doc — the `token_endpoint` is what
+// `refreshTokens()` POSTs to. Mirrors client.test.ts's helper so the
+// refresh-mock path below behaves identically to the canonical refresh test.
+function keycloakDoc(issuer: string): Record<string, unknown> {
+  return {
+    issuer,
+    authorization_endpoint: `${issuer}/protocol/openid-connect/auth`,
+    token_endpoint: `${issuer}/protocol/openid-connect/token`,
+    end_session_endpoint: `${issuer}/protocol/openid-connect/logout`,
+    jwks_uri: `${issuer}/protocol/openid-connect/certs`,
+  };
 }
+
+beforeEach(() => {
+  // Discovery cache is module-level; reset so a refresh in one test can't
+  // see metadata warmed (or poisoned) by another.
+  __resetMetadataCache();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -79,45 +93,116 @@ describe("getAuthState snapshot stability (B1)", () => {
     expect(s1.status).toBe("authenticated");
   });
 
-  it("keeps the same reference across a no-op emit (same token)", () => {
+  it("keeps the same reference across a real emit with unchanged claims", async () => {
+    // Exercises the B1 dedupe directly: a REAL emit fires (so the snapshot is
+    // marked dirty and getAuthState() recomputes), but because the rotated
+    // id_token decodes to the SAME claims, `usersEqual` reports no change and
+    // the store must hand back the SAME cached reference. Driving this through
+    // `refresh()` (storage.write + authStore.emit) rather than a synthetic
+    // 'storage' event is essential: with custom storage the cross-tab listener
+    // is intentionally disabled, so a window 'storage' event would no-op and
+    // never dirty the snapshot — the dedupe path would go untested.
     const storage = memoryStorage(makeTokens());
-    const auth = createOidcAuth(config, { storage });
 
-    // Subscribing materializes the store + registers the storage listener.
-    const unsubscribe = auth.subscribe(() => {});
-    const before = auth.getAuthState();
+    // Refresh returns a fresh token blob whose id_token carries the SAME
+    // subject claims as the seed — so the decoded user is value-equal and the
+    // snapshot reference must be preserved.
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: string | URL | Request) => {
+        const u = typeof url === "string" ? url : url.toString();
+        if (u.includes("/.well-known/openid-configuration")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(keycloakDoc(config.issuerUrl)), {
+              status: 200,
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              access_token: "newAT",
+              refresh_token: "newRT",
+              id_token: makeIdToken({ sub: "user-123", email: "a@b.com" }),
+              expires_in: 300,
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    );
 
-    // An emit with the token UNCHANGED must not produce a new snapshot:
-    // this is exactly the path B1 broke (fresh user object every recompute).
-    fireStorageEvent();
-    const after = auth.getAuthState();
-
-    expect(after).toBe(before); // still the same reference
-    unsubscribe();
-  });
-
-  it("yields a NEW reference with new value when the id_token changes", () => {
-    const storage = memoryStorage(makeTokens());
     const auth = createOidcAuth(config, { storage });
 
     const unsubscribe = auth.subscribe(() => {});
     const before = auth.getAuthState();
     expect(before.status).toBe("authenticated");
-    if (before.status !== "authenticated") throw new Error("unreachable");
+
+    await auth.tokenProvider.refresh();
+    const after = auth.getAuthState();
+
+    expect(after).toBe(before); // unchanged claims → same reference (dedupe)
+    unsubscribe();
+  });
+
+  it("yields a NEW reference with new value when the id_token changes", async () => {
+    // Drive the rotation through the REAL same-tab emit channel
+    // (`tokenProvider.refresh()` → storage.write + authStore.emit) rather
+    // than a synthetic 'storage' event. With custom storage the cross-tab
+    // listener is intentionally disabled (see auth-store.ts jsdoc), so a
+    // window 'storage' event would no-op and never dirty the snapshot. A
+    // refresh that changes the subject's claims is exactly the scenario this
+    // test names, and it emits unconditionally — mirroring client.test.ts's
+    // canonical refresh mock.
+    const storage = memoryStorage(makeTokens());
+
+    // Refresh response carries a NEW, decodable id_token so getUser()
+    // resolves the rotated `sub`. The discovery doc must match the issuer
+    // in `config` so `refreshTokens()` POSTs to the mocked token endpoint.
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (url: string | URL | Request) => {
+        const u = typeof url === "string" ? url : url.toString();
+        if (u.includes("/.well-known/openid-configuration")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(keycloakDoc(config.issuerUrl)), {
+              status: 200,
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              access_token: "newAT",
+              refresh_token: "newRT",
+              id_token: makeIdToken({ sub: "user-456", email: "c@d.com" }),
+              expires_in: 300,
+            }),
+            { status: 200 },
+          ),
+        );
+      },
+    );
+
+    const auth = createOidcAuth(config, { storage });
+
+    const unsubscribe = auth.subscribe(() => {});
+    const before = auth.getAuthState();
+    expect(before.status).toBe("authenticated");
+    // `AuthSnapshot.user` is a flat `OidcUser | null` (not narrowed by
+    // status), so guard the null explicitly before reading `.sub`.
+    if (before.status !== "authenticated" || before.user === null) {
+      throw new Error("unreachable");
+    }
     expect(before.user.sub).toBe("user-123");
 
-    // Rotate the id_token (a refresh that changes the subject's claims).
-    storage.write(
-      makeTokens({
-        idToken: makeIdToken({ sub: "user-456", email: "c@d.com" }),
-      }),
-    );
-    fireStorageEvent();
+    // Rotate the id_token via a real refresh (changes the subject's claims).
+    await auth.tokenProvider.refresh();
     const after = auth.getAuthState();
 
     expect(after).not.toBe(before); // logical change → new reference
     expect(after.status).toBe("authenticated");
-    if (after.status !== "authenticated") throw new Error("unreachable");
+    if (after.status !== "authenticated" || after.user === null) {
+      throw new Error("unreachable");
+    }
     expect(after.user.sub).toBe("user-456");
     unsubscribe();
   });
