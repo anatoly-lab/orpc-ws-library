@@ -11,11 +11,19 @@
 // it. That's the property the hooks depend on, so the double must honor it or
 // the tests would pass for the wrong reasons.
 
+import { vi, type Mock } from "vitest";
+
 import type { AuthSnapshot, OidcAuth, OidcUser } from "@repo/oidc-pkce";
 
 export interface FakeAuth {
-  /** The seam the hooks consume — `Pick`'d so the double stays tiny. */
-  client: Pick<OidcAuth, "getAuthState" | "subscribe">;
+  /**
+   * The seam the hooks/components consume — `Pick`'d so the double stays tiny.
+   * Includes `redirectToLogin` so the `<RequireAuth>` default-fallback test can
+   * click the built-in sign-in button and assert the call.
+   */
+  client: Pick<OidcAuth, "getAuthState" | "subscribe" | "redirectToLogin">;
+  /** Test-only handle on the `redirectToLogin` spy for `.toHaveBeenCalled()`. */
+  redirectToLogin: Mock<() => Promise<void>>;
   /** Test-only: change the snapshot and notify subscribers (one emit). */
   set(next: AuthSnapshot): void;
   /** Test-only: notify subscribers WITHOUT changing the snapshot (no-op emit). */
@@ -37,13 +45,15 @@ export function makeFakeAuth(initial: AuthSnapshot): FakeAuth {
       listeners.delete(listener);
     };
   };
+  const redirectToLogin = vi.fn<() => Promise<void>>(() => Promise.resolve());
 
   const notify = (): void => {
     listeners.forEach((l) => l());
   };
 
   return {
-    client: { getAuthState, subscribe },
+    client: { getAuthState, subscribe, redirectToLogin },
+    redirectToLogin,
     set(next: AuthSnapshot): void {
       snapshot = next;
       notify();

@@ -1,9 +1,16 @@
-// Shared layout route for authenticated pages.
+// Shared layout route for the authed area. Owns TWO responsibilities:
 //
-// Owns the single "if we hold a token, connect the WS" guard so every child
-// route inherits it without repeating the effect. New authed pages added under
-// this route in App.tsx are guarded for free — that is the whole point of
-// lifting the guard out of the individual pages.
+//   1. The connect guard — "if we hold a token, connect the WS" — so every
+//      child route inherits it without repeating the effect. New authed pages
+//      added under this route in App.tsx are guarded for free.
+//   2. The render gate — anonymous visitors see <SignIn />, token-holders see
+//      the matched child. This is delegated to the library's <RequireAuth>,
+//      which lifts the old per-page `if (!loggedIn)` block out of Home.
+//
+// Division of responsibility: AppLayout reads `status` once to drive the
+// connect effect; RequireAuth independently reads the same reactive auth
+// source for the render gate. Both subscribe to the one cheap store — no
+// double-implementation of the gate, just two readers of one truth.
 //
 // Why a layout route and not a wrapper component: react-router renders the
 // matched child into <Outlet />, so this component mounts once and stays
@@ -15,8 +22,9 @@ import { useEffect, type ReactElement } from "react";
 
 import { Outlet } from "react-router-dom";
 
-import { useAuthState } from "@repo/orpc-ws-oidc-react";
+import { RequireAuth, useAuthState } from "@repo/orpc-ws-oidc-react";
 
+import { SignIn } from "./pages/SignIn.js";
 import { authClient, wsClient } from "./lib/ws-client.js";
 
 export function AppLayout(): ReactElement {
@@ -45,5 +53,13 @@ export function AppLayout(): ReactElement {
     if (loggedIn) wsClient.connect();
   }, [loggedIn]);
 
-  return <Outlet />;
+  // Render gate lives in the library: anonymous → <SignIn />, else the child.
+  // RequireAuth uses the same `status !== "anonymous"` predicate as the connect
+  // guard above, so an expired session still renders the authed UI while the
+  // WS recovers.
+  return (
+    <RequireAuth client={authClient} fallback={<SignIn />}>
+      <Outlet />
+    </RequireAuth>
+  );
 }

@@ -184,7 +184,7 @@ because both conditions fail.
   directly.** The adapter does **not** re-export the cores. It exports
   only its React bindings: `useConnectionState`, `OrpcWsProvider`,
   `useOrpcWs`, `OrpcWsProviderProps`, `useAuthState`, `useUser`,
-  `useOidcCallback`. Consumers import the framework-free APIs straight
+  `useOidcCallback`, `RequireAuth`. Consumers import the framework-free APIs straight
   from each core. The cores remain regular `dependencies` of the adapter
   (the hooks `import type` from them, and the emitted `.d.ts` references
   those types, so the dep must resolve) — `react` is the sole peer.

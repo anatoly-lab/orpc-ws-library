@@ -12,3 +12,5 @@ export type {
   UseOidcCallbackOptions,
   UseOidcCallbackResult,
 } from "./use-oidc-callback.js";
+export { RequireAuth } from "./require-auth.js";
+export type { RequireAuthProps } from "./require-auth.js";

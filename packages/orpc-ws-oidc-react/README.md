@@ -51,6 +51,9 @@ This package exports the React bindings only:
 - **`useUser(auth)`** — convenience hook for the current OIDC user.
 - **`useOidcCallback(auth, options?)`** — drives the OIDC redirect-back
   exchange once on mount; router-free (see below).
+- **`RequireAuth`** — gate component for protected UI. Renders its children
+  only when a token is present, else a sign-in fallback; router-free (see
+  below).
 
 The optional `./react-router` sub-path adds:
 
@@ -117,6 +120,42 @@ import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
 Importing this sub-path pulls in `react-router-dom`, which is an
 **optional** peer dependency — you only need it installed if you import
 `@repo/orpc-ws-oidc-react/react-router`. The main entry never touches it.
+
+## Gating protected UI — `RequireAuth` (main entry)
+
+`RequireAuth` lifts the per-page "are we signed in?" check into one reusable
+guard. Wrap a protected subtree — an `<Outlet />`, a page, a section — and it
+renders the children only when a token is present, otherwise a `fallback`
+sign-in screen.
+
+```tsx
+import { RequireAuth } from "@repo/orpc-ws-oidc-react";
+
+function AppLayout() {
+  return (
+    <RequireAuth client={authClient} fallback={<SignIn />}>
+      <Outlet />
+    </RequireAuth>
+  );
+}
+```
+
+**Props.** `client` (the `OidcAuth` instance), `children` (the protected
+subtree), and an optional `fallback`. When `fallback` is omitted, a minimal,
+app-neutral signed-out UI with a sign-in button renders instead — pass your
+own to supply branding and copy.
+
+**The `!== "anonymous"` predicate.** Children render whenever a token is
+present — i.e. `status` is `authenticated` **or** `expired` — not only when
+`authenticated`. An expired session must still render the protected content so
+the WS client's reconnect+refresh recovery can run (it sends the stale token,
+the server closes with `1008`, and `refresh()` restores the session). Gating
+on `=== "authenticated"` would bounce an expiring session back to sign-in
+mid-recovery.
+
+**Router-free.** `RequireAuth` gates an arbitrary `ReactNode`, so it never
+imports a router and lives in the main entry. Use it with React Router (wrap an
+`<Outlet />`), any other router, or none (wrap a page directly).
 
 ## Tradeoffs & alternatives
 

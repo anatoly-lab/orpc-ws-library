@@ -1,20 +1,22 @@
 // Home page — the only screen with meaningful UI in the demo.
 //
-// Two modes:
-//   - signed out: shows the "Sign in with Keycloak" button
-//   - signed in:  shows decoded user info, connection state, ping/echo/
-//                 getUser buttons, live tick display, sign-out
+// Authed-only: this page mounts solely when a token is present, because the
+// signed-out gate now lives upstream in AppLayout's <RequireAuth> (which shows
+// <SignIn /> to anonymous visitors). Home therefore renders just the signed-in
+// view: decoded user info, connection state, ping/echo/getUser buttons, live
+// tick display, sign-out.
 //
 // Every interactive element carries a `data-testid` for Playwright.
 // Selectors are intentionally simple — no class chains, no nth-child.
 
-import { useEffect, useState, type CSSProperties, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 
-import { useAuthState, useConnectionState } from "@repo/orpc-ws-oidc-react";
+import { useConnectionState } from "@repo/orpc-ws-oidc-react";
 
 import type { TickEvent } from "@demo/contract";
 
 import { authClient, wsClient } from "../lib/ws-client.js";
+import { buttonStyle, containerStyle } from "../lib/styles.js";
 
 interface PingResult {
   pong: true;
@@ -33,13 +35,6 @@ interface GetUserResult {
 }
 
 export function Home(): ReactElement {
-  // Reactive auth read, matching AppLayout's guard: tokens present
-  // (authenticated OR expired) renders the signed-in branch; "anonymous"
-  // renders signed-out. The WS connect itself is owned by AppLayout — Home
-  // only reads the state to pick which UI to show and to gate the tick
-  // subscription below.
-  const { status } = useAuthState(authClient);
-  const loggedIn = status !== "anonymous";
   const connection = useConnectionState(wsClient);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
   const [echoResult, setEchoResult] = useState<EchoResult | null>(null);
@@ -67,7 +62,9 @@ export function Home(): ReactElement {
   //     it before `for await`, matching the library's own heartbeat
   //     subscriber.
   useEffect(() => {
-    if (!loggedIn || connection.status !== "connected") return;
+    // Home only mounts when a token is present (RequireAuth gates it upstream),
+    // so the gate here is purely on the WS being connected.
+    if (connection.status !== "connected") return;
     const ac = new AbortController();
     void (async () => {
       try {
@@ -86,28 +83,7 @@ export function Home(): ReactElement {
     return () => {
       ac.abort();
     };
-  }, [loggedIn, connection.status]);
-
-  if (!loggedIn) {
-    return (
-      <main style={containerStyle}>
-        <h1>orpc-ws-library demo</h1>
-        <p>You are not signed in.</p>
-        <button
-          data-testid="signin-button"
-          onClick={() => {
-            // redirectToLogin awaits OIDC discovery before navigating; we
-            // discard the returned promise because the page navigates
-            // before it settles in production.
-            void authClient.redirectToLogin();
-          }}
-          style={buttonStyle}
-        >
-          Sign in with Keycloak
-        </button>
-      </main>
-    );
-  }
+  }, [connection.status]);
 
   // `getUser()` parses claims from the id_token (NOT the access token like the
   // old `decodeAccessTokenForDisplay`). With the `email` scope the id_token
@@ -207,16 +183,3 @@ export function Home(): ReactElement {
     </main>
   );
 }
-
-const containerStyle: CSSProperties = {
-  maxWidth: 600,
-  margin: "2rem auto",
-  padding: "1rem",
-  fontFamily: "system-ui, sans-serif",
-};
-
-const buttonStyle: CSSProperties = {
-  padding: "0.5rem 1rem",
-  fontSize: "1rem",
-  cursor: "pointer",
-};

@@ -13,8 +13,9 @@
 export { useConnectionState, OrpcWsProvider, useOrpcWs } from "./ws/index.js";
 export type { OrpcWsProviderProps } from "./ws/index.js";
 
-export { useAuthState, useUser, useOidcCallback } from "./oidc/index.js";
+export { useAuthState, useUser, useOidcCallback, RequireAuth } from "./oidc/index.js";
 export type {
   UseOidcCallbackOptions,
   UseOidcCallbackResult,
+  RequireAuthProps,
 } from "./oidc/index.js";
