@@ -1,9 +1,10 @@
 import type { ReactElement } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
 
 import { AppLayout } from "./AppLayout.js";
 import { Home } from "./pages/Home.js";
-import { Callback } from "./pages/Callback.js";
+import { authClient } from "./lib/ws-client.js";
 
 export function App(): ReactElement {
   return (
@@ -14,9 +15,14 @@ export function App(): ReactElement {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Home />} />
         </Route>
-        {/* Callback stays OUTSIDE the layout: it establishes the session and
-            must run pre-connection, ungated by the guard. */}
-        <Route path="/auth/callback" element={<Callback />} />
+        {/* The library's drop-in callback component handles the token exchange
+            and navigates home on success. It stays OUTSIDE the layout: it
+            establishes the session and must run pre-connection, ungated by the
+            guard. */}
+        <Route
+          path="/auth/callback"
+          element={<OidcCallback client={authClient} navigateTo="/" />}
+        />
       </Routes>
     </BrowserRouter>
   );
