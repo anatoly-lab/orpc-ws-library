@@ -19,7 +19,6 @@ export class HomePage {
   readonly echoButton: Locator;
   readonly echoResult: Locator;
   readonly actionError: Locator;
-  readonly callbackError: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -32,7 +31,6 @@ export class HomePage {
     this.echoButton = page.getByTestId("echo-button");
     this.echoResult = page.getByTestId("echo-result");
     this.actionError = page.getByTestId("action-error");
-    this.callbackError = page.getByTestId("callback-error");
   }
 
   async goto(): Promise<void> {
