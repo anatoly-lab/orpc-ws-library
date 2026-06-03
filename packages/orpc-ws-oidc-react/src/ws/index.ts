@@ -8,3 +8,8 @@
 export { useConnectionState } from "./use-connection-state.js";
 export { OrpcWsProvider, useOrpcWs } from "./provider.js";
 export type { OrpcWsProviderProps } from "./provider.js";
+export { useWsSubscription } from "./use-ws-subscription.js";
+export type {
+  UseWsSubscriptionOptions,
+  UseWsSubscriptionResult,
+} from "./use-ws-subscription.js";

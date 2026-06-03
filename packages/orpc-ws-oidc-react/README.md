@@ -44,6 +44,10 @@ This package exports the React bindings only:
 
 - **`useConnectionState(client)`** — `useSyncExternalStore` binding to the
   client's reactive connection state.
+- **`useWsSubscription(client, selector, options?)`** — subscribes a
+  component to a server-pushed ORPC AsyncIterable stream and owns the whole
+  lifecycle (connected-gating, abort teardown, re-subscribe on reconnect,
+  error surfacing). See below.
 - **`OrpcWsProvider` / `useOrpcWs()`** — optional context helper for sharing
   one client across the tree. `OrpcWsProviderProps` types the provider.
 - **`useAuthState(auth)`** — `useSyncExternalStore` binding to the OIDC
@@ -156,6 +160,58 @@ mid-recovery.
 **Router-free.** `RequireAuth` gates an arbitrary `ReactNode`, so it never
 imports a router and lives in the main entry. Use it with React Router (wrap an
 `<Outlet />`), any other router, or none (wrap a page directly).
+
+## Subscribing to a server stream — `useWsSubscription` (main entry)
+
+ORPC procedures can return an `AsyncIterable` — a server-pushed stream (a
+live tick, presence updates, a job's progress). Consuming one in React is
+fiddly: gate on the WS being connected, open an `AbortController`, pump the
+iterator, suppress the abort-as-throw on teardown, re-subscribe when the
+socket reconnects, and surface real errors. `useWsSubscription` owns all of
+that so a page never repeats it. Under the hood it wraps ORPC's first-class
+`consumeEventIterator` helper.
+
+```tsx
+import { useWsSubscription } from "@repo/orpc-ws-oidc-react";
+
+function LiveTick() {
+  const { data: lastTick } = useWsSubscription(
+    wsClient,
+    (rpc, signal) => rpc.tick(undefined, { signal }),
+  );
+  return <p>{lastTick ? `tick #${lastTick.tick}` : "waiting…"}</p>;
+}
+```
+
+**Signature.** `useWsSubscription(client, subscribe, options?)`:
+
+- `client` — the `OrpcWsClient` from `createOrpcWsClient` (same instance
+  across renders).
+- `subscribe` — a selector `(rpc, signal) => Promise<AsyncIterable<TEvent>>`.
+  You get the typed `rpc` proxy and an `AbortSignal` to thread into the
+  call's options. The selector may be a fresh inline closure every render —
+  it's read through a ref, so a new identity does not re-subscribe.
+- `options` — optional `{ onEvent?, onError?, enabled? }`.
+
+**Returns** `{ data, error, status }`: `data` is the **latest** event (or
+`null` before the first; it persists across reconnects), `error` is the last
+non-abort error, and `status` is `"idle"` (not subscribed — disconnected or
+disabled), `"active"`, or `"error"`.
+
+**The "both" shape.** The hook tracks the latest event in `data` **and**
+forwards every event to your `onEvent` callback. Use `data` for reactive
+render; use `onEvent` for imperative reactions (append to a log, fire a
+toast). They're not either/or.
+
+**`enabled`.** Pass `enabled: false` to suspend the subscription while the
+component stays mounted (a paused view, a feature flag) without subscribing
+even when the WS is connected; flip it back to `true` to resume.
+
+**Connected-gating + re-subscribe.** The hook subscribes only while the WS
+is `connected` and `enabled !== false`. When the socket drops it tears down
+(abort + `consumeEventIterator`'s own cancel) and goes `idle`; when it
+reconnects it re-subscribes automatically. Aborts from teardown are
+suppressed — they never reach `error` or `onError`.
 
 ## Tradeoffs & alternatives
 

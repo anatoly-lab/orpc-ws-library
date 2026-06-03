@@ -182,9 +182,9 @@ because both conditions fail.
   range (e.g. `">=18.0.0"`).
 - **Adapter exposes framework bindings only; cores are imported
   directly.** The adapter does **not** re-export the cores. It exports
-  only its React bindings: `useConnectionState`, `OrpcWsProvider`,
-  `useOrpcWs`, `OrpcWsProviderProps`, `useAuthState`, `useUser`,
-  `useOidcCallback`, `RequireAuth`. Consumers import the framework-free APIs straight
+  only its React bindings: `useConnectionState`, `useWsSubscription`,
+  `OrpcWsProvider`, `useOrpcWs`, `OrpcWsProviderProps`, `useAuthState`,
+  `useUser`, `useOidcCallback`, `RequireAuth`. Consumers import the framework-free APIs straight
   from each core. The cores remain regular `dependencies` of the adapter
   (the hooks `import type` from them, and the emitted `.d.ts` references
   those types, so the dep must resolve) — `react` is the sole peer.

@@ -29,6 +29,7 @@
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@orpc/client": "1.14.4",
     "@orpc/contract": "1.14.4",
     "@repo/oidc-pkce": "0.1.0",
     "@repo/orpc-ws-client": "0.1.0"

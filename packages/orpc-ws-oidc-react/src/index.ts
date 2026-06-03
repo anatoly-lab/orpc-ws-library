@@ -10,8 +10,17 @@
 // what is React-specific versus core. Future svelte/vue/solid adapters follow
 // the same rule, and consumers never reach core APIs "through" the React layer.
 //
-export { useConnectionState, OrpcWsProvider, useOrpcWs } from "./ws/index.js";
-export type { OrpcWsProviderProps } from "./ws/index.js";
+export {
+  useConnectionState,
+  OrpcWsProvider,
+  useOrpcWs,
+  useWsSubscription,
+} from "./ws/index.js";
+export type {
+  OrpcWsProviderProps,
+  UseWsSubscriptionOptions,
+  UseWsSubscriptionResult,
+} from "./ws/index.js";
 
 export { useAuthState, useUser, useOidcCallback, RequireAuth } from "./oidc/index.js";
 export type {
