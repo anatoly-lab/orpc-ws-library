@@ -89,6 +89,12 @@ interface OidcAuth {
 `name`, `preferredUsername`). IdP-specific claims (Keycloak's
 `realm_access.roles`, etc.) — parse from `id_token` yourself.
 
+`formatCallbackError(err: CallbackError): string` — returns neutral,
+human-readable default copy for each `CallbackError` variant (the one
+`handleCallback` surfaces on failure). The string is brand-free and
+day-0-shippable; `@repo/orpc-ws-oidc-react`'s `<OidcCallback>` uses it as
+its default `renderError`.
+
 Discovery is fetched on first auth-method call and cached for the page
 lifetime, keyed by `issuerUrl` (shared across multiple `createOidcAuth`
 instances against the same issuer; concurrent first-calls share one

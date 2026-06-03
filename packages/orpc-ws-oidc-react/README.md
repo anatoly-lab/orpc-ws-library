@@ -79,6 +79,7 @@ router — or none:
 
 ```tsx
 import { useOidcCallback } from "@repo/orpc-ws-oidc-react";
+import { formatCallbackError } from "@repo/oidc-pkce";
 import { useNavigate } from "react-router-dom";
 
 function CallbackPage() {
@@ -88,11 +89,15 @@ function CallbackPage() {
   });
 
   if (status === "error" && error) {
-    return <pre>Sign-in failed: {error.type}</pre>;
+    return <pre>{formatCallbackError(error)}</pre>;
   }
   return <p>Signing you in…</p>;
 }
 ```
+
+The hook reports the failure as a structured `CallbackError`; `formatCallbackError`
+(from `@repo/oidc-pkce`) is the shipped way to turn it into neutral, human-readable
+copy. Switch on `error.type` yourself if you'd rather render your own per-variant UI.
 
 **Empty-params guard.** If the callback route is hit without an IdP result
 in the query string — a direct navigation, a bookmark, or a refresh after
@@ -111,15 +116,33 @@ import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
 
 <Route
   path="/auth/callback"
+  element={<OidcCallback client={authClient} navigateTo="/" />}
+/>;
+```
+
+With no `renderError`, the component renders the library default —
+`formatCallbackError(error)` (the neutral, app-neutral copy from
+`@repo/oidc-pkce`) inside a `<pre>`. `renderError` is **optional**; pass it
+only to localize or brand the failure UI. Reuse the library string but supply
+your own UI:
+
+```tsx
+import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
+import { formatCallbackError } from "@repo/oidc-pkce";
+
+<Route
+  path="/auth/callback"
   element={
     <OidcCallback
       client={authClient}
       navigateTo="/"
-      renderError={(e) => <pre>{myFriendlyCopy(e)}</pre>}
+      renderError={(e) => <MyBox>{formatCallbackError(e)}</MyBox>}
     />
   }
 />;
 ```
+
+…or switch on `e.type` to render fully custom, localized strings instead.
 
 Importing this sub-path pulls in `react-router-dom`, which is an
 **optional** peer dependency — you only need it installed if you import

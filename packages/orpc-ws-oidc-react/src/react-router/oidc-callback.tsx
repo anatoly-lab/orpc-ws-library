@@ -16,7 +16,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
-import type { CallbackError, OidcAuth } from "@repo/oidc-pkce";
+import { formatCallbackError, type CallbackError, type OidcAuth } from "@repo/oidc-pkce";
 
 import { useOidcCallback } from "../oidc/use-oidc-callback.js";
 
@@ -32,9 +32,11 @@ export interface OidcCallbackProps {
    */
   fallback?: ReactNode;
   /**
-   * Render the error UI from the failure variant. Defaults to a generic
-   * one-liner. The library deliberately does NOT ship friendly per-variant
-   * copy — pass `renderError` to localize/style it for your app.
+   * Render the error UI from the failure variant. Defaults to rendering
+   * `formatCallbackError(error)` (the neutral, framework-free default copy
+   * from `@repo/oidc-pkce`) inside a `<pre>`. Pass `renderError` to
+   * localize/style/brand it — e.g. reuse the library string but supply your
+   * own UI: `renderError={(e) => <Box>{formatCallbackError(e)}</Box>}`.
    */
   renderError?: (error: CallbackError) => ReactNode;
 }
@@ -60,7 +62,17 @@ export function OidcCallback(props: OidcCallbackProps): ReactElement {
   // may be strings or null). Wrapping in a fragment gives this function the
   // `ReactElement` return type the route element slot expects.
   if (status === "error" && error) {
-    return <>{renderError ? renderError(error) : <pre>Sign-in failed: {error.type}</pre>}</>;
+    return (
+      <>
+        {renderError ? (
+          renderError(error)
+        ) : (
+          <pre data-testid="orpc-ws-oidc-callback-error">
+            {formatCallbackError(error)}
+          </pre>
+        )}
+      </>
+    );
   }
   return <>{fallback ?? <p>Signing you in…</p>}</>;
 }

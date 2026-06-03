@@ -5,7 +5,6 @@ import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
 import { AppLayout } from "./AppLayout.js";
 import { Home } from "./pages/Home.js";
 import { authClient } from "./lib/ws-client.js";
-import { formatCallbackError } from "./lib/format-callback-error.js";
 
 export function App(): ReactElement {
   return (
@@ -19,21 +18,13 @@ export function App(): ReactElement {
         {/* The library's drop-in callback component handles the token exchange
             and navigates home on success. It stays OUTSIDE the layout: it
             establishes the session and must run pre-connection, ungated by the
-            guard. `renderError` supplies app-specific copy — the library ships
-            none of its own. */}
+            guard. No `renderError` is passed, so the callback inherits the
+            library's neutral default copy (`formatCallbackError` from
+            `@repo/oidc-pkce`). A future advanced demo will show overriding
+            `renderError` to supply localized/branded copy. */}
         <Route
           path="/auth/callback"
-          element={
-            <OidcCallback
-              client={authClient}
-              navigateTo="/"
-              renderError={(error) => (
-                <pre data-testid="callback-error" style={{ color: "red" }}>
-                  {formatCallbackError(error)}
-                </pre>
-              )}
-            />
-          }
+          element={<OidcCallback client={authClient} navigateTo="/" />}
         />
       </Routes>
     </BrowserRouter>
