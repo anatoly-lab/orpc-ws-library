@@ -14,7 +14,7 @@ import { useState, type ReactElement } from "react";
 import { useConnectionState, useWsSubscription } from "@repo/orpc-ws-oidc-react";
 
 import { authClient, wsClient } from "../lib/ws-client.js";
-import { buttonStyle, containerStyle } from "../lib/styles.js";
+import styles from "./styles.module.css";
 
 interface PingResult {
   pong: true;
@@ -98,7 +98,7 @@ export function Home(): ReactElement {
   };
 
   return (
-    <main style={containerStyle}>
+    <main className={styles.container}>
       <h1>orpc-ws-library demo</h1>
       <section>
         <h2>Signed in</h2>
@@ -110,17 +110,17 @@ export function Home(): ReactElement {
         <p data-testid="connection-status">{connection.status}</p>
       </section>
 
-      <section style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-        <button data-testid="ping-button" onClick={() => void onPing()} style={buttonStyle}>
+      <section className={styles.buttonRow}>
+        <button data-testid="ping-button" onClick={() => void onPing()} className={styles.button}>
           Ping
         </button>
-        <button data-testid="echo-button" onClick={() => void onEcho()} style={buttonStyle}>
+        <button data-testid="echo-button" onClick={() => void onEcho()} className={styles.button}>
           Echo &quot;hello&quot;
         </button>
-        <button data-testid="get-user-button" onClick={() => void onGetUser()} style={buttonStyle}>
+        <button data-testid="get-user-button" onClick={() => void onGetUser()} className={styles.button}>
           Get user
         </button>
-        <button data-testid="signout-button" onClick={onSignOut} style={buttonStyle}>
+        <button data-testid="signout-button" onClick={onSignOut} className={styles.button}>
           Sign out
         </button>
       </section>
@@ -144,7 +144,7 @@ export function Home(): ReactElement {
         <pre data-testid="get-user-result">{JSON.stringify(getUserResult, null, 2)}</pre>
       )}
       {actionError && (
-        <pre data-testid="action-error" style={{ color: "red" }}>{actionError}</pre>
+        <pre data-testid="action-error" className={styles.error}>{actionError}</pre>
       )}
     </main>
   );

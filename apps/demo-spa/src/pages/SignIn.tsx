@@ -9,11 +9,11 @@
 import type { ReactElement } from "react";
 
 import { authClient } from "../lib/ws-client.js";
-import { buttonStyle, containerStyle } from "../lib/styles.js";
+import styles from "./styles.module.css";
 
 export function SignIn(): ReactElement {
   return (
-    <main style={containerStyle}>
+    <main className={styles.container}>
       <h1>orpc-ws-library demo</h1>
       <p>You are not signed in.</p>
       <button
@@ -24,7 +24,7 @@ export function SignIn(): ReactElement {
           // before it settles in production.
           void authClient.redirectToLogin();
         }}
-        style={buttonStyle}
+        className={styles.button}
       >
         Sign in with Keycloak
       </button>
