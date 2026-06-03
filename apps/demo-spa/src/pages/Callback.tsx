@@ -1,49 +1,31 @@
 // Callback page — Keycloak redirects here with `?code=...&state=...`.
-// We invoke authClient.handleCallback() once on mount, then navigate
-// back to `/`.
 //
-// React StrictMode runs effects twice in dev. handleCallback is NOT
-// idempotent (it consumes the PKCE verifier/state on read). The ref
-// guard below ensures the second StrictMode invocation is a no-op.
+// The exchange + StrictMode-once + navigation logic now lives in the library's
+// `<OidcCallback>` (from the `@repo/orpc-ws-oidc-react/react-router` sub-path).
+// This page keeps only the APP-specific bit: friendly per-variant error copy
+// via `formatCallbackError`, passed through `renderError`. The library ships
+// no error copy of its own — that's a deliberate app concern.
 
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { useNavigate } from "react-router-dom";
+import type { ReactElement } from "react";
 
 import type { CallbackError } from "@repo/oidc-pkce";
+import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
 
 import { authClient } from "../lib/ws-client.js";
 
 export function Callback(): ReactElement {
-  const navigate = useNavigate();
-  const [error, setError] = useState<string | null>(null);
-  const ran = useRef(false);
-
-  useEffect(() => {
-    if (ran.current) return;
-    ran.current = true;
-    void (async () => {
-      const params = new URLSearchParams(window.location.search);
-      const result = await authClient.handleCallback(params);
-      if (!result.ok) {
-        setError(formatCallbackError(result.error));
-        return;
-      }
-      // No explicit connect() here. handleCallback() persists the tokens
-      // before it resolves; navigating to "/" then mounts AppLayout, which
-      // reads the CURRENT auth state on its first render (useAuthState calls
-      // getAuthState during render, not via a deferred notification). The
-      // tokens are already written, so the guard sees a non-anonymous status
-      // on mount and connects. AppLayout is the single connect owner.
-      navigate("/", { replace: true });
-    })();
-  }, [navigate]);
-
   return (
     <main style={{ maxWidth: 600, margin: "2rem auto", padding: "1rem" }}>
-      <h1>Signing you in...</h1>
-      {error && (
-        <pre data-testid="callback-error" style={{ color: "red" }}>{error}</pre>
-      )}
+      <OidcCallback
+        client={authClient}
+        navigateTo="/"
+        fallback={<h1>Signing you in...</h1>}
+        renderError={(error) => (
+          <pre data-testid="callback-error" style={{ color: "red" }}>
+            {formatCallbackError(error)}
+          </pre>
+        )}
+      />
     </main>
   );
 }

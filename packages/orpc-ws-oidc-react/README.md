@@ -49,6 +49,99 @@ This package exports the React bindings only:
 - **`useAuthState(auth)`** — `useSyncExternalStore` binding to the OIDC
   auth snapshot.
 - **`useUser(auth)`** — convenience hook for the current OIDC user.
+- **`useOidcCallback(auth, options?)`** — drives the OIDC redirect-back
+  exchange once on mount; router-free (see below).
+
+The optional `./react-router` sub-path adds:
+
+- **`OidcCallback`** — a drop-in callback route component for React
+  Router apps. Requires `react-router-dom` as an **optional** peer.
+
+## Handling the OIDC callback
+
+When the IdP redirects back to your app (`/auth/callback?code=…&state=…`),
+something has to run the PKCE code-exchange exactly once and then move the
+user on. This package offers two surfaces for that — pick by how much glue
+you want to write.
+
+### `useOidcCallback` — router-agnostic (main entry)
+
+The hook owns the exchange (StrictMode-safe, runs once) and reports the
+outcome as state. You own navigation and UI, so it works with any
+router — or none:
+
+```tsx
+import { useOidcCallback } from "@repo/orpc-ws-oidc-react";
+import { useNavigate } from "react-router-dom";
+
+function CallbackPage() {
+  const navigate = useNavigate();
+  const { status, error } = useOidcCallback(authClient, {
+    onSuccess: () => navigate("/", { replace: true }),
+  });
+
+  if (status === "error" && error) {
+    return <pre>Sign-in failed: {error.type}</pre>;
+  }
+  return <p>Signing you in…</p>;
+}
+```
+
+**Empty-params guard.** If the callback route is hit without an IdP result
+in the query string — a direct navigation, a bookmark, or a refresh after
+the flow already finished — the hook does nothing and stays `pending`. It
+triggers only when `code` (success) **or** `error` (an IdP-reported
+failure, e.g. `?error=access_denied`) is present, so genuine IdP errors
+still reach your `onError` / `status === "error"` UI.
+
+### `OidcCallback` — React Router drop-in (sub-path)
+
+If you're already on React Router, the sub-path component wires the hook to
+`useNavigate` for you — one line in your route table:
+
+```tsx
+import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
+
+<Route
+  path="/auth/callback"
+  element={
+    <OidcCallback
+      client={authClient}
+      navigateTo="/"
+      renderError={(e) => <pre>{myFriendlyCopy(e)}</pre>}
+    />
+  }
+/>;
+```
+
+Importing this sub-path pulls in `react-router-dom`, which is an
+**optional** peer dependency — you only need it installed if you import
+`@repo/orpc-ws-oidc-react/react-router`. The main entry never touches it.
+
+## Tradeoffs & alternatives
+
+The callback flow ships as two surfaces on purpose:
+
+| | `OidcCallback` (sub-path) | `useOidcCallback` (hook) |
+| --- | --- | --- |
+| Glue you write | One `<Route>` line | ~10 lines (navigate + UI) |
+| Router | React Router only | Any router, or none |
+| Extra dependency | `react-router-dom` (optional peer) | none |
+| Import | `…/react-router` | main entry |
+
+**Why the split.** The hook is the honest framework-agnostic primitive: it
+has no router dependency, so it can't drag one into apps that use a
+different router (TanStack Router, wouter, plain `window.location`). The
+React Router binding is real convenience, but it pulls a concrete
+framework — so it lives behind a sub-path import and an optional peer,
+keeping the package's main entry router-free. This matches the CLAUDE.md
+sub-path rule (same browser runtime + peer-only dependency); the framework
+binding never leaks into the core surface.
+
+**No logic divergence.** `OidcCallback` is a thin wrapper that calls
+`useOidcCallback` internally and feeds its `onSuccess` to `useNavigate`.
+The exchange, the StrictMode-once guard, and the empty-params guard all
+live in the hook — there is one implementation, exercised by both surfaces.
 
 ## Where the rest lives
 

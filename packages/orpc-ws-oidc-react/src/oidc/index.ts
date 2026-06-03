@@ -7,3 +7,8 @@
 
 export { useAuthState } from "./use-auth-state.js";
 export { useUser } from "./use-user.js";
+export { useOidcCallback } from "./use-oidc-callback.js";
+export type {
+  UseOidcCallbackOptions,
+  UseOidcCallbackResult,
+} from "./use-oidc-callback.js";

@@ -2,7 +2,7 @@
   "name": "@repo/orpc-ws-oidc-react",
   "version": "0.1.0",
   "private": true,
-  "description": "The single React entry point for the library: re-exports the ORPC-WS client core and OIDC-PKCE core under namespaces, plus the React bindings (useConnectionState, OrpcWsProvider, useOrpcWs). OIDC react hooks land in a later change.",
+  "description": "The library's React bindings: hooks (useConnectionState, useAuthState, useUser, useOidcCallback) and an optional react-router OidcCallback component on the ./react-router sub-path. Does not re-export the cores.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./react-router": {
+      "types": "./dist/react-router/index.d.ts",
+      "import": "./dist/react-router/index.js"
     }
   },
   "files": [
@@ -30,7 +34,13 @@
     "@repo/orpc-ws-client": "0.1.0"
   },
   "peerDependencies": {
-    "react": ">=18.0.0"
+    "react": ">=18.0.0",
+    "react-router-dom": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react-router-dom": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",
@@ -40,6 +50,7 @@
     "happy-dom": "20.9.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "react-router-dom": "7.16.0",
     "rimraf": "6.0.1",
     "typescript": "5.9.3",
     "vitest": "4.1.7"
