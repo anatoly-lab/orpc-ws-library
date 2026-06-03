@@ -121,7 +121,7 @@ not aspirational:
 | Package                              | Purpose                                                                   | Framework deps     |
 | ------------------------------------ | ------------------------------------------------------------------------- | ------------------ |
 | `@repo/orpc-ws-client`               | **Client core.** Vanilla TS, fully framework-free. Reconnect, heartbeat, sleep detect, etc. No React sub-path. | none               |
-| `@repo/orpc-ws-oidc-react`           | **The library's single React adapter.** Hosts the React bindings for both cores (WS connection-state hooks + OIDC auth hooks) only. Does **not** re-export the cores — consumers import the framework-free APIs directly from `@repo/orpc-ws-client` / `@repo/oidc-pkce`. | `react` peer       |
+| `@repo/orpc-ws-oidc-react`           | **The library's single React adapter.** Hosts the React bindings for both cores (WS connection-state hooks + OIDC auth hooks) only. Does **not** re-export the cores — consumers import the framework-free APIs directly from `@repo/orpc-ws-client` / `@repo/oidc-pkce`. Also exposes an optional `./react-router` sub-path (see prose below). | `react` peer (+ optional `react-router-dom` on the sub-path) |
 | `@repo/orpc-ws-server`               | **Server core.** Pure Node + `ws` + `@orpc/server`. Verifier-pluggable.   | none               |
 | `@repo/orpc-ws-server-nestjs`        | NestJS adapter (separate package — decorator metadata can't share a sub-path with vanilla TS without bundler pain). | `@nestjs/common` peer |
 
@@ -132,13 +132,23 @@ sibling package without touching the core. If a future adapter requires
 core changes, the seam is wrong — fix the seam, not the adapter.
 
 **Framework adapters are siblings, one merged adapter per framework
-(resolved).** Framework adapters for this library are **separate
-sibling packages, never sub-paths** — and there is **one merged
-adapter per framework, not one-per-core**. The first instance is
-`@repo/orpc-ws-oidc-react`, which depends on *both* cores
-(`@repo/orpc-ws-client` + `@repo/oidc-pkce`) and exposes the React
-bindings for both. It does **not** re-export the cores — consumers
-import the framework-free APIs directly from each core.
+(resolved).** Each framework adapter for this library is its own
+**separate sibling package — never a sub-path _of a core_** — and there
+is **one merged adapter per framework, not one-per-core**. The
+"never a sub-path" rule protects the *cores*: `@repo/orpc-ws-client`
+and `@repo/oidc-pkce` never carry framework code via a sub-path (this
+is why the old `@repo/orpc-ws-client/react` sub-path was removed). It
+does **not** forbid an *adapter* from exposing its own internal
+sub-path: an adapter MAY surface an optional, more-heavily-coupled
+framework binding behind a sub-path of *itself* (see
+`@repo/orpc-ws-oidc-react/react-router` below), so that the adapter's
+main entry stays free of the extra dependency. Such a sub-path lives
+*inside* the sibling adapter, not on a core, so it satisfies — not
+violates — the "Sub-path vs separate sibling package" rule below. The
+first instance is `@repo/orpc-ws-oidc-react`, which depends on *both*
+cores (`@repo/orpc-ws-client` + `@repo/oidc-pkce`) and exposes the
+React bindings for both. It does **not** re-export the cores —
+consumers import the framework-free APIs directly from each core.
 
 Why merged, not per-core: the library's scope is "browser↔server WS
 connection using OIDC" as a unit — every consumer needs *both* cores,
@@ -173,11 +183,26 @@ because both conditions fail.
 - **Adapter exposes framework bindings only; cores are imported
   directly.** The adapter does **not** re-export the cores. It exports
   only its React bindings: `useConnectionState`, `OrpcWsProvider`,
-  `useOrpcWs`, `OrpcWsProviderProps`, `useAuthState`, `useUser`.
-  Consumers import the framework-free APIs straight from each core. The
-  cores remain regular `dependencies` of the adapter (the hooks
-  `import type` from them, and the emitted `.d.ts` references those
-  types, so the dep must resolve) — `react` is the sole peer.
+  `useOrpcWs`, `OrpcWsProviderProps`, `useAuthState`, `useUser`,
+  `useOidcCallback`. Consumers import the framework-free APIs straight
+  from each core. The cores remain regular `dependencies` of the adapter
+  (the hooks `import type` from them, and the emitted `.d.ts` references
+  those types, so the dep must resolve) — `react` is the sole peer.
+- **Optional, heavier-coupled bindings live behind an internal
+  sub-path.** The adapter's main entry stays free of any router or
+  other heavier framework dependency. A binding that needs more than
+  `react` lives at a *second* entry point — e.g. the `OidcCallback`
+  drop-in React-Router `<Route>` component at
+  `@repo/orpc-ws-oidc-react/react-router`, which adds `react-router-dom`
+  as an **optional** peer (`peerDependenciesMeta.optional: true`). The
+  sub-path is declared as a second `exports` entry and built by the same
+  `tsc` pass (`src/react-router/` → `dist/react-router/`).
+  `react-router-dom` resolves only when a consumer imports the sub-path.
+  **Why:** keeps the main entry's dependency surface minimal and the
+  heavier framework-router coupling opt-in, while *reusing* the
+  router-free `useOidcCallback` hook (`OidcCallback` only adds
+  `useNavigate` + default UI on top of it) so there is no logic
+  duplication.
 - **Consumer usage:**
   ```ts
   import { createOrpcWsClient } from "@repo/orpc-ws-client";
