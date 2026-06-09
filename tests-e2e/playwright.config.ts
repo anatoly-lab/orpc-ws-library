@@ -22,6 +22,7 @@ const OIDC_CLIENT_ID = "orpc-ws-demo-spa";
 const SERVER_PORT = 18081;
 const SPA_PORT = 4173;
 const WS_URL = `ws://localhost:${SERVER_PORT}/ws`;
+const UPLOAD_URL = `http://localhost:${SERVER_PORT}/upload`;
 
 export default defineConfig({
   testDir: "./workflows",
@@ -85,6 +86,7 @@ export default defineConfig({
         VITE_OIDC_ISSUER_URL: KEYCLOAK_ISSUER,
         VITE_OIDC_CLIENT_ID: OIDC_CLIENT_ID,
         VITE_WS_URL: WS_URL,
+        VITE_UPLOAD_URL: UPLOAD_URL,
       },
     },
   ],

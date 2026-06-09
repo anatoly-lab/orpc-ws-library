@@ -16,7 +16,8 @@
       "env": [
         "VITE_OIDC_ISSUER_URL",
         "VITE_OIDC_CLIENT_ID",
-        "VITE_WS_URL"
+        "VITE_WS_URL",
+        "VITE_UPLOAD_URL"
       ]
     },
     "dev": {
