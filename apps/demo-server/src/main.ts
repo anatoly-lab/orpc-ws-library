@@ -11,11 +11,14 @@
 // poor reference for consumers who'll run their SPA on their own
 // host/CDN. Two processes mirrors the real deployment shape.
 //
-// No CORS middleware: the only HTTP surface is the `/ws` WebSocket
-// upgrade endpoint, and WS upgrades are not subject to CORS (browsers
-// gate them via `Origin` checks at the server's discretion, not via
-// preflight). If/when this demo grows an `uploads:` config, CORS will
-// need to be added then.
+// CORS is enabled for the upload HTTP transport. The WS `/ws` endpoint
+// never needed it (WS upgrades aren't subject to CORS preflight), but the
+// SPA (localhost:5173/4173) and this server (localhost:18081) are
+// cross-origin, so the browser fires a CORS preflight `OPTIONS` before the
+// upload `POST`. That preflight carries no `Authorization` header — without
+// CORS short-circuiting it, the upload handler's `verifyClient` would 401
+// the preflight and the real POST would never go out. `enableCors` (below)
+// answers the preflight with a 204 before it reaches `verifyClient`.
 
 import "reflect-metadata";
 import { Logger } from "@nestjs/common";
@@ -52,6 +55,16 @@ async function bootstrap(): Promise<void> {
   // clean 4009 close. (Documented gotcha in
   // packages/orpc-ws-server-nestjs/README.md "Common gotchas".)
   app.enableShutdownHooks();
+
+  // Allow the cross-origin SPA to POST uploads (and its CORS preflight) to
+  // this server. Must run before `app.listen(...)` so the cors middleware
+  // is registered ahead of the adapter's upload route (mounted during
+  // bootstrap) and short-circuits the `OPTIONS` preflight. See the header
+  // comment for why this matters for auth.
+  app.enableCors({
+    origin: ["http://localhost:5173", "http://localhost:4173"],
+    methods: ["POST", "OPTIONS"],
+  });
 
   const { port, oidc } = readEnvConfig();
 

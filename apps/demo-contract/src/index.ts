@@ -80,5 +80,25 @@ export interface TickEvent {
 // returned value at runtime; the schema is the typing channel only.
 const tick = oc.output(z.custom<AsyncIterable<TickEvent>>());
 
-export const appContract = oc.router({ ping, echo, getUser, tick });
+// Demo image upload over the library's opt-in HTTP transport. The input
+// object MUST key the file under `file` — the client's `orpc-http` upload
+// strategy hardcodes that multipart field name. Native zod-4 `z.file()`
+// (this package already depends on zod 4.x) carries the MIME allow-list to
+// both sides; the optional `name` rides alongside as a plain field.
+const uploadImage = oc
+  .input(
+    z.object({
+      file: z.file().mime(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+      name: z.string().optional(),
+    }),
+  )
+  .output(
+    z.object({
+      ok: z.literal(true),
+      storedAs: z.string(),
+      size: z.number(),
+    }),
+  );
+
+export const appContract = oc.router({ ping, echo, getUser, tick, uploadImage });
 export type AppContract = typeof appContract;

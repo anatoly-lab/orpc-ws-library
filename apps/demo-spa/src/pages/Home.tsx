@@ -9,7 +9,7 @@
 // Every interactive element carries a `data-testid` for Playwright.
 // Selectors are intentionally simple — no class chains, no nth-child.
 
-import { useState, type ReactElement } from "react";
+import { useState, type ChangeEvent, type ReactElement } from "react";
 
 import { useConnectionState, useWsSubscription } from "@repo/orpc-ws-oidc-react";
 
@@ -32,11 +32,23 @@ interface GetUserResult {
   name?: string;
 }
 
+// The typed `rpc.*` proxy returns typed values, but `wsClient.upload()`
+// resolves to `{ ok: true; response: unknown }` — the procedure's output is
+// not threaded through the upload seam. So we mirror the contract's
+// `uploadImage` output here and cast `response` to it.
+interface UploadResponse {
+  ok: true;
+  storedAs: string;
+  size: number;
+}
+
 export function Home(): ReactElement {
   const connection = useConnectionState(wsClient);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
   const [echoResult, setEchoResult] = useState<EchoResult | null>(null);
   const [getUserResult, setGetUserResult] = useState<GetUserResult | null>(null);
+  const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // NOTE: the "if logged in, connect the WS" guard lives in AppLayout now
@@ -87,6 +99,35 @@ export function Home(): ReactElement {
     }
   };
 
+  // Upload over the library's HTTP transport (NOT the WS). `upload` is only
+  // present when `uploads` was configured on the client — it is here (see
+  // ws-client.ts), so the non-null assertion is safe. `procedure` is the
+  // tuple path into the contract; `meta` carries the optional `name` field
+  // alongside the file. The resolved `response` is `unknown` (see
+  // UploadResponse) so we cast it before rendering.
+  const onUpload = async (
+    e: ChangeEvent<HTMLInputElement>,
+  ): Promise<void> => {
+    const file = e.target.files?.[0];
+    // Reset the input so selecting the same file again re-fires `onChange`.
+    e.target.value = "";
+    if (!file) return;
+    setActionError(null);
+    setUploadResult(null);
+    setUploading(true);
+    try {
+      const res = await wsClient.upload!(file, {
+        procedure: ["uploadImage"],
+        meta: { name: file.name },
+      });
+      setUploadResult(res.response as UploadResponse);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const onSignOut = (): void => {
     // Dispose the WS BEFORE the page navigates to Keycloak's end-session
     // endpoint — gets us a clean close frame instead of an abrupt teardown
@@ -132,6 +173,23 @@ export function Home(): ReactElement {
             ? `tick #${lastTick.tick} at ${new Date(lastTick.at).toISOString()}`
             : "waiting..."}
         </p>
+      </section>
+
+      <section>
+        <h2>Image upload</h2>
+        <input
+          data-testid="upload-input"
+          type="file"
+          accept="image/*"
+          disabled={uploading}
+          onChange={(e) => void onUpload(e)}
+        />
+        {uploading && <p data-testid="upload-status">uploading...</p>}
+        {uploadResult && (
+          <p data-testid="upload-result">
+            stored as {uploadResult.storedAs} ({uploadResult.size} bytes)
+          </p>
+        )}
       </section>
 
       {pingResult && (

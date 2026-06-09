@@ -31,4 +31,8 @@ export const wsClient = createOrpcWsClient<AppContract>({
   onTerminalAuthFailure: () => authClient.clearTokens(),
   onEvent: (e) => console.log("[orpc-ws event]", e),
   logger: consoleLogger("orpc-ws"),
+  // Opt-in HTTP uploads transport. Configuring it makes `wsClient.upload`
+  // present. The same `tokenProvider` above is reused for the Bearer header
+  // automatically — no auth wiring needed here.
+  uploads: { strategy: "orpc-http", httpUrl: config.UPLOAD_URL },
 });

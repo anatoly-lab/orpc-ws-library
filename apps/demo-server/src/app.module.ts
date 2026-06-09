@@ -37,6 +37,10 @@ const nestLogger = new Logger("OrpcWs");
             expectedClientId: oidc.clientId,
           }),
           connection: { path: "/ws" },
+          // Opt-in HTTP transport for the demo's image upload. The NestJS
+          // adapter auto-mounts an ORPC `RPCHandler` at `httpPath` during
+          // bootstrap; `uploadImage` becomes reachable at POST /upload/uploadImage.
+          uploads: { enabled: true, httpPath: "/upload", bodyLimitBytes: 10 * 1024 * 1024 },
           logger: fromNestShape(nestLogger),
         };
       },

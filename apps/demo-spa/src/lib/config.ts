@@ -23,6 +23,8 @@ export interface AppConfig {
   OIDC_CLIENT_ID: string;
   /** WebSocket endpoint URL for the ORPC client. */
   WS_URL: string;
+  /** HTTP upload endpoint URL for the ORPC client's opt-in uploads transport. */
+  UPLOAD_URL: string;
 }
 
 function requireEnv(name: string, value: string | undefined): string {
@@ -47,4 +49,5 @@ export const config: AppConfig = {
     import.meta.env.VITE_OIDC_CLIENT_ID,
   ),
   WS_URL: requireEnv("VITE_WS_URL", import.meta.env.VITE_WS_URL),
+  UPLOAD_URL: requireEnv("VITE_UPLOAD_URL", import.meta.env.VITE_UPLOAD_URL),
 };
