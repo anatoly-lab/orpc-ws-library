@@ -12,6 +12,87 @@ Origin code being extracted:
 
 ---
 
+## Commands
+
+All tasks run through Turborepo from the repo root (`npm install` first).
+
+| Task | Command | Notes |
+|---|---|---|
+| Build all | `npm run build` | `tsc` per package; topo-ordered via `^build`. |
+| Typecheck all | `npm run typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
+| Lint all | `npm run lint` | ESLint flat config; enforces framework-free cores. |
+| Unit tests all | `npm run test` | Vitest, per package. **User runs tests — assistant does not.** |
+| Full CI gate | `npm run ci` | lint → typecheck → test → build. |
+| Clean | `npm run clean` | wipes `dist`, `.turbo`, root `node_modules`. |
+
+Scope to one package:
+- `npm run test -w @repo/orpc-ws-client` (or any script: `build`, `lint`, `typecheck`)
+- `turbo run test --filter=@repo/orpc-ws-client` (turbo, dependency-aware)
+
+Run a single test file / case (from inside the package dir, or via `-w`):
+- `vitest run src/reconnect/__tests__/bug-01-stale-token-after-sleep.test.ts`
+- `vitest run -t "storm guard"` (filter by test name)
+
+Regression tests for the design-doc bugs are greppable by filename
+(`bug-01-...`, `bug-06-...`, `bug-08-...`) — one named test per fixed bug
+(see "Tests from day 0").
+
+Demo (two separate processes — Vite SPA + NestJS server; **user runs these**):
+- `npm run dev:demo` (both), or `npm run dev:server` / `npm run dev:spa`
+- needs `apps/demo-spa/.env` (copy from `.env.example`) and a running OIDC
+  IdP. Preferred IdP is the hosted Keycloak at `keycloak.anatoly.dev`
+  (`orpc-ws-demo` realm).
+
+e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
+- `npm run test:e2e -w @repo/tests-e2e` (root `npm test` skips it).
+
+## Codebase map (as built)
+
+Seven packages under `packages/` (the "Package layout (locked)" section below
+states intent; this is the current tree), plus demo apps under `apps/`. Every
+non-adapter package is framework-free; the boundary is lint-enforced.
+
+- `@repo/orpc-ws-shared` — internal seam types only (`Logger`, `Clock`,
+  `Rng`, `HeartbeatEvent`, and the `HEARTBEAT_NAMESPACE` / `HEARTBEAT_PATH`
+  constants). Not published. Both cores depend on it.
+- `@repo/orpc-ws-client` — browser core. Composition root `src/index.ts` →
+  `createOrpcWsClient<TContract>(opts): OrpcWsClient`. One-concept-each
+  modules: `state/`, `client/`, `lifecycle/`, `reconnect/`, `heartbeat/`,
+  `sleep/`, `auth/`, `upload/`, `config/`. Tests in per-module `__tests__/`.
+- `@repo/orpc-ws-server` — Node core. `src/index.ts` exports the
+  `OrpcWsServer<TUser, TContract>` class (`start` / `stop` / `attach`).
+  Modules: `lifecycle/`, `router/`, `heartbeat/`, `state/`, `upload/`,
+  `config/`.
+- `@repo/orpc-ws-oidc-react` — the single React adapter; hosts React bindings
+  for BOTH cores. `ws/`: `useConnectionState`, `useWsSubscription`,
+  `OrpcWsProvider`, `useOrpcWs`. `oidc/`: `useAuthState`, `useUser`,
+  `useOidcCallback`, `RequireAuth`. Optional `./react-router` sub-path adds
+  the `OidcCallback` `<Route>` drop-in (`react-router-dom` optional peer).
+  Does NOT re-export the cores — consumers import each core directly.
+- `@repo/orpc-ws-server-nestjs` — NestJS adapter. `OrpcWsModule.forRootAsync`
+  + injectable `OrpcWsService`; wraps core lifecycle in Nest hooks.
+- `@repo/oidc-pkce` — browser OIDC/PKCE core, zero deps. Pull API
+  (`hasToken` / `getAuthStatus` / `getUser`) + observable seam
+  (`getAuthState` / `subscribe`) that the React hooks wrap.
+- `@repo/oidc-verifier-jose` — Node JWT verifier (depends on `jose`); a
+  sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
+
+Apps: `@demo/contract` (shared ORPC contract), `@demo/server` (NestJS,
+port 18081), `@demo/spa` (React + Vite, port 5173), `@repo/tests-e2e`.
+
+Two cross-package mechanisms to know before editing:
+- **Heartbeat is a "stealth procedure"**, not in the consumer's contract. The
+  library merges its own sub-router under the reserved namespace
+  `__orpc_ws_lib__.heartbeat` (`HEARTBEAT_PATH` in shared); the client calls
+  it via `link.call(...)`. The consumer's `<TContract>` is untouched.
+- **State vs events are separate channels**: `client.state` (tagged-record
+  `ConnectionState`, for reactive UI) vs `client.onEvent` (notifications:
+  `auth_failure` / `heartbeat_timeout` / `woke_from_sleep`).
+
+Note: `README.md` still mentions a `@repo/orpc-ws-client/react` sub-path — that
+is stale. React bindings live in `@repo/orpc-ws-oidc-react` (lint config no
+longer exempts a `src/react/` path in the client core).
+
 ## Non-negotiable principles
 
 These are load-bearing. Re-read before any non-trivial change.

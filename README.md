@@ -16,9 +16,10 @@ Optional OIDC / PKCE auth helpers (`@repo/oidc-pkce` for the browser,
 graph LR
     subgraph Browser
       Core["@repo/orpc-ws-client<br/>(framework-free core)"]
-      React["@repo/orpc-ws-client/react<br/>(React adapter, sub-path)"]
+      React["@repo/orpc-ws-oidc-react<br/>(React adapter — both cores)"]
       OidcPkce["@repo/oidc-pkce<br/>(OIDC + PKCE, optional)"]
       React --> Core
+      React --> OidcPkce
       OidcPkce -.tokenProvider.-> Core
     end
 
@@ -49,7 +50,7 @@ shape. Both parameterize on `<TContract>` and pass it through end-to-end.
 | Package | One-liner | Framework deps |
 |---|---|---|
 | [`@repo/orpc-ws-client`](./packages/orpc-ws-client) | Browser core. Connect, reconnect, heartbeat, sleep detection, typed RPC. | none |
-| [`@repo/orpc-ws-client/react`](./packages/orpc-ws-client) | React adapter (sub-path of client). `useConnectionState` + optional provider. | `react` peer (optional) |
+| [`@repo/orpc-ws-oidc-react`](./packages/orpc-ws-oidc-react) | React adapter (separate sibling, depends on both cores). WS hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) + OIDC hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`). Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router-dom`) |
 | [`@repo/orpc-ws-server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
 | [`@repo/orpc-ws-server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
 | [`@repo/orpc-ws-shared`](./packages/orpc-ws-shared) | Internal: shared seam types. **Not published.** | none |
@@ -101,7 +102,7 @@ push.
 ## Repo layout
 
 ```
-packages/         # 6 published-shape packages
+packages/         # 7 packages (5 transport + 2 OIDC helpers)
 apps/             # demo-contract, demo-spa, demo-server
 tests-e2e/        # Playwright + Testcontainers Keycloak
 docs/             # implementation-plan, migration guide, mermaid diagrams
