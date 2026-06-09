@@ -1,28 +1,61 @@
 {
   "name": "@repo/orpc-ws-shared",
   "version": "0.1.0",
-  "private": true,
-  "description": "Internal shared types/interfaces (Logger, Clock, Rng) for the @repo/orpc-ws-* family. Not published.",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+  "description": "Shared seam types/interfaces (Logger, Clock, Rng, heartbeat wire shape) for the @repo/orpc-ws-* family. A published runtime dependency of the cores.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anatoly-lab/orpc-ws-library.git",
+    "directory": "packages/orpc-ws-shared"
   },
-  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/__tests__/**",
+    "!src/package.json",
+    "README.md"
+  ],
+  "tshy": {
+    "exports": {
+      ".": "./src/index.ts"
+    },
+    "project": "./tsconfig.build.json",
+    "exclude": [
+      "src/**/*.test.ts",
+      "src/**/__tests__/**"
+    ]
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tshy",
+    "prepublishOnly": "tshy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "clean": "rimraf dist .turbo *.tsbuildinfo"
+    "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
   },
   "devDependencies": {
     "rimraf": "6.0.1",
     "typescript": "5.9.3",
     "vitest": "4.1.7"
-  }
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/index.d.ts",
+        "default": "./dist/commonjs/index.js"
+      }
+    }
+  },
+  "main": "./dist/commonjs/index.js",
+  "types": "./dist/commonjs/index.d.ts",
+  "module": "./dist/esm/index.js"
 }

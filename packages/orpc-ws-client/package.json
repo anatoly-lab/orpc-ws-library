@@ -1,27 +1,44 @@
 {
   "name": "@repo/orpc-ws-client",
   "version": "0.1.0",
-  "private": true,
   "description": "Framework-free ORPC-over-WebSocket client core. Vanilla TS — reconnect, heartbeat, sleep detection, uploads. React bindings live in @repo/orpc-ws-oidc-react.",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anatoly-lab/orpc-ws-library.git",
+    "directory": "packages/orpc-ws-client"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   },
   "files": [
     "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/__tests__/**",
+    "!src/package.json",
     "README.md"
   ],
+  "tshy": {
+    "exports": {
+      ".": "./src/index.ts"
+    },
+    "project": "./tsconfig.build.json",
+    "exclude": [
+      "src/**/*.test.ts",
+      "src/**/__tests__/**"
+    ]
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tshy",
+    "prepublishOnly": "tshy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "clean": "rimraf dist .turbo *.tsbuildinfo"
+    "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
   },
   "dependencies": {
     "@orpc/client": "1.14.4",
@@ -36,5 +53,21 @@
     "typescript": "5.9.3",
     "vitest": "4.1.7",
     "ws": "8.21.0"
-  }
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/index.d.ts",
+        "default": "./dist/commonjs/index.js"
+      }
+    }
+  },
+  "main": "./dist/commonjs/index.js",
+  "types": "./dist/commonjs/index.d.ts",
+  "module": "./dist/esm/index.js"
 }

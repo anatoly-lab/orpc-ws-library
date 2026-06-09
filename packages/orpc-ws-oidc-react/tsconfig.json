@@ -3,7 +3,10 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    // Buildinfo lives at the package root, NOT inside `dist`: `files`
+    // ships `dist`, so a `dist/.tsbuildinfo` would get packed into the
+    // tarball. Root `.tsbuildinfo` is gitignored and out of `files`.
+    "tsBuildInfoFile": "./.tsbuildinfo",
     // DOM lib: this is a browser-targeted React adapter — the hooks touch
     // React's DOM renderer and the core's browser state shape.
     "lib": ["ES2022", "DOM", "DOM.Iterable"],

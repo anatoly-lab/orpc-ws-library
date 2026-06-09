@@ -53,7 +53,7 @@ shape. Both parameterize on `<TContract>` and pass it through end-to-end.
 | [`@repo/orpc-ws-oidc-react`](./packages/orpc-ws-oidc-react) | React adapter (separate sibling, depends on both cores). WS hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) + OIDC hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`). Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router-dom`) |
 | [`@repo/orpc-ws-server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
 | [`@repo/orpc-ws-server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
-| [`@repo/orpc-ws-shared`](./packages/orpc-ws-shared) | Internal: shared seam types. **Not published.** | none |
+| [`@repo/orpc-ws-shared`](./packages/orpc-ws-shared) | Shared seam types (Logger / Clock / Rng / heartbeat wire shape). Published — it's a runtime dependency of the cores. | none |
 
 ### Auth (optional, OIDC-generic)
 
@@ -123,6 +123,19 @@ separately; the e2e suite spins one up in a Testcontainer.
 - [Implementation plan](./docs/implementation-plan.md)
 - [CLAUDE.md](./CLAUDE.md) — binding non-negotiables and resolved decisions
 
+## Module formats
+
+Every published package except `@repo/orpc-ws-oidc-react` ships **dual
+ESM + CommonJS** (built with [tshy](https://github.com/isaacs/tshy)) —
+`import` resolves to ESM, `require` to CommonJS, each with its own types.
+`@repo/orpc-ws-oidc-react` is **ESM-only** (a module-level React
+`createContext` makes a dual build a dual-package-identity hazard).
+
+**CommonJS consumers need Node ≥ 20.19 or ≥ 22.12.** The CJS builds keep
+their dependencies external, and `@orpc/*` / `jose` are ESM-only; loading
+them via `require()` of an ESM module is only supported on those Node
+versions. ESM consumers have no such floor.
+
 ## License
 
-TBD — pre-1.0; license decision before first publish.
+MIT — see [LICENSE](./LICENSE).

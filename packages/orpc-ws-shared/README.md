@@ -1,9 +1,11 @@
 # `@repo/orpc-ws-shared`
 
-Workspace-internal helper package. **Not published.** Holds the seam
-interfaces every other package in this monorepo depends on, so the
-client core and server core can agree on `Logger` / `Clock` / `Rng` /
-heartbeat wire types without taking a dependency on each other.
+Shared helper package. Holds the seam interfaces every other package in
+this monorepo depends on, so the client core and server core can agree on
+`Logger` / `Clock` / `Rng` / heartbeat wire types without taking a
+dependency on each other. It's **published** because the cores depend on
+it at runtime — but it's an implementation-detail dependency, not a
+package you import directly.
 
 If you're a consumer of `@repo/orpc-ws-client` or `@repo/orpc-ws-server`,
 you don't import from here directly — `Logger` and `HeartbeatEvent` are

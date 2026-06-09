@@ -1,0 +1,13 @@
+{
+  // tshy build config — see packages/oidc-pkce/tsconfig.build.json for the
+  // full rationale. `verbatimModuleSyntax: false` lets tshy's CommonJS pass
+  // emit `require`/`exports` from ESM source without TS1286; `incremental`
+  // off avoids a buildinfo path that points outside tshy's relocated outDir.
+  // `typecheck` still uses the strict ESM-only `tsconfig.json` (DOM lib and
+  // all other per-package options are inherited from it).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "verbatimModuleSyntax": false,
+    "incremental": false
+  }
+}

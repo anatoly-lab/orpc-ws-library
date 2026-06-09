@@ -3,7 +3,11 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    // Buildinfo at the package root, NOT inside `dist`: the typecheck pass
+    // (`tsc -p tsconfig.json --noEmit`, incremental) writes this file, and
+    // `files` ships `dist`, so `./dist/.tsbuildinfo` would get packed.
+    // Root `.tsbuildinfo` is gitignored and outside `files`.
+    "tsBuildInfoFile": "./.tsbuildinfo",
     // Browser-only package: lib includes DOM so `crypto.subtle`,
     // `window.location`, `sessionStorage`, `localStorage`, `URLSearchParams`
     // and `fetch` are all in scope without extra @types installs.
