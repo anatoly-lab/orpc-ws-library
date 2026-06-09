@@ -35,7 +35,7 @@
       "outputs": []
     },
     "lint": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["build"],
       "inputs": [
         "src/**",
         "eslint.config.js",
