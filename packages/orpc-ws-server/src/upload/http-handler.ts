@@ -35,7 +35,12 @@ import type {
   VerifyClientResult,
 } from "../lifecycle/verify-client-orchestrator.js";
 
-import type { UploadHttpConfig } from "./http-config.js";
+import {
+  type BeforeUploadResult,
+  DEFAULT_BEFORE_UPLOAD_REJECT_CODE,
+  DEFAULT_BEFORE_UPLOAD_REJECT_REASON,
+  type UploadHttpConfig,
+} from "./http-config.js";
 import { extractBearerToken } from "./http-verify.js";
 
 /**
@@ -54,6 +59,39 @@ export type HttpUploadHandler = (
 ) => void;
 
 /**
+ * Runtime fail-closed guards for the two consumer-supplied hook returns.
+ *
+ * Both `VerifyClient` and `BeforeUploadHook` are *typed* to return a
+ * well-formed discriminated union, but a plain-JS consumer can violate
+ * that at runtime — return `undefined`, a bare boolean, `{ ok: "yes" }` —
+ * and TS cannot catch it. The hook-running helpers `await` the result; a
+ * non-conforming *return* (unlike a throw) slips past their try/catch, and
+ * the later `!result.ok` read then throws a TypeError inside the void-ed
+ * async IIFE → unhandled rejection, no response written, request hangs.
+ * These predicates narrow the runtime value so the helpers can coerce
+ * anything malformed into a clean 500 reject. (`code`/`reason` are
+ * required on the reject branch because the auth reject path reads them
+ * without defaults, and the accept branch must carry a `user`.)
+ */
+function isWellFormedAuthResult(v: unknown): v is VerifyClientResult<unknown> {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  if (r.ok === true) return "user" in r;
+  if (r.ok === false) {
+    return typeof r.code === "number" && typeof r.reason === "string";
+  }
+  return false;
+}
+
+function isWellFormedBeforeUploadResult(v: unknown): v is BeforeUploadResult {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  // `code`/`reason` are optional on the reject branch (the gate defaults
+  // them), so a boolean `ok` is the only hard requirement here.
+  return typeof r.ok === "boolean";
+}
+
+/**
  * Build the HTTP upload handler.
  *
  * @param composedRouter - The already-composed router (consumer's + system
@@ -66,7 +104,7 @@ export type HttpUploadHandler = (
 export function createHttpUploadHandler<TUser>(deps: {
   composedRouter: Record<string, unknown>;
   verifyClient: VerifyClient<TUser>;
-  config: UploadHttpConfig;
+  config: UploadHttpConfig<TUser>;
   logger?: Logger;
 }): HttpUploadHandler {
   const logger = deps.logger ?? noopLogger;
@@ -106,11 +144,65 @@ export function createHttpUploadHandler<TUser>(deps: {
         ? fwd.split(",")[0]?.trim()
         : req.socket.remoteAddress;
     try {
-      return await deps.verifyClient({ req, token, clientIp });
+      const result = await deps.verifyClient({ req, token, clientIp });
+      // Fail-closed normalisation. `verifyClient` is typed to return a
+      // `VerifyClientResult`, but a plain-JS consumer can violate that
+      // contract at runtime (return `undefined`, a bare boolean, etc.) —
+      // a class TS cannot see. Without this guard a non-conforming return
+      // escapes the catch (it's a return, not a throw) and the caller's
+      // `!auth.ok` read throws inside the void-ed IIFE → unhandled
+      // rejection, hung request. Coerce anything malformed to a 500 reject.
+      if (!isWellFormedAuthResult(result)) {
+        logger.error("orpc-ws-server: HTTP verifyClient returned a non-conforming value", {
+          clientIp,
+        });
+        return { ok: false, code: 500, reason: "Internal server error" };
+      }
+      return result;
     } catch (err) {
       logger.error("orpc-ws-server: HTTP verifyClient threw", {
         error: err instanceof Error ? err.message : String(err),
         clientIp,
+      });
+      return { ok: false, code: 500, reason: "Internal server error" };
+    }
+  };
+
+  /**
+   * Run the consumer's `beforeUpload` gate (if configured) for an already-
+   * authenticated request. Returns the consumer's discriminated-union
+   * result; `{ ok: true }` when no hook is configured (absent hook = allow,
+   * never accidentally blocks). A throw from the consumer's hook maps to a
+   * 500 reject — mirroring `runVerify`, the consumer's async code must not
+   * crash the request.
+   *
+   * Receives `headers` + `user` (the documented levers) plus the raw `req`
+   * escape hatch — and deliberately NOT the body, which has not been read
+   * yet (the caller invokes this BEFORE `rpcHandler.handle()`).
+   */
+  const runBeforeUpload = async (
+    req: IncomingMessage,
+    user: TUser,
+  ): Promise<BeforeUploadResult> => {
+    if (!deps.config.beforeUpload) return { ok: true };
+    try {
+      const result = await deps.config.beforeUpload({
+        headers: req.headers,
+        user,
+        req,
+      });
+      // Fail-closed normalisation — see `isWellFormedBeforeUploadResult`.
+      // A non-conforming *return* from a plain-JS hook escapes this catch
+      // (it's a return, not a throw), so guard the shape here rather than
+      // letting the `!gate.ok` read crash the void-ed IIFE.
+      if (!isWellFormedBeforeUploadResult(result)) {
+        logger.error("orpc-ws-server: HTTP beforeUpload returned a non-conforming value");
+        return { ok: false, code: 500, reason: "Internal server error" };
+      }
+      return result;
+    } catch (err) {
+      logger.error("orpc-ws-server: HTTP beforeUpload threw", {
+        error: err instanceof Error ? err.message : String(err),
       });
       return { ok: false, code: 500, reason: "Internal server error" };
     }
@@ -139,6 +231,26 @@ export function createHttpUploadHandler<TUser>(deps: {
           reason: auth.reason,
         });
         sendError(res, auth.code, auth.reason);
+        return;
+      }
+
+      // ----- Pre-body-buffer gate -----
+      // Runs AFTER verifyClient succeeds (so the hook sees the
+      // authenticated `auth.user`) and BEFORE the URL is normalised /
+      // `rpcHandler.handle()` reads the body. On reject we `sendError` and
+      // return WITHOUT touching `handle()` — so a wrong-content-type or
+      // oversized body is never buffered. A reject is definitive ("this
+      // upload isn't allowed"), so we do NOT call `next()`: there is no
+      // "let Express try another route" semantics for a gated upload.
+      const gate = await runBeforeUpload(req, auth.user);
+      if (!gate.ok) {
+        const code = gate.code ?? DEFAULT_BEFORE_UPLOAD_REJECT_CODE;
+        const reason = gate.reason ?? DEFAULT_BEFORE_UPLOAD_REJECT_REASON;
+        logger.warn("orpc-ws-server: HTTP upload rejected by beforeUpload", {
+          code,
+          reason,
+        });
+        sendError(res, code, reason);
         return;
       }
 

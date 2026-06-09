@@ -19,6 +19,13 @@ import type { OrpcWsServerOptions } from "@repo/orpc-ws-server";
  * Options accepted by `OrpcWsModule.forRoot` / `forRootAsync`. Mirrors
  * `OrpcWsServerOptions` from the core verbatim — the NestJS adapter
  * adds no transport-level config of its own.
+ *
+ * Because this is a verbatim alias, every core field threads through 1:1
+ * without any adapter code — including `uploads.beforeUpload` (the
+ * pre-body-buffer upload gate). `OrpcWsService` constructs the core with
+ * `new OrpcWsServer(this.options)`, so the consumer's `beforeUpload`
+ * reaches the HTTP upload handler unchanged; there is intentionally no
+ * Nest-only duplicate of it here.
  */
 export type OrpcWsModuleOptions<
   TUser = unknown,

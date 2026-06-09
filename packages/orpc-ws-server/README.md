@@ -106,6 +106,69 @@ The library reserves the `__orpc_ws_lib__` namespace and asserts no
 collision in your router at construction time. Your contract is
 untouched.
 
+## Uploads
+
+Opt-in HTTP transport for file-bearing procedures (ORPC multipart over
+HTTP). Off by default; `getHttpHandler()` returns `null` until you pass
+`uploads`:
+
+```ts
+uploads: {
+  enabled: true,
+  httpPath: "/upload",       // default
+  bodyLimitBytes: 50 * 1024 * 1024,  // optional ORPC BodyLimitPlugin cap
+}
+```
+
+The HTTP route reuses the same `verifyClient` as the WS path (Bearer
+header instead of URL token).
+
+### `beforeUpload`
+
+Optional pre-body-buffer gate, also on `uploads`. Runs **after**
+`verifyClient` succeeds (so it gets the authenticated `user`) and
+**before** the request body is read — so you can reject by
+`content-type` / `content-length` without ever buffering the bytes,
+and without overloading `verifyClient` (which is WS auth, runs pre-101,
+and never learns it's gating an upload).
+
+```ts
+type BeforeUploadContext<TUser> = {
+  headers: IncomingHttpHeaders;  // read content-type / content-length
+  user: TUser;                   // the verified principal
+  req: IncomingMessage;          // escape hatch
+};
+
+type BeforeUploadResult =
+  | { ok: true }
+  | { ok: false; code?: number; reason?: string };
+
+type BeforeUploadHook<TUser> =
+  (ctx: BeforeUploadContext<TUser>) => BeforeUploadResult | Promise<BeforeUploadResult>;
+```
+
+Mirrors the `verifyClient` accept/reject convention. The one
+difference: `code`/`reason` are **optional** on reject — the default is
+`415 Unsupported Media Type` (the common "wrong content-type" case
+needs no boilerplate; supply `code: 413` yourself for size). Fails
+closed: a throw or a non-conforming return becomes a `500` reject, and
+the RPC handler is never invoked.
+
+```ts
+uploads: {
+  enabled: true,
+  beforeUpload: ({ headers }) => {
+    const ct = headers["content-type"] ?? "";
+    if (!ct.startsWith("image/")) {
+      return { ok: false, reason: "Images only" };  // 415 by default
+    }
+    return { ok: true };
+  },
+}
+```
+
+Threads through the NestJS adapter unchanged — it's part of `uploads`.
+
 ## Gotchas
 
 1. **`verifyClient` runs in `ws`'s upgrade callback, before any
@@ -119,8 +182,10 @@ untouched.
 3. **Heartbeat namespace collision throws at construction.** If your
    router already has a top-level `__orpc_ws_lib__` key, rename it.
 4. **Uploads default to off.** `getHttpHandler()` returns `null` unless
-   you pass `uploads: { enabled: true, httpPath: "/upload" }`. The
-   NestJS adapter reads this for Express route registration.
+   you pass `uploads: { enabled: true, httpPath: "/upload" }` (plus
+   optional `bodyLimitBytes` and a `beforeUpload` gate — see
+   [Uploads](#uploads)). The NestJS adapter reads this for Express route
+   registration.
 
 ## See also
 

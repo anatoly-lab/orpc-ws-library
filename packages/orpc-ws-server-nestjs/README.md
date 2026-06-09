@@ -131,6 +131,11 @@ same `verifyClient` (Bearer header instead of URL token). Boot-time
 collision check against existing Nest controller routes. Defaults to
 off — when disabled, no extra route or body-parsing middleware.
 
+`uploads` also accepts an optional `beforeUpload` gate (reject by
+content-type / size before the body is buffered) — threaded unchanged
+from the core; see
+[`@repo/orpc-ws-server`](../orpc-ws-server/README.md#beforeupload).
+
 Client side: `client.upload(file, { procedure: ["files","upload"] })`
 — see [`@repo/orpc-ws-client`](../orpc-ws-client/README.md#uploads--opt-in-http-transport).
 

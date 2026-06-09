@@ -101,8 +101,15 @@ export {
 
 export type {
   UploadHttpConfig,
+  BeforeUploadContext,
+  BeforeUploadHook,
+  BeforeUploadResult,
 } from "./upload/http-config.js";
-export { DEFAULT_UPLOAD_HTTP_CONFIG } from "./upload/http-config.js";
+export {
+  DEFAULT_UPLOAD_HTTP_CONFIG,
+  DEFAULT_BEFORE_UPLOAD_REJECT_CODE,
+  DEFAULT_BEFORE_UPLOAD_REJECT_REASON,
+} from "./upload/http-config.js";
 export type { HttpUploadHandler } from "./upload/http-handler.js";
 export { extractBearerToken } from "./upload/http-verify.js";
 
@@ -164,8 +171,11 @@ export interface OrpcWsServerOptions<TUser, TContract extends object> {
    * the NestJS adapter to mount it).
    *
    * Disabled by default. CLAUDE.md "Library scope" pins opt-in semantics.
+   *
+   * Generic over the same `TUser` the rest of the options thread, so the
+   * optional `beforeUpload` gate receives the authenticated principal.
    */
-  uploads?: Partial<UploadHttpConfig>;
+  uploads?: Partial<UploadHttpConfig<TUser>>;
 }
 
 /**
@@ -204,7 +214,7 @@ export class OrpcWsServer<TUser, TContract extends object> {
    * the path/limits to adapters (the NestJS adapter needs the
    * `httpPath` for Express registration + the collision check).
    */
-  private readonly uploadConfig: UploadHttpConfig;
+  private readonly uploadConfig: UploadHttpConfig<TUser>;
 
   /** Set in `attach()`. Null until then; null after `dispose()`. */
   private wss: WebSocketServerType | null = null;
@@ -373,7 +383,7 @@ export class OrpcWsServer<TUser, TContract extends object> {
    * to know the path (e.g. NestJS adapter registers the Express route
    * at `uploadConfig.httpPath`).
    */
-  getUploadConfig(): UploadHttpConfig {
+  getUploadConfig(): UploadHttpConfig<TUser> {
     return this.uploadConfig;
   }
 

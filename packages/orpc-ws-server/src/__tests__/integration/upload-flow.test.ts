@@ -206,4 +206,108 @@ describe("Upload HTTP transport — integration", () => {
       await close();
     }
   });
+
+  it("beforeUpload accept path lets a real upload proceed unchanged", async () => {
+    const procedureSpy = vi.fn();
+    const beforeUpload = vi.fn(async () => ({ ok: true as const }));
+    const router = buildRouter((input, ctx) => {
+      procedureSpy(input, ctx);
+      return { uploaded: true, sub: (ctx as { user: TestUser }).user.sub };
+    });
+    const server = new OrpcWsServer<TestUser, typeof router>({
+      router,
+      verifyClient,
+      uploads: { enabled: true, httpPath: "/upload", beforeUpload },
+    });
+    const { port, close } = await startServerWithHandler(server);
+
+    try {
+      const link = new RPCLink({
+        url: `http://127.0.0.1:${port}/upload`,
+        headers: () => ({ authorization: `Bearer ${GOOD_TOKEN}` }),
+      });
+
+      const result = await link.call(
+        ["media", "upload"],
+        {
+          file: new Blob(["hello world"], { type: "text/plain" }),
+          name: "hello.txt",
+        },
+        { context: {} },
+      );
+
+      // The gate saw the authenticated user, then let the body flow
+      // through to the procedure — byte-for-byte the same result as the
+      // no-gate happy path above.
+      expect(beforeUpload).toHaveBeenCalledOnce();
+      expect(beforeUpload.mock.calls[0]?.[0].user).toEqual({ sub: "alice" });
+      expect(procedureSpy).toHaveBeenCalledOnce();
+      expect(result).toEqual({ uploaded: true, sub: "alice" });
+    } finally {
+      await server.dispose();
+      await close();
+    }
+  });
+
+  it("beforeUpload reject short-circuits before the procedure runs", async () => {
+    const procedureSpy = vi.fn();
+    // Reject UNCONDITIONALLY (default 415), but capture the content-type
+    // the hook observed so we can assert POSITIVELY on it afterwards.
+    // Branching control flow on `content-type.includes("multipart")` would
+    // be an unconditional reject disguised as a content-type check: if
+    // ORPC ever changed its wire content-type the gate would silently flip
+    // to ACCEPT and this test would fail confusingly. We don't own ORPC's
+    // wire format, so we don't gate on it — we observe it and assert.
+    let seenContentType: string | undefined;
+    const beforeUpload = vi.fn(async ({ headers }) => {
+      seenContentType = headers["content-type"];
+      return { ok: false as const };
+    });
+    const router = buildRouter((input, ctx) => {
+      procedureSpy(input, ctx);
+      return { ok: true };
+    });
+    const server = new OrpcWsServer<TestUser, typeof router>({
+      router,
+      verifyClient,
+      uploads: { enabled: true, httpPath: "/upload", beforeUpload },
+    });
+    const { port, close } = await startServerWithHandler(server);
+
+    try {
+      const link = new RPCLink({
+        url: `http://127.0.0.1:${port}/upload`,
+        headers: () => ({ authorization: `Bearer ${GOOD_TOKEN}` }),
+      });
+
+      // The gate rejects every upload → ORPC throws on the non-2xx
+      // (415) response, so we capture and inspect.
+      let error: unknown = undefined;
+      try {
+        await link.call(
+          ["media", "upload"],
+          {
+            file: new Blob(["hello world"], { type: "text/plain" }),
+            name: "hello.txt",
+          },
+          { context: {} },
+        );
+      } catch (err) {
+        error = err;
+      }
+
+      expect(error).toBeDefined();
+      expect(beforeUpload).toHaveBeenCalledOnce();
+      // POSITIVE assertion on the observed content-type: a real ORPC
+      // upload IS multipart. This proves the hook saw the request headers
+      // (the documented lever) WITHOUT making the test's pass/fail hinge
+      // on that string controlling the reject.
+      expect(seenContentType).toContain("multipart");
+      // Reject short-circuited before the body was buffered.
+      expect(procedureSpy).not.toHaveBeenCalled();
+    } finally {
+      await server.dispose();
+      await close();
+    }
+  });
 });

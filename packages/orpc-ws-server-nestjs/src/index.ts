@@ -30,10 +30,15 @@ export type {
   HeartbeatConfig,
   HeartbeatEvent,
   UploadHttpConfig,
+  BeforeUploadContext,
+  BeforeUploadHook,
+  BeforeUploadResult,
   HttpUploadHandler,
 } from "@repo/orpc-ws-server";
 export {
   DEFAULT_UPLOAD_HTTP_CONFIG,
+  DEFAULT_BEFORE_UPLOAD_REJECT_CODE,
+  DEFAULT_BEFORE_UPLOAD_REJECT_REASON,
   extractBearerToken,
 } from "@repo/orpc-ws-server";
 
