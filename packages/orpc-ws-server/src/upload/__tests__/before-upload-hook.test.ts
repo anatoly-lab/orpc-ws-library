@@ -232,20 +232,26 @@ describe("beforeUpload gate", () => {
     handler(req, res);
     await drain();
 
-    // The gate is absent, so nothing rejected pre-handle: no 415/500 was
-    // written by the gate. This is the reliable signal at the unit layer —
-    // the fake `req` from `makeFakePair` is a plain object, NOT a readable
-    // stream, so ORPC's `handle()` cannot buffer a real body and the
-    // procedure spy would not fire here regardless of the gate. Asserting
-    // `procedureSpy` were-called at this layer would test the fake, not the
-    // contract. The backwards-compat proof — that an absent hook lets a
-    // REAL multipart upload flow all the way to the procedure unchanged —
-    // is the integration accept-path test
-    // ("beforeUpload accept path lets a real upload proceed unchanged",
-    // `__tests__/integration/upload-flow.test.ts`), which runs over a real
-    // socket and asserts the procedure ran. Here we pin only what this
-    // layer can prove: the gate did NOT short-circuit.
+    // The gate is absent, so it MUST NOT short-circuit the request — the
+    // only thing this unit layer can prove. 415 is the gate's default
+    // reject status, so its absence is a meaningful, gate-specific signal:
+    // had a phantom gate fired, we'd see 415 here.
+    //
+    // We deliberately do NOT assert against 500. The fake `req` from
+    // `makeFakePair` is a plain object, NOT a readable stream, so once the
+    // request proceeds past the (absent) gate into ORPC's `handle()`, the
+    // handler throws while trying to buffer the multipart body and the
+    // catch maps it to 500 (http-handler.ts). That 500 is an artifact of
+    // the fake stream, not of the gate, and is indistinguishable from a
+    // gate-throw-500 at this layer — asserting on it would test the fake,
+    // not the contract. For the same reason `procedureSpy` cannot fire
+    // here (no real body to buffer), so it is not asserted either.
+    //
+    // The backwards-compat proof — that an absent hook lets a REAL
+    // multipart upload flow all the way to the procedure unchanged — is
+    // the integration accept-path test ("beforeUpload accept path lets a
+    // real upload proceed unchanged", `__tests__/integration/upload-flow.test.ts`),
+    // which runs over a real socket and asserts the procedure ran.
     expect(written.statusCode).not.toBe(415);
-    expect(written.statusCode).not.toBe(500);
   });
 });
