@@ -1,0 +1,44 @@
+# Fable model review — `@repo/orpc-ws-*`
+
+Independent codebase review performed by agents running on the **Fable**
+model. Scope: the library packages under `packages/*` (cores + adapters +
+OIDC helpers). Demo apps and e2e are in scope only where they reveal a
+library defect.
+
+**Status: triage in progress.** All four **High**-severity bugs plus the seed
+finding are ✅ RESOLVED (see per-finding banners): **BUG-1, BUG-2, BUG-3,
+BUG-4** (client lifecycle) and **API-4** (server token-expiry, opt-in). BUG-1/3/4
++ API-4 are test-passing; BUG-2 typechecks (run the client suite to confirm).
+**BUG-5** (Medium — storm-guard single-window deviation, a locked-decision
+violation) is also ✅ RESOLVED (full fix: shared window + single-flight refresh
++ no-swap-after-terminal guard). Still open proposals: **BUG-6/7/8/9/10**
+(Medium/Low), the SOLID god-files (client `index.ts` is now ~700 LOC), and the
+"Needs further investigation" items.
+
+## Reports
+
+| Report | Area | Headline counts |
+|---|---|---|
+| [security-review.md](./security-review.md) | Security: auth, token lifecycle, uploads, verifier, DoS | API-4 reproduced (Medium); 4 Low, 3 Info |
+| [bugs-review.md](./bugs-review.md) | Correctness bugs: reconnect, heartbeat, sleep, lifecycle, state | 4 High, 4 Medium, 2 Low |
+| [solid-review.md](./solid-review.md) | SOLID / architecture vs the project's own non-negotiables | 6 god files (worst 641 LOC); ~15 banned-construct lines |
+
+## Cross-cutting headline
+
+The serious findings cluster at the **client-core composition root**
+(`packages/orpc-ws-client/src/index.ts`, 641 LOC) and the
+**reconnect/heartbeat lifecycle interactions** — three independent "permanent
+zombie / never-terminal" bugs (BUG-1/3/4) plus the architectural smell that
+the composition root is the very god-file the project says it's escaping. The
+per-module logic is well-tested; the gaps are in how the modules are wired
+together at the top.
+
+## Seed finding under validation
+
+**API-4 — no token-expiry enforcement on the dashboard WebSocket** (carried
+over from the source app `anki-mcp-saas`). The library is the extraction of
+that exact gateway, so the security report validates whether
+`@repo/orpc-ws-server` reproduces it: token validated once at connect
+(`lifecycle/verify-client-orchestrator.ts`), never re-checked; no scheduled
+close at `exp`; no `session.invalidated` force-disconnect. See
+[security-review.md](./security-review.md).
