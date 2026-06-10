@@ -341,6 +341,75 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
   // ----- 6. WebSocket factory -----
   const websocketFactory = new WebSocketFactory({ logger });
 
+  // ----- 6b. Terminal-auth-failure path + dispose flag -----
+  // `disposed` is declared here (not next to `dispose()` in step 12)
+  // because the TokenRefreshHandler's `isDisposed` predicate below closes
+  // over it — the declaration must precede the wiring.
+  let disposed = false;
+
+  // Single-fire terminal teardown (Bug 14). The public contract
+  // (`onTerminalAuthFailure` docs above) says the client is TERMINAL after
+  // this fires — previously nothing made that true: the partysocket
+  // wrapper kept auto-retrying with the stale token, every rejected retry
+  // re-fired the consumer callback, and state stayed
+  // `disconnected({willRetry: true})` forever.
+  //
+  // Both terminal triggers route here: the ReconnectManager (refresh
+  // returned null / storm guard tripped — it has its own internal
+  // single-fire latch) and the no-tokenProvider auth-recovery branch in
+  // step 8. This closure carries the composition-level latch so the two
+  // paths together fire the consumer callback at most once per client.
+  //
+  // Teardown mirrors `dispose()`'s ordering: close the wrapper FIRST
+  // (partysocket's `close()` latches its internal `_closeCalled` flag and
+  // stops the auto-retry loop — same technique as the 4005 branch in
+  // event-handlers.ts), then clear the holder/link so the wrapper's late
+  // close event is stale-dropped (Bug 9 guard) instead of fighting the
+  // terminal state we set below.
+  let terminalAuthFired = false;
+  const fireTerminalAuthFailure = (): void => {
+    if (terminalAuthFired) {
+      logger.debug(
+        "orpc-ws-client: terminal auth failure already handled; ignoring repeat",
+      );
+      return;
+    }
+    terminalAuthFired = true;
+
+    heartbeatSubscriber.unsubscribe();
+    heartbeatMonitor.stop();
+
+    const ws = websocketHolder.get();
+    if (ws) {
+      try {
+        ws.close();
+      } catch (err) {
+        logger.warn(
+          "orpc-ws-client: ws.close() during terminal auth failure threw",
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      }
+    }
+    linkFactory.clearLink();
+    websocketHolder.clear();
+
+    // Terminal state BEFORE the consumer callback — the contract in
+    // auth/types.ts promises the connection has already moved to a
+    // non-retrying disconnected state when the callback runs.
+    connectionState.setState(disconnected({ willRetry: false }));
+
+    emit({ type: "auth_failure", refreshable: false });
+    if (opts.onTerminalAuthFailure) {
+      try {
+        opts.onTerminalAuthFailure();
+      } catch (err) {
+        logger.error("orpc-ws-client: onTerminalAuthFailure callback threw", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  };
+
   // ----- 7. Token refresh + reconnect manager (with forward-ref dance) -----
   // EventHandlers needs `onAuthRecoveryNeeded` wired to
   // `reconnectManager.tryAuthRecovery`, BUT ReconnectManager construction
@@ -383,27 +452,29 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     heartbeatMonitor,
     heartbeatSubscriber,
     linkClearer: () => linkFactory.clearLink(),
+    // Refuse the socket swap after the client is dead — either disposed
+    // (Bug 12) OR terminal (Bug 14). The terminal guard closes a race the
+    // shared storm window (Bug 16/BUG-5) makes reachable: a reconnect()
+    // refresh can still be in flight when a concurrent 1008 trips
+    // `tryAuthRecovery` into terminal teardown; without this, the resolving
+    // refresh would `swapSocket` a brand-new socket AFTER terminal and flip
+    // state back to `connected` (zombie-after-terminal).
+    isDisposed: () => disposed || terminalAuthFired,
     logger,
   });
 
   const reconnectManager = new ReconnectManager({
     tokenRefreshHandler,
     reconnectConfig,
-    onTerminalAuthFailure: () => {
-      // Library has given up. Emit a non-refreshable auth-failure event
-      // and run the consumer's app-level cleanup (clear auth, redirect).
-      emit({ type: "auth_failure", refreshable: false });
-      if (opts.onTerminalAuthFailure) {
-        try {
-          opts.onTerminalAuthFailure();
-        } catch (err) {
-          logger.error(
-            "orpc-ws-client: onTerminalAuthFailure callback threw",
-            { error: err instanceof Error ? err.message : String(err) },
-          );
-        }
-      }
-    },
+    // Library has given up (refresh returned null / storm guard tripped).
+    // Route to the single-fire terminal teardown above — close the
+    // wrapper, set terminal state, notify the consumer once.
+    onTerminalAuthFailure: fireTerminalAuthFailure,
+    // Cookie auth (no tokenProvider): the stub provider's `refresh()`
+    // always returns null, which must NOT read as "auth is dead" on the
+    // `reconnect()` path (sleep-wake / heartbeat timeout) — see
+    // `ReconnectManagerDeps.canRefresh`.
+    canRefresh: hasTokenProvider,
     clock,
     rng,
     logger,
@@ -423,17 +494,10 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
           "orpc-ws-client: auth-recovery needed but no tokenProvider configured; firing terminal",
           { closeCode },
         );
-        emit({ type: "auth_failure", refreshable: false });
-        if (opts.onTerminalAuthFailure) {
-          try {
-            opts.onTerminalAuthFailure();
-          } catch (err) {
-            logger.error(
-              "orpc-ws-client: onTerminalAuthFailure callback threw",
-              { error: err instanceof Error ? err.message : String(err) },
-            );
-          }
-        }
+        // Same single-fire terminal path as the ReconnectManager triggers
+        // (Bug 14) — tears down the wrapper and fires the consumer
+        // callback at most once per client.
+        fireTerminalAuthFailure();
         return;
       }
       // We DO have a tokenProvider — the library is going to try a
@@ -474,6 +538,18 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
       return;
     }
     emit({ type: "heartbeat_timeout" });
+    // Bug 15: a heartbeat timeout means the link is dead even though no
+    // close event arrived (half-open zombie — the close may NEVER come).
+    // Without this transition the UI keeps showing `connected` over a
+    // dead socket; if the subsequent recovery's refresh also fails, it
+    // would show `connected` forever. Guarded on `connected` so we never
+    // fight the close-event state path (which owns `disconnected({code,
+    // ...})` transitions) or clobber a `connecting` frame from a racing
+    // swap. Re-read AFTER emit — a consumer's onEvent may have disposed
+    // the client, and we must not overwrite its terminal state.
+    if (connectionState.getState().status === "connected") {
+      connectionState.setState(disconnected({ willRetry: true }));
+    }
     void reconnectManager.reconnect();
   });
 
@@ -508,10 +584,22 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
   };
 
   // ----- 12. Lifecycle: connect() / dispose() -----
-  let disposed = false;
+  // (`disposed` is declared in step 6b — the TokenRefreshHandler's
+  // `isDisposed` predicate closes over it.)
   const connect = (): void => {
     if (disposed) {
       logger.warn("orpc-ws-client: connect() called after dispose(); ignoring");
+      return;
+    }
+    if (terminalAuthFired) {
+      // Terminal auth failure is a one-way door (Bug 14): the state is
+      // `disconnected({willRetry: false})`, which is also the
+      // pre-first-connect state, so the latch — not the state — is what
+      // distinguishes "never connected" from "library gave up". Per the
+      // contract the consumer creates a NEW client post-re-auth.
+      logger.warn(
+        "orpc-ws-client: connect() after terminal auth failure; ignoring — create a new client",
+      );
       return;
     }
     const s = connectionState.getState();
@@ -521,6 +609,23 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
       s.status === "connected" ||
       s.status === "kicked"
     ) {
+      return;
+    }
+    // Bug 13: the status guard above misses the auto-retry window. After
+    // any drop the state is `disconnected({willRetry: true})` while the
+    // EXISTING partysocket wrapper is still retrying internally (default
+    // maxRetries: Infinity). Creating a second wrapper here would
+    // overwrite the holder reference and orphan the old wrapper — never
+    // closed, reconnecting forever; with the server's
+    // singleConnectionPerUser the two perpetually 4005-kick each other.
+    // A wrapper in the holder means the library already owns reconnect;
+    // the idempotent behavior is to leave it alone. (The dispose and
+    // terminal-auth teardowns both clear the holder, so those paths never
+    // reach this guard — their latches above return first anyway.)
+    if (websocketHolder.get() !== null) {
+      logger.debug(
+        "orpc-ws-client: connect() ignored — a connection already exists; the library owns reconnect",
+      );
       return;
     }
     // Move to connecting BEFORE creating the WS so the very first
@@ -544,7 +649,10 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     disposed = true;
 
     // Stop background work first so a tick mid-teardown can't reach a
-    // half-disposed collaborator.
+    // half-disposed collaborator. The reconnect manager goes down with
+    // them (Bug 12): an armed debounce timer or in-flight refresh would
+    // otherwise fire AFTER this teardown and resurrect a zombie socket.
+    reconnectManager.dispose();
     heartbeatSubscriber.unsubscribe();
     heartbeatMonitor.stop();
     if (sleepDetector) sleepDetector.stop();

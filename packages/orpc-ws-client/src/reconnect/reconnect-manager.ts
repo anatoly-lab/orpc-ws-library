@@ -76,6 +76,19 @@ export interface ReconnectManagerDeps {
    * See `auth/types.ts` for the full contract.
    */
   onTerminalAuthFailure: OnTerminalAuthFailure;
+  /**
+   * Whether `tokenRefreshHandler.refreshAndReconnect()` can actually mint
+   * a new token — i.e. the consumer supplied a `tokenProvider`. Cookie-auth
+   * clients (no `tokenProvider`) get the composition root's stub provider
+   * whose `refresh()` always returns `null`; that `null` means "nothing to
+   * refresh", NOT "auth is dead", so `runReconnect` skips the refresh
+   * entirely and rebuilds the socket via `reconnectWithCurrentToken()` —
+   * never escalating to `onTerminalAuthFailure` (regression on the Bug 15
+   * fix: a healthy cookie-auth client would hit terminal just from a
+   * sleep-wake or heartbeat-timeout `reconnect()`). Defaults to `true`
+   * (token auth).
+   */
+  canRefresh?: boolean;
   clock?: Clock;
   rng?: Rng;
   logger?: Logger;
@@ -93,13 +106,22 @@ export interface ReconnectManagerDeps {
  *     `onTerminalAuthFailure`. Otherwise hands off to TokenRefreshHandler.
  *
  * All timing state lives on the instance — there is no module-level state.
- * One instance per client; dispose by simply dropping the reference (the
- * composition root owns the lifecycle).
+ * One instance per client. The composition root MUST call `dispose()` on
+ * client teardown — dropping the reference is NOT enough while a debounce
+ * timer is armed or a refresh is in flight (Bug 12: a surviving timer
+ * would resurrect a WebSocket after `client.dispose()`).
+ *
+ * Terminal semantics (Bug 14): `onTerminalAuthFailure` fires AT MOST ONCE
+ * per instance. After it fires, every entry point (`reconnect()`,
+ * `tryAuthRecovery()`) becomes a no-op — "the library has given up" is a
+ * one-way door, matching the public contract ("the client is terminal
+ * after this fires; create a new one post-re-auth").
  */
 export class ReconnectManager {
   private readonly tokenRefreshHandler: TokenRefreshHandler;
   private readonly config: ReconnectManagerConfig;
   private readonly onTerminalAuthFailure: OnTerminalAuthFailure;
+  private readonly canRefresh: boolean;
   private readonly clock: Clock;
   private readonly rng: Rng;
   private readonly logger: Logger;
@@ -121,9 +143,12 @@ export class ReconnectManager {
    * scope in `lifecycle/event-handlers.ts` (source line 25). Now an
    * instance field — one window per client instance. CLAUDE.md "Storm
    * guard state moves from module-level into a ReconnectManager instance
-   * field". Updated by `tryAuthRecovery` immediately before calling
-   * `refreshAndReconnect`, so a follow-up call within
-   * `minRefreshIntervalMs` will short-circuit.
+   * field". Updated by BOTH refresh-driving paths — `tryAuthRecovery` and
+   * `runReconnect` — immediately before calling `refreshAndReconnect`
+   * (Bug 16 / BUG-5: "single window across all triggers"). A follow-up
+   * call within `minRefreshIntervalMs` short-circuits: terminal in
+   * `tryAuthRecovery` (auth-failure hot loop), no-refresh socket rebuild
+   * in `runReconnect` (normal churn).
    *
    * Initialized to `-Infinity` so the FIRST call always passes the guard
    * (since `now - (-Infinity)` is `Infinity`, never less than the window).
@@ -132,11 +157,27 @@ export class ReconnectManager {
    * bug-shaped default we deliberately avoid.
    */
   private lastRefreshAttemptedAt = Number.NEGATIVE_INFINITY;
+  /**
+   * Single-fire latch for `onTerminalAuthFailure` (Bug 14). Once the
+   * library has given up on auth recovery, repeat triggers (partysocket
+   * retries being 1008-ed, follow-up heartbeat timeouts) must NOT re-fire
+   * the consumer callback or attempt further refreshes — terminal means
+   * terminal.
+   */
+  private terminalFired = false;
+  /**
+   * Set by `dispose()` (Bug 12). Checked at the top of every entry point
+   * AND re-checked after every `await`, so an in-flight `refresh()` that
+   * resolves post-dispose cannot proceed to swap the socket or fire
+   * consumer callbacks.
+   */
+  private disposed = false;
 
   constructor(deps: ReconnectManagerDeps) {
     this.tokenRefreshHandler = deps.tokenRefreshHandler;
     this.config = deps.reconnectConfig;
     this.onTerminalAuthFailure = deps.onTerminalAuthFailure;
+    this.canRefresh = deps.canRefresh ?? true;
     this.clock = deps.clock ?? systemClock;
     this.rng = deps.rng ?? defaultRng;
     this.logger = deps.logger ?? noopLogger;
@@ -164,6 +205,22 @@ export class ReconnectManager {
    * refresh path is uniform).
    */
   async tryAuthRecovery(closeCode: number): Promise<void> {
+    if (this.disposed) {
+      this.logger.debug(
+        "reconnect-manager: tryAuthRecovery after dispose(); ignoring",
+        { closeCode },
+      );
+      return;
+    }
+    if (this.terminalFired) {
+      // Bug 14: after terminal, the library must not attempt another
+      // refresh — repeat triggers (e.g. a straggler close event) no-op.
+      this.logger.debug(
+        "reconnect-manager: tryAuthRecovery after terminal auth failure; ignoring",
+        { closeCode },
+      );
+      return;
+    }
     const now = this.clock.now();
     const elapsed = now - this.lastRefreshAttemptedAt;
 
@@ -197,6 +254,10 @@ export class ReconnectManager {
       });
     }
 
+    // Re-check after the await (Bug 12): a dispose() that landed while
+    // refresh() was in flight wins — no terminal callback post-teardown.
+    if (this.disposed) return;
+
     if (!ok) {
       this.logger.warn(
         "reconnect-manager: refresh returned null, firing onTerminalAuthFailure",
@@ -218,6 +279,14 @@ export class ReconnectManager {
    * the mutex). Never rejects — errors are logged.
    */
   async reconnect(): Promise<void> {
+    if (this.disposed || this.terminalFired) {
+      // Disposed (Bug 12) or terminal (Bug 14): no reconnect machinery
+      // may run. Resolve immediately — callers must never hang.
+      this.logger.debug(
+        "reconnect-manager: reconnect() after dispose/terminal; ignoring",
+      );
+      return;
+    }
     if (this.reconnectDebounceTimer) {
       // Earlier debounced reconnect superseded by this call. We clear the
       // pending timer but keep the accumulated resolvers — they're all
@@ -246,6 +315,29 @@ export class ReconnectManager {
   }
 
   /**
+   * Cancel all reconnect machinery (Bug 12). Called by the composition
+   * root's `dispose()`. Clears the armed debounce timer, resolves every
+   * pending `reconnect()` promise (callers must not hang on a client
+   * that will never reconnect), and latches `disposed` so any in-flight
+   * `refresh()` that resolves later is discarded instead of standing up
+   * a zombie WebSocket.
+   *
+   * Idempotent.
+   */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.reconnectDebounceTimer) {
+      this.clock.clearTimeout(this.reconnectDebounceTimer);
+      this.reconnectDebounceTimer = null;
+    }
+    const resolvers = this.pendingReconnectResolvers;
+    this.pendingReconnectResolvers = [];
+    for (const r of resolvers) r();
+    this.logger.debug("reconnect-manager: disposed");
+  }
+
+  /**
    * Post-debounce reconnect body. Resolves EVERY accumulated waiter when
    * the work is done (or when the mutex short-circuits) — coalesced calls
    * to `reconnect()` share one outcome but each promise still settles.
@@ -254,6 +346,15 @@ export class ReconnectManager {
     const settleAll = () => {
       for (const r of resolvers) r();
     };
+
+    if (this.disposed || this.terminalFired) {
+      // Disposed/terminal between scheduling and the debounce firing.
+      this.logger.debug(
+        "reconnect-manager: runReconnect after dispose/terminal; skipping",
+      );
+      settleAll();
+      return;
+    }
 
     if (this.reconnectInProgress) {
       this.logger.debug(
@@ -274,7 +375,77 @@ export class ReconnectManager {
       });
       await this.delay(jitter);
 
-      await this.tokenRefreshHandler.refreshAndReconnect();
+      // Re-check after the jitter delay (Bug 12): dispose() during the
+      // delay must win — no refresh, no socket swap.
+      if (this.disposed || this.terminalFired) {
+        this.logger.debug(
+          "reconnect-manager: disposed/terminal during jitter delay; aborting reconnect",
+        );
+        return;
+      }
+
+      // Cookie auth (no tokenProvider): refresh is meaningless — the stub
+      // provider's `refresh()` always returns null, which carries no auth
+      // signal (Bug 15b). Rebuild the socket with the current (no-)token
+      // instead; the URL builder already handles a null token. Never
+      // terminal — a sleep-wake or heartbeat-timeout reconnect on a
+      // cookie-auth client is routine churn, not a "redirect to /login".
+      // (`tryAuthRecovery` never reaches this state — the composition root
+      // already gates it on `hasTokenProvider` before routing close events
+      // here.)
+      if (!this.canRefresh) {
+        this.tokenRefreshHandler.reconnectWithCurrentToken();
+        this.logger.info(
+          "reconnect-manager: safe reconnect completed (no tokenProvider, no refresh)",
+        );
+        return;
+      }
+
+      // Shared storm window (Bug 16 / BUG-5): heartbeat-timeout and
+      // sleep-wake reconnects share the SAME `lastRefreshAttemptedAt`
+      // window as `tryAuthRecovery` — CLAUDE.md "single window across all
+      // triggers". If we refreshed within `minRefreshIntervalMs`, the
+      // current token is still fresh: rebuild the socket with it instead
+      // of hitting the IdP again. Unlike `tryAuthRecovery`'s trip, this is
+      // NOT terminal — a reconnect landing inside the window is normal
+      // churn, not an auth-failure hot loop.
+      const now = this.clock.now();
+      if (now - this.lastRefreshAttemptedAt < this.config.minRefreshIntervalMs) {
+        this.logger.info(
+          "reconnect-manager: within storm window, reconnecting with current token (no refresh)",
+        );
+        this.tokenRefreshHandler.reconnectWithCurrentToken();
+        return;
+      }
+
+      // Stamp the SHARED window BEFORE the await (same rule as
+      // `tryAuthRecovery`): two near-simultaneous triggers must not both
+      // pass the window check — the first writes synchronously, the
+      // second reads it and takes the no-refresh branch.
+      this.lastRefreshAttemptedAt = now;
+
+      // Honor the refresh outcome (Bug 15). The source dropped this
+      // boolean, which left a heartbeat-timeout recovery whose refresh
+      // returned null in limbo: no new socket, no terminal signal, no
+      // retry — a permanent zombie. "Refresh returned null" maps to
+      // terminal per the locked auth contract (CLAUDE.md §"Auth flow
+      // contract"), exactly as in `tryAuthRecovery` above.
+      let ok = false;
+      try {
+        ok = await this.tokenRefreshHandler.refreshAndReconnect();
+      } catch (err) {
+        this.logger.error("reconnect-manager: refreshAndReconnect threw", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      if (this.disposed) return;
+      if (!ok) {
+        this.logger.warn(
+          "reconnect-manager: reconnect refresh returned null, firing onTerminalAuthFailure",
+        );
+        this.fireTerminalAuthFailure();
+        return;
+      }
       this.logger.info("reconnect-manager: safe reconnect completed");
     } catch (err) {
       this.logger.error("reconnect-manager: safe reconnect failed", {
@@ -293,6 +464,17 @@ export class ReconnectManager {
   }
 
   private fireTerminalAuthFailure(): void {
+    if (this.disposed) return;
+    if (this.terminalFired) {
+      // Bug 14: single fire per instance. Anything that re-triggers the
+      // terminal path after the first fire (straggler close events,
+      // late storm-guard trips) is logged and dropped.
+      this.logger.debug(
+        "reconnect-manager: terminal auth failure already fired; ignoring repeat",
+      );
+      return;
+    }
+    this.terminalFired = true;
     try {
       this.onTerminalAuthFailure();
     } catch (err) {

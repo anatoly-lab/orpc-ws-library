@@ -319,6 +319,11 @@ export class OrpcWsServer<TUser, TContract extends object> {
         upgrade: (ws, opts2) => this.rpcHandler.upgrade(ws, { context: opts2.context }),
       },
       hooks: handlerHooks,
+      // API-4: expiry-watchdog knobs + clock. The handler only enforces
+      // when `connection.enforceTokenExpiry` is true AND the verify
+      // result carried `expiresAt`.
+      config: this.connectionConfig,
+      clock,
       logger: this.logger,
     });
   }
@@ -394,6 +399,26 @@ export class OrpcWsServer<TUser, TContract extends object> {
    *
    * Defaults to `shutdownCloseCode` / "closed by server" — consumers
    * pass overrides for app-level reasons (e.g. token revoked).
+   *
+   * **This is the blessed session-invalidation hook (API-4).** The
+   * library validates auth once, pre-101; external invalidation events
+   * (logout-everywhere, admin revocation, security incident) do NOT
+   * propagate to live sockets on their own. The intended wiring is
+   * consumer-side: subscribe to your own invalidation stream and call
+   * this with the auth-failed close code so the client runs its
+   * refresh/reconnect path (and lands on terminal auth failure if the
+   * session really is gone):
+   *
+   * ```ts
+   * sessionEvents.on("invalidated", ({ sub }) => {
+   *   server.closeUser(sub, 4001, "session invalidated");
+   * });
+   * ```
+   *
+   * The library deliberately ships no built-in pub/sub for this — the
+   * invalidation transport (Redis, DB triggers, IdP back-channel
+   * logout) is the consumer's, not the library's. For time-based expiry
+   * see `ConnectionConfig.enforceTokenExpiry` instead.
    */
   closeUser(connectionKey: string, code?: number, reason?: string): void {
     const ws = this.registry.get(connectionKey);

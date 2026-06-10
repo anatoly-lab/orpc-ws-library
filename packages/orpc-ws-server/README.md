@@ -58,7 +58,7 @@ httpServer.listen(3000);
 
 ```ts
 type VerifyClientResult<TUser> =
-  | { ok: true; user: TUser; connectionKey?: string }
+  | { ok: true; user: TUser; connectionKey?: string; expiresAt?: number }
   | { ok: false; code: number; reason: string };
 ```
 
@@ -72,6 +72,24 @@ it for single-connection-per-user enforcement (close 4005 to the older
 socket) and for `closeUser()` lookups. Usually the user's `sub` claim,
 but any stable string works. Omitting it disables both features for
 that connection.
+
+### Token lifetime on live connections
+
+Auth runs **once**, pre-101. By default a connection authenticated with
+a short-lived token stays open past the token's `exp` — the heartbeat
+keeps it alive. Two opt-in levers close that gap:
+
+1. **Time-based expiry** — return `expiresAt` (epoch **milliseconds**;
+   JWT `exp` is seconds, so `exp * 1000`) from `verifyClient` and set
+   `connection: { enforceTokenExpiry: true }`. The server closes the
+   socket with `authFailedCloseCode` (default `4001`, `"Token expired"`)
+   when the instant passes; the library client treats 4001 as
+   refresh-and-reconnect, so a healthy session rolls over seamlessly.
+   `@repo/oidc-verifier-jose` populates `expiresAt` automatically.
+2. **External invalidation** (logout-everywhere, admin revocation) —
+   subscribe to your own invalidation stream and call
+   `server.closeUser(sub, 4001, "session invalidated")`. The library
+   ships no built-in pub/sub for this; the transport is yours.
 
 ## OIDC verifier
 

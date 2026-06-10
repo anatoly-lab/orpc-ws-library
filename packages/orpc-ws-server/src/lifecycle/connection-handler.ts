@@ -37,8 +37,15 @@ import type { IncomingMessage } from "http";
 
 import type { WebSocket } from "ws";
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import {
+  type Clock,
+  type Logger,
+  type TimerHandle,
+  noopLogger,
+  systemClock,
+} from "@repo/orpc-ws-shared";
 
+import type { ConnectionConfig } from "../config/connection-config.js";
 import type { ConnectionRegistry } from "../state/connection-registry.js";
 import type { WsPingPong } from "../heartbeat/ws-ping-pong.js";
 
@@ -77,6 +84,19 @@ export interface ConnectionHandlerDeps<TUser> {
   pingPong: WsPingPong;
   rpcHandler: RpcHandlerLike<TUser>;
   hooks?: ConnectionHandlerHooks<TUser>;
+  /**
+   * Structural pick of the connection config (interface segregation —
+   * the handler reads only the expiry-watchdog knobs). Optional with
+   * back-compat defaults (`enforceTokenExpiry: false`, code 4001) so
+   * existing call sites / tests are unaffected; the composition root
+   * always passes the resolved config.
+   */
+  config?: Pick<ConnectionConfig, "enforceTokenExpiry" | "authFailedCloseCode">;
+  /**
+   * Injected clock for the API-4 token-expiry watchdog. Default
+   * `systemClock`; tests pass a fake for deterministic expiry firing.
+   */
+  clock?: Clock;
   logger?: Logger;
 }
 
@@ -86,6 +106,9 @@ export class ConnectionHandler<TUser> {
   private readonly pingPong: WsPingPong;
   private readonly rpcHandler: RpcHandlerLike<TUser>;
   private readonly hooks: ConnectionHandlerHooks<TUser>;
+  private readonly enforceTokenExpiry: boolean;
+  private readonly authFailedCloseCode: number;
+  private readonly clock: Clock;
   private readonly logger: Logger;
 
   constructor(deps: ConnectionHandlerDeps<TUser>) {
@@ -94,6 +117,9 @@ export class ConnectionHandler<TUser> {
     this.pingPong = deps.pingPong;
     this.rpcHandler = deps.rpcHandler;
     this.hooks = deps.hooks ?? {};
+    this.enforceTokenExpiry = deps.config?.enforceTokenExpiry ?? false;
+    this.authFailedCloseCode = deps.config?.authFailedCloseCode ?? 4001;
+    this.clock = deps.clock ?? systemClock;
     this.logger = deps.logger ?? noopLogger;
   }
 
@@ -159,7 +185,40 @@ export class ConnectionHandler<TUser> {
       this.pingPong.register(ws, user);
     }
 
+    // API-4 token-expiry watchdog (opt-in, default off). Scheduling is
+    // sync (clock.setTimeout), so the file-header sync contract holds.
+    // The verifier surfaced `expiresAt` in epoch ms (same unit as
+    // `clock.now()`); a token already past expiry gets a 0ms timer —
+    // verifyClient accepted it, so `exp` skew is the verifier's call,
+    // not ours to second-guess.
+    //
+    // The timer is per-connection (closure-captured) and cleared in the
+    // 'close' handler below — the same teardown path that unregisters
+    // ping/pong — so a normally-closed connection never leaks a timer.
+    let expiryTimer: TimerHandle | null = null;
+    if (this.enforceTokenExpiry && typeof auth.expiresAt === "number") {
+      const msUntilExpiry = Math.max(0, auth.expiresAt - this.clock.now());
+      expiryTimer = this.clock.setTimeout(() => {
+        expiryTimer = null;
+        this.logger.info("connection-handler: token expired, closing", {
+          connectionKey,
+        });
+        try {
+          ws.close(this.authFailedCloseCode, "Token expired");
+        } catch (err) {
+          this.logger.warn(
+            "connection-handler: ws.close() on token expiry threw",
+            { error: err instanceof Error ? err.message : String(err) },
+          );
+        }
+      }, msUntilExpiry);
+    }
+
     ws.on("close", (code, reason: Buffer) => {
+      if (expiryTimer) {
+        this.clock.clearTimeout(expiryTimer);
+        expiryTimer = null;
+      }
       // `reason` arrives as a Buffer from `ws`; decode for human-readable
       // log output. Empty buffer → `undefined` so structured-log viewers
       // render the field as absent rather than an ambiguous empty string

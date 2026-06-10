@@ -43,6 +43,21 @@ export interface ConnectionConfig {
    * trigger their auth-recovery / refresh path.
    */
   authFailedCloseCode: number;
+  /**
+   * Opt-in token-expiry watchdog (API-4). When `true` AND the consumer's
+   * `verifyClient` result carries `expiresAt` (epoch ms), the connection
+   * handler schedules a close with `authFailedCloseCode` (default 4001,
+   * "Token expired") at that instant — so a connection authenticated with
+   * a 15-minute token cannot outlive the token. The library client treats
+   * 4001 as auth-recovery: refresh the token, reconnect — the loop closes
+   * with no client-side change.
+   *
+   * Default `false` for back-compat: a verify result without `expiresAt`
+   * (every pre-existing consumer) sees zero behavior change either way.
+   * Recommended `true` for new deployments using a verifier that
+   * populates `expiresAt` (e.g. `@repo/oidc-verifier-jose`).
+   */
+  enforceTokenExpiry: boolean;
 }
 
 /**
@@ -56,4 +71,5 @@ export const DEFAULT_CONNECTION_CONFIG: ConnectionConfig = {
   shutdownCloseCode: 4009,
   sessionReplacedCloseCode: 4005,
   authFailedCloseCode: 4001,
+  enforceTokenExpiry: false,
 };

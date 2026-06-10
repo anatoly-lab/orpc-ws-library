@@ -65,9 +65,17 @@ export interface VerifyClientContext {
  * `connectionKey` is the optional handle used by the connection registry
  * to enforce one-connection-per-user. When omitted, the registry falls
  * back to `JSON.stringify(user)` — coarse but safe.
+ *
+ * `expiresAt` is the credential's expiry instant in **epoch milliseconds**
+ * (matching the injected `Clock.now()` unit — note the JWT `exp` claim is
+ * epoch *seconds*, so verifiers convert `exp * 1000`). Optional and purely
+ * informational unless `ConnectionConfig.enforceTokenExpiry` is enabled,
+ * in which case the connection handler schedules a close
+ * (`authFailedCloseCode`, default 4001) when the instant passes. Verifiers
+ * that don't know the expiry simply omit it.
  */
 export type VerifyClientResult<TUser> =
-  | { ok: true; user: TUser; connectionKey?: string }
+  | { ok: true; user: TUser; connectionKey?: string; expiresAt?: number }
   | { ok: false; code: number; reason: string };
 
 /**

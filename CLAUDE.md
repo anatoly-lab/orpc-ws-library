@@ -18,9 +18,9 @@ All tasks run through Turborepo from the repo root (`npm install` first).
 
 | Task | Command | Notes |
 |---|---|---|
-| Build all | `npm run build` | `tsc` per package; topo-ordered via `^build`. |
+| Build all | `npm run build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for `@repo/orpc-ws-oidc-react` (ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps. Topo-ordered via `^build`. |
 | Typecheck all | `npm run typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
-| Lint all | `npm run lint` | ESLint flat config; enforces framework-free cores. |
+| Lint all | `npm run lint` | ESLint flat config; enforces framework-free cores. Note: `lint` `dependsOn: ["build"]` in `turbo.json` — tshy writes a temporary `package.json` mid-build that the ESLint import resolver would otherwise race (commit `edec802`). |
 | Unit tests all | `npm run test` | Vitest, per package. **User runs tests — assistant does not.** |
 | Full CI gate | `npm run ci` | lint → typecheck → test → build. |
 | Clean | `npm run clean` | wipes `dist`, `.turbo`, root `node_modules`. |
@@ -39,9 +39,11 @@ Regression tests for the design-doc bugs are greppable by filename
 
 Demo (two separate processes — Vite SPA + NestJS server; **user runs these**):
 - `npm run dev:demo` (both), or `npm run dev:server` / `npm run dev:spa`
-- needs `apps/demo-spa/.env` (copy from `.env.example`) and a running OIDC
-  IdP. Preferred IdP is the hosted Keycloak at `keycloak.anatoly.dev`
-  (`orpc-ws-demo` realm).
+- needs **both** `apps/demo-spa/.env` (SPA build-time `VITE_*` vars) and
+  `apps/demo-server/.env` (server `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` /
+  `PORT`, loaded via Node `--env-file-if-exists`) — each copied from its
+  own `.env.example` — plus a running OIDC IdP. Preferred IdP is the hosted
+  Keycloak at `keycloak.anatoly.dev` (`orpc-ws-demo` realm).
 
 e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
 - `npm run test:e2e -w @repo/tests-e2e` (root `npm test` skips it).
@@ -54,7 +56,8 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 
 - `@repo/orpc-ws-shared` — internal seam types only (`Logger`, `Clock`,
   `Rng`, `HeartbeatEvent`, and the `HEARTBEAT_NAMESPACE` / `HEARTBEAT_PATH`
-  constants). Not published. Both cores depend on it.
+  constants). Published to npm (cores pin it as an exact-version runtime
+  dependency, `"0.1.0"` — not `workspace:*`). Both cores depend on it.
 - `@repo/orpc-ws-client` — browser core. Composition root `src/index.ts` →
   `createOrpcWsClient<TContract>(opts): OrpcWsClient`. One-concept-each
   modules: `state/`, `client/`, `lifecycle/`, `reconnect/`, `heartbeat/`,
@@ -77,8 +80,10 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 - `@repo/oidc-verifier-jose` — Node JWT verifier (depends on `jose`); a
   sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
 
-Apps: `@demo/contract` (shared ORPC contract), `@demo/server` (NestJS,
-port 18081), `@demo/spa` (React + Vite, port 5173), `@repo/tests-e2e`.
+Apps (under `apps/`): `@demo/contract` (shared ORPC contract),
+`@demo/server` (NestJS, port 18081), `@demo/spa` (React + Vite, dev 5173 /
+e2e preview 4173). `@repo/tests-e2e` is **not** under `apps/` — it is a
+top-level workspace dir (`workspaces: ["packages/*", "apps/*", "tests-e2e"]`).
 
 Two cross-package mechanisms to know before editing:
 - **Heartbeat is a "stealth procedure"**, not in the consumer's contract. The
@@ -354,11 +359,45 @@ to one client object.
   returned null, or storm guard tripped without recovery). Consumer
   uses this for app-level cleanup — clearing auth state, redirecting
   to login, etc.
+  - **Terminal is enforced, single-fire** (was a contract-only promise;
+    made real in the Fable-review pass — see `docs/fable/`). When it
+    fires the client *actually* goes terminal: the partysocket wrapper
+    is closed (stopping its internal auto-retry loop), the holder/link
+    are cleared, and state moves to `disconnected({ willRetry: false })`
+    *before* the callback runs. It fires **at most once per client**;
+    `connect()` after it is a no-op (create a new client to reconnect).
+  - **Cookie-auth caveat:** the terminal path is gated on a real
+    `tokenProvider` existing (`canRefresh`). With no `tokenProvider`
+    (cookie auth), a `reconnect()` trigger — sleep-wake / heartbeat
+    timeout — whose internal refresh yields null is a **benign no-op**,
+    NOT a terminal failure. Only an actual auth-failure *close*
+    (1008/4001) with no `tokenProvider` goes terminal.
+- **Token-expiry enforcement on live connections is opt-in** (API-4
+  fix; default OFF — no behavior change for existing consumers). The
+  server validates the token once at connect; to also bound the
+  *connection* lifetime, set `enforceTokenExpiry: true` and have the
+  verifier surface `expiresAt` (epoch ms) on the `VerifyClientResult`
+  success variant (`@repo/oidc-verifier-jose` populates it from `exp`).
+  The server then schedules a `4001` close at `expiresAt` via the
+  injected `Clock`; the client treats 4001 as auth-recovery →
+  refresh → reconnect. For external invalidation (logout, security
+  event), the consumer wires its own `session.invalidated` stream to
+  `OrpcWsServer.closeUser(connectionKey, 4001, reason)` — the library
+  does not build the pub/sub. Without the flag, a connection made with
+  a 15-min token can outlive the token (the original API-4 defect).
 - **Library owns the 30s storm guard internally.** Single window
   across all triggers (heartbeat timeout, close-code 1008/4001,
   pre-open 1000, HTTP-upload 401). The current app has *two*
   independent storm-guard timestamps; the library design *fixes*
-  that drift.
+  that drift. The `reconnect()` path (sleep/heartbeat) now shares the
+  same `lastRefreshAttemptedAt` window as `tryAuthRecovery` (BUG-5
+  fix): within the window it rebuilds with the current token instead
+  of re-refreshing, and `tokenProvider.refresh()` is single-flighted
+  so concurrent triggers never issue two refreshes (avoids
+  refresh-token-rotation self-logout). Trip semantics differ by
+  trigger: an auth-failure close trips to *terminal*, a
+  heartbeat/sleep reconnect trips to *reconnect-with-current-token*
+  (not terminal).
 - **Token transport is URL query param.** `?token=` for WS,
   `Authorization: Bearer` for HTTP (when `uploads` is configured).
   `tokenProvider` is **optional** at the type level — omitting it

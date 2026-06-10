@@ -95,6 +95,15 @@ export interface TokenRefreshHandlerDeps {
    * wires this to `LinkFactory.clear()`.
    */
   linkClearer: () => void;
+  /**
+   * Bug 12 belt-and-braces: when this predicate returns `true`, the
+   * handler refuses to build/install a new WebSocket. The composition
+   * root wires it to the client's `disposed` flag so a refresh that
+   * resolves after `client.dispose()` cannot resurrect a connection.
+   * Optional — tests and the ReconnectManager's own dispose latch are
+   * the primary guards; this is the last line of defense at the swap.
+   */
+  isDisposed?: () => boolean;
   logger?: Logger;
 }
 
@@ -118,6 +127,7 @@ export class TokenRefreshHandler {
   private readonly heartbeatMonitor: Stoppable | undefined;
   private readonly heartbeatSubscriber: Stoppable | undefined;
   private readonly linkClearer: () => void;
+  private readonly isDisposed: (() => boolean) | undefined;
   private readonly logger: Logger;
 
   /**
@@ -127,6 +137,18 @@ export class TokenRefreshHandler {
    * would race and we'd end up with mismatched references.
    */
   private reconnectInProgress = false;
+
+  /**
+   * Single-flight memo for `tokenProvider.refresh()` (Bug 16 / BUG-5).
+   * Two concurrent refresh-driving paths (heartbeat-timeout `reconnect()`
+   * racing a 1008-triggered `tryAuthRecovery`) must never issue two
+   * network refresh calls: with IdP refresh-token rotation (Keycloak reuse
+   * detection), concurrent reuse of the same refresh token revokes the
+   * whole session — a self-inflicted logout. The swap mutex above does NOT
+   * cover this (it guards only the synchronous swap, not the awaited
+   * network call), so the coalescing happens here at the refresh itself.
+   */
+  private refreshInFlight: Promise<string | null> | null = null;
 
   constructor(deps: TokenRefreshHandlerDeps) {
     this.tokenProvider = deps.tokenProvider;
@@ -138,6 +160,7 @@ export class TokenRefreshHandler {
     this.heartbeatMonitor = deps.heartbeatMonitor;
     this.heartbeatSubscriber = deps.heartbeatSubscriber;
     this.linkClearer = deps.linkClearer;
+    this.isDisposed = deps.isDisposed;
     this.logger = deps.logger ?? noopLogger;
   }
 
@@ -155,9 +178,11 @@ export class TokenRefreshHandler {
    * `refresh()` is a network call that could happen during a swap-in-progress
    * (e.g. proactive refresh racing a reactive one). The swap itself is
    * mutex-protected so concurrent `reconnectWithNewToken` calls serialize.
+   * The refresh itself IS single-flighted (`refreshTokenOnce`) so concurrent
+   * callers share one network call and one outcome.
    */
   async refreshAndReconnect(): Promise<boolean> {
-    const token = await this.tokenProvider.refresh();
+    const token = await this.refreshTokenOnce();
     if (token === null) {
       this.logger.warn(
         "token-refresh-handler: tokenProvider.refresh() returned null",
@@ -169,18 +194,81 @@ export class TokenRefreshHandler {
   }
 
   /**
+   * Single-flight wrapper around `tokenProvider.refresh()` (Bug 16 / BUG-5).
+   * While a refresh is in flight, every additional caller awaits the SAME
+   * promise — the IdP sees exactly one request per flight. The memo clears
+   * in `finally` so the NEXT storm-guard-approved refresh starts fresh
+   * (success and failure alike; a settled promise must not be served stale).
+   *
+   * `refresh()` is invoked EAGERLY (synchronously, on the first caller of a
+   * flight) — same call timing as the pre-single-flight
+   * `await tokenProvider.refresh()`. `Promise.resolve(...)` normalizes the
+   * result; the `try/catch` keeps a (contract-violating) synchronous throw
+   * from poisoning the memo — it rejects that attempt and leaves the slot
+   * clear for the next one.
+   */
+  private refreshTokenOnce(): Promise<string | null> {
+    if (!this.refreshInFlight) {
+      try {
+        this.refreshInFlight = Promise.resolve(
+          this.tokenProvider.refresh(),
+        ).finally(() => {
+          this.refreshInFlight = null;
+        });
+      } catch (err) {
+        this.refreshInFlight = null;
+        return Promise.reject(
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      }
+    }
+    return this.refreshInFlight;
+  }
+
+  /**
    * Tear down the current connection and stand up a new one carrying
-   * `newToken`. The new WS uses a URL provider closure (NOT a static URL),
-   * so partysocket's internal reconnect loop re-reads `tokenProvider.getToken()`
-   * on every retry — this is the Bug-1 (stale-token-after-sleep) mitigation.
+   * `newToken`. See `swapSocket` for the mechanics and guards.
+   */
+  reconnectWithNewToken(newToken: string): void {
+    this.swapSocket(newToken);
+  }
+
+  /**
+   * Reconnect WITHOUT a refresh — rebuild the socket with whatever token is
+   * current. Used when the storm window says we refreshed recently (the
+   * cached token is still fresh; hitting the IdP again would violate the
+   * "single window across all triggers" contract — Bug 16 / BUG-5), or when
+   * there is no tokenProvider at all (cookie auth: `getToken()` is the
+   * stub's `null`, and the URL builder already handles a null token).
+   * Same dispose/mutex guards as the refresh path, via `swapSocket`.
+   */
+  reconnectWithCurrentToken(): void {
+    this.swapSocket(this.tokenProvider.getToken());
+  }
+
+  /**
+   * The socket swap shared by both reconnect entry points: close the old
+   * wrapper, clear the cached link, record `token` as current, and install
+   * a fresh WS. The new WS uses a URL provider closure (NOT a static URL),
+   * so partysocket's internal reconnect loop re-reads
+   * `tokenProvider.getToken()` on every retry — this is the Bug-1
+   * (stale-token-after-sleep) mitigation.
    *
    * Mutex-protected. If called while a previous swap is still in flight,
    * the second call is dropped with a warn log.
    */
-  reconnectWithNewToken(newToken: string): void {
+  private swapSocket(token: string | null): void {
+    if (this.isDisposed?.()) {
+      // Bug 12: a refresh that resolved after client.dispose() must not
+      // stand up a new WebSocket — the client object is dead.
+      this.logger.warn(
+        "token-refresh-handler: client disposed; refusing to create a new WebSocket",
+      );
+      return;
+    }
     if (this.reconnectInProgress) {
       this.logger.warn(
-        "token-refresh-handler: reconnect already in progress, skipping reconnectWithNewToken",
+        "token-refresh-handler: reconnect already in progress, skipping socket swap",
       );
       return;
     }
@@ -204,7 +292,7 @@ export class TokenRefreshHandler {
       // Invalidate the cached RPCLink so the next ORPC call re-creates one
       // against the new WS. Phase 1.4 implements LinkFactory.clear().
       this.linkClearer();
-      this.websocketHolder.setCurrentToken(newToken);
+      this.websocketHolder.setCurrentToken(token);
 
       const newWs = this.websocketFactory.create(
         this.createUrlProvider(),

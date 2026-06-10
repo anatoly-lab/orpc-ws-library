@@ -158,6 +158,13 @@ export function createOidcVerifyClient<TUser = OidcUser>(
         // can't accidentally break session-replacement by dropping the
         // field.
         connectionKey: payload.sub,
+        // Surface the verified expiry so the server core can enforce a
+        // time-bound session (`enforceTokenExpiry`). JWT `exp` is epoch
+        // SECONDS; `VerifyClientResult.expiresAt` is epoch MILLISECONDS
+        // (the `Clock.now()` unit) — convert here, at the seam.
+        ...(typeof payload.exp === "number"
+          ? { expiresAt: payload.exp * 1000 }
+          : {}),
       };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

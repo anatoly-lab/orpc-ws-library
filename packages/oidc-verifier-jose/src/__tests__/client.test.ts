@@ -190,6 +190,36 @@ describe("createOidcVerifyClient — happy path", () => {
     expect(result.connectionKey).toBe("user-1");
   });
 
+  it("api-4: surfaces the verified `exp` as `expiresAt` in epoch MILLISECONDS", async () => {
+    // API-4 (security review): the verified `exp` used to be discarded at
+    // the seam, so the server core could never enforce token lifetime on
+    // a live connection. The success result now carries `expiresAt`
+    // converted from JWT epoch-seconds to the `Clock.now()` ms unit.
+    mockOidcFetch(keys.publicJwk);
+    const token = await mint(keys.privateKey, keys.publicJwk, {
+      sub: "user-1",
+      azp: CLIENT_ID,
+    });
+
+    const verify = createOidcVerifyClient({
+      issuerUrl: ISSUER,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+    });
+    const result = await verify(ctx(token));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(typeof result.expiresAt).toBe("number");
+    // Minted with `setExpirationTime("1h")` against the real wall clock:
+    // the ms value must land within (now, now + 1h] — i.e. it was
+    // multiplied by 1000, not left in seconds (a seconds value would be
+    // ~56 years in the past on the ms scale).
+    const now = Date.now();
+    expect(result.expiresAt!).toBeGreaterThan(now);
+    expect(result.expiresAt!).toBeLessThanOrEqual(now + 60 * 60 * 1000 + 5_000);
+  });
+
   it("preserves `preferred_username` as its own field (not collapsed into name)", async () => {
     // Old apps/demo-server/src/auth.ts collapsed `name ?? preferred_username`
     // into a single `name` slot. The library default does NOT collapse —
