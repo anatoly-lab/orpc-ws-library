@@ -110,11 +110,13 @@ docs/             # implementation-plan, migration guide, mermaid diagrams
 
 `npm install` from the root. `npx turbo run test` for the unit suite.
 
-For `npm run dev:demo`: first copy `apps/demo-spa/.env.example` →
-`apps/demo-spa/.env` (the SPA reads `VITE_OIDC_ISSUER_URL`,
+For `npm run dev:demo`, copy **both** env templates: `apps/demo-spa/.env.example`
+→ `apps/demo-spa/.env` (the SPA reads `VITE_OIDC_ISSUER_URL`,
 `VITE_OIDC_CLIENT_ID`, `VITE_WS_URL` at build time and fails loudly if
-they're missing). A local Keycloak (or any OIDC IdP) must be running
-separately; the e2e suite spins one up in a Testcontainer.
+they're missing) and `apps/demo-server/.env.example` → `apps/demo-server/.env`
+(the server reads `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `PORT`). A local
+Keycloak (or any OIDC IdP) must be running separately; the e2e suite spins
+one up in a Testcontainer.
 
 ## See also
 
