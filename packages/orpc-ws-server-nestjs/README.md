@@ -119,7 +119,7 @@ OrpcWsModule.forRootAsync({
     uploads: {
       enabled: true,
       httpPath: "/upload",
-      bodyLimitBytes: 50 * 1024 * 1024,   // 50 MB; default 10 MB
+      bodyLimitBytes: 50 * 1024 * 1024,   // 50 MB; default 25 MB
     },
   }),
 });

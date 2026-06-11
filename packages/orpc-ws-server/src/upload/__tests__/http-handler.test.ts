@@ -74,8 +74,8 @@ describe("OrpcWsServer.getHttpHandler", () => {
   });
 
   // SEC-4 — uploads enabled without an explicit limit must NOT accept
-  // unbounded bodies: the 100 MB default applies.
-  it("applies the default 100 MB body limit when uploads is enabled without an explicit limit (SEC-4)", () => {
+  // unbounded bodies: the 25 MB default applies.
+  it("applies the default 25 MB body limit when uploads is enabled without an explicit limit (SEC-4)", () => {
     const server = new OrpcWsServer<TestUser, { ping: unknown }>({
       router: { ping: os.handler(async () => "pong") },
       verifyClient: okVerify,
@@ -84,7 +84,7 @@ describe("OrpcWsServer.getHttpHandler", () => {
     expect(server.getUploadConfig().bodyLimitBytes).toBe(
       DEFAULT_UPLOAD_BODY_LIMIT_BYTES,
     );
-    expect(DEFAULT_UPLOAD_BODY_LIMIT_BYTES).toBe(100 * 1024 * 1024);
+    expect(DEFAULT_UPLOAD_BODY_LIMIT_BYTES).toBe(25 * 1024 * 1024);
   });
 
   // SEC-4 — an explicit `bodyLimitBytes: undefined` must not silently
@@ -279,6 +279,35 @@ describe("HTTP handler: pre-handle verifyClient", () => {
 
     expect(written.statusCode).toBe(401);
     expect(written.body).toContain("Bad token");
+  });
+
+  // C1 — a consumer verifyClient that returns an out-of-range `code` (e.g.
+  // a WS close code like 4001 instead of an HTTP status) must NOT crash the
+  // reject path. With real Node, `res.statusCode = 4001` throws
+  // ERR_HTTP_INVALID_STATUS_CODE inside the void-ed async handler →
+  // unhandled rejection / hung request. The defensive clamp in `sendError`
+  // coerces anything outside [100,599] to a clean 500.
+  it("clamps an out-of-range verifyClient code (e.g. 4001) to 500 (C1)", async () => {
+    const server = new OrpcWsServer<TestUser, { ping: unknown }>({
+      router: { ping: os.handler(async () => "pong") },
+      verifyClient: async () => ({
+        ok: false,
+        code: 4001, // a WS close code, NOT a valid HTTP status
+        reason: "Unauthorized",
+      }),
+      uploads: { enabled: true, httpPath: "/upload" },
+    });
+
+    const handler = server.getHttpHandler()!;
+    const { req, res, written } = makeFakePair("Bearer nope");
+
+    handler(req, res);
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    // Clamped to a valid HTTP status — no ERR_HTTP_INVALID_STATUS_CODE.
+    expect(written.statusCode).toBe(500);
+    expect(written.body).toContain("Unauthorized");
   });
 
   it("returns 401 when no Authorization header is present", async () => {

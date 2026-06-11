@@ -100,21 +100,21 @@ export const DEFAULT_BEFORE_UPLOAD_REJECT_CODE = 415;
 export const DEFAULT_BEFORE_UPLOAD_REJECT_REASON = "Unsupported Media Type";
 
 /**
- * Default request-body cap when uploads are enabled — 100 MB (SEC-4).
+ * Default request-body cap when uploads are enabled — 25 MB (SEC-4).
  *
  * Secure-by-default posture: before this constant existed, enabling
  * uploads without an explicit `bodyLimitBytes` accepted UNBOUNDED bodies
- * (a resource-exhaustion vector). 100 MB is generous enough not to break
- * typical file uploads while still bounding a trivial DoS; consumers
- * with bigger payloads raise the limit deliberately.
+ * (a resource-exhaustion vector). 25 MB covers typical document / image
+ * uploads while keeping the default memory bound tight; consumers with
+ * larger payloads (video, archives) raise the limit deliberately.
  */
-export const DEFAULT_UPLOAD_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
+export const DEFAULT_UPLOAD_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 
 /**
  * Configuration for the HTTP upload transport.
  *
  * Defaults are conservative: disabled, root path `/upload`, body limit
- * 100 MB ({@link DEFAULT_UPLOAD_BODY_LIMIT_BYTES}). ORPC's HTTP path has
+ * 25 MB ({@link DEFAULT_UPLOAD_BODY_LIMIT_BYTES}). ORPC's HTTP path has
  * no implicit ceiling of its own, so the library ships the bound — see
  * SEC-4 in docs/fable/security-review.md.
  *
@@ -140,7 +140,7 @@ export interface UploadHttpConfig<TUser = unknown> {
   httpPath: string;
   /**
    * Cap on request body size in bytes, applied by ORPC's
-   * `BodyLimitPlugin`. Defaults to 100 MB
+   * `BodyLimitPlugin`. Defaults to 25 MB
    * ({@link DEFAULT_UPLOAD_BODY_LIMIT_BYTES}) — uploads larger than the
    * limit are rejected (SEC-4: secure by default; raise deliberately).
    *
@@ -163,7 +163,7 @@ export interface UploadHttpConfig<TUser = unknown> {
 }
 
 /**
- * Defaults. Disabled, `/upload`, 100 MB body limit, no `beforeUpload`
+ * Defaults. Disabled, `/upload`, 25 MB body limit, no `beforeUpload`
  * gate. Consumers opt in by setting `enabled: true` in
  * `OrpcWsServerOptions.uploads`.
  *

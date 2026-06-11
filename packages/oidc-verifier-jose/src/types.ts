@@ -88,7 +88,7 @@ export interface OidcVerifierConfig {
    * Escape hatch for additional verification (scope checks, custom
    * tenant binding, etc). Runs after the issuer / signature / boundClaim
    * checks pass. Return `false` to reject; the rejection surfaces as
-   * `code: 4001, reason: "Custom claim validation failed"`.
+   * `code: 401, reason: "Custom claim validation failed"`.
    *
    * Throwing from this callback is also a rejection — the thrown
    * message becomes the close `reason`.
@@ -119,7 +119,7 @@ export interface OidcUser {
 /**
  * Thrown by `fetchMetadata` when the discovery document cannot be
  * loaded or fails validation. The verify callback catches it and
- * surfaces it as a `{ ok: false, code: 4001, reason: ... }` rejection
+ * surfaces it as a `{ ok: false, code: 401, reason: ... }` rejection
  * — boot-time discovery failures don't crash the server; they just
  * reject every connection until the IdP comes back.
  */

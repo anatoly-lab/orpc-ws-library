@@ -307,7 +307,7 @@ export class OrpcWsServer<TUser, TContract extends object> {
     };
     // SEC-4: only a NUMBER override of `bodyLimitBytes` is honored. An
     // explicit `bodyLimitBytes: undefined` in `opts.uploads` would
-    // otherwise win the spread and silently disable the 100 MB default —
+    // otherwise win the spread and silently disable the 25 MB default —
     // re-opening the unbounded-body DoS the default exists to close. To
     // effectively disable the cap a consumer sets a very large number.
     if (typeof mergedUploads.bodyLimitBytes !== "number") {

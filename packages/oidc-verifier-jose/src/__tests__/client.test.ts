@@ -263,7 +263,9 @@ describe("createOidcVerifyClient — boundClaim variants", () => {
     const result = await verify(ctx(token));
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.code).toBe(4001);
+    // Reject `code` is an HTTP status (401), not a WS close code — so the
+    // HTTP upload reject path (Node `res.statusCode`) doesn't throw on it.
+    expect(result.code).toBe(401);
     expect(result.reason).toContain("Unexpected azp");
     expect(result.reason).toContain("different-spa");
   });
@@ -358,7 +360,7 @@ describe("createOidcVerifyClient — rejection cases", () => {
     const result = await verify(ctx(null));
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.code).toBe(4001);
+    expect(result.code).toBe(401);
     expect(result.reason).toBe("Missing token");
   });
 

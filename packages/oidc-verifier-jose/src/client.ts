@@ -3,8 +3,18 @@
 //
 // Pipeline (per verify):
 //   1. Reject when `ctx.token` is null (consumer's verify decides what
-//      that means; library ships "reject with code 4001" as the
+//      that means; library ships "reject with code 401" as the
 //      sensible default).
+//
+// Reject `code` is an HTTP status (401 Unauthorized), NOT a WS close code.
+// `VerifyClientResult.code` is documented (verify-client-orchestrator.ts) as
+// the pre-101 status: on the WS path `ws` writes it as the handshake-abort
+// status, and on the HTTP upload path Node writes it as `res.statusCode` —
+// which REJECTS out-of-range values (a WS close code like 4001 throws
+// ERR_HTTP_INVALID_STATUS_CODE and crashes the reject path). Earlier this
+// returned 4001 (a WS close code); that was a contract violation the WS
+// path tolerated by accident but the HTTP path could not. The 4001 *close*
+// code lives on, correctly, in the server's post-open `authFailedCloseCode`.
 //   2. Lazily fetch + cache the discovery document via `fetchMetadata`
 //      (module-level cache in `discovery.ts`, shared across concurrent
 //      callers).
@@ -107,7 +117,7 @@ export function createOidcVerifyClient<TUser = OidcUser>(
   return async (ctx) => {
     const token = ctx.token;
     if (!token) {
-      return { ok: false, code: 4001, reason: "Missing token" };
+      return { ok: false, code: 401, reason: "Missing token" };
     }
 
     try {
@@ -121,12 +131,12 @@ export function createOidcVerifyClient<TUser = OidcUser>(
       });
 
       if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-        return { ok: false, code: 4001, reason: "Token missing sub" };
+        return { ok: false, code: 401, reason: "Token missing sub" };
       }
 
       const boundCheck = checkBoundClaim(payload, boundClaim, cfg.expectedClientId);
       if (boundCheck !== null) {
-        return { ok: false, code: 4001, reason: boundCheck };
+        return { ok: false, code: 401, reason: boundCheck };
       }
 
       if (cfg.verifyClaims) {
@@ -136,14 +146,14 @@ export function createOidcVerifyClient<TUser = OidcUser>(
         } catch (err) {
           return {
             ok: false,
-            code: 4001,
+            code: 401,
             reason: err instanceof Error ? err.message : String(err),
           };
         }
         if (!extraOk) {
           return {
             ok: false,
-            code: 4001,
+            code: 401,
             reason: "Custom claim validation failed",
           };
         }
@@ -168,7 +178,7 @@ export function createOidcVerifyClient<TUser = OidcUser>(
       };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      return { ok: false, code: 4001, reason };
+      return { ok: false, code: 401, reason };
     }
   };
 }

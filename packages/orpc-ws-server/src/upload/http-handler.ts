@@ -118,7 +118,7 @@ export function createHttpUploadHandler<TUser>(deps: {
   // context as a record holding `user`, mirroring the WS context shape.
   //
   // SEC-4 note: `OrpcWsServer` resolves the config before building this
-  // handler, so `bodyLimitBytes` is always a number there (100 MB default,
+  // handler, so `bodyLimitBytes` is always a number there (25 MB default,
   // number-only override). The `undefined` branch survives for direct
   // construction with a hand-rolled config (tests / future adapters).
   const plugins =
@@ -254,7 +254,20 @@ export function createHttpUploadHandler<TUser>(deps: {
    */
   const sendError = (res: ServerResponse, code: number, reason: string) => {
     if (res.headersSent) return;
-    res.statusCode = code;
+    // Defensive clamp (C1). `code` originates from a consumer-supplied
+    // `VerifyClientResult.code` / `BeforeUploadResult.code`, which the
+    // contract says is an HTTP status — but a plain-JS consumer (or one
+    // that reuses a WS close code like 4001) can hand us a value outside
+    // Node's valid range. `res.statusCode = 4001` throws
+    // ERR_HTTP_INVALID_STATUS_CODE at write time, and since this runs
+    // inside the void-ed async IIFE that throw becomes an unhandled
+    // rejection → hung request (potentially a process crash under Node's
+    // default unhandled-rejection policy). Coerce anything outside the
+    // valid HTTP range to 500 so a misconfigured verifier degrades to a
+    // clean error instead of taking the request (or process) down.
+    const safeCode =
+      Number.isInteger(code) && code >= 100 && code <= 599 ? code : 500;
+    res.statusCode = safeCode;
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ error: reason }));
   };

@@ -151,7 +151,7 @@ HTTP). Off by default; `getHttpHandler()` returns `null` until you pass
 uploads: {
   enabled: true,
   httpPath: "/upload",       // default
-  bodyLimitBytes: 50 * 1024 * 1024,  // override the 100 MB default cap
+  bodyLimitBytes: 50 * 1024 * 1024,  // override the 25 MB default cap
 }
 ```
 
