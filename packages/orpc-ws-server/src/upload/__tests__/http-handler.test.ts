@@ -112,13 +112,22 @@ describe("HTTP handler: pre-handle verifyClient", () => {
    * Build a fake (req, res) pair the handler can call into without a
    * real socket. We only assert on what the response wrote and what
    * verifyClient observed.
+   *
+   * `req.destroy` / `res.once('finish')` back the BUG-9 early-reject
+   * teardown; `emitFinish` fires the captured 'finish' listeners the way
+   * a real response flush would, so tests can assert the inbound stream
+   * is destroyed only AFTER the error response has gone out.
    */
   function makeFakePair(authorization?: string): {
     req: IncomingMessage;
     res: ServerResponse;
     written: { statusCode?: number; body?: string };
+    reqDestroy: ReturnType<typeof vi.fn>;
+    setHeader: ReturnType<typeof vi.fn>;
+    emitFinish: () => void;
   } {
     const written: { statusCode?: number; body?: string } = {};
+    const reqDestroy = vi.fn();
     const req = {
       headers: {
         ...(authorization !== undefined
@@ -129,11 +138,19 @@ describe("HTTP handler: pre-handle verifyClient", () => {
       url: "/upload/foo",
       method: "POST",
       socket: { remoteAddress: "127.0.0.1" },
+      destroyed: false,
+      destroy: reqDestroy,
     } as unknown as IncomingMessage;
+    const finishListeners: (() => void)[] = [];
+    const setHeader = vi.fn();
     const res = {
       headersSent: false,
       statusCode: 200,
-      setHeader: vi.fn(),
+      writableFinished: false,
+      setHeader,
+      once: vi.fn((event: string, cb: () => void) => {
+        if (event === "finish") finishListeners.push(cb);
+      }),
       end: vi.fn((body?: string) => {
         written.body = body;
       }),
@@ -151,7 +168,10 @@ describe("HTTP handler: pre-handle verifyClient", () => {
         written.statusCode = v;
       },
     });
-    return { req, res, written };
+    const emitFinish = () => {
+      for (const cb of finishListeners.splice(0)) cb();
+    };
+    return { req, res, written, reqDestroy, setHeader, emitFinish };
   }
 
   it("invokes verifyClient with the extracted Bearer token", async () => {
@@ -224,5 +244,40 @@ describe("HTTP handler: pre-handle verifyClient", () => {
     expect(verify).toHaveBeenCalledOnce();
     expect(verify.mock.calls[0]?.[0].token).toBeNull();
     expect(written.statusCode).toBe(401);
+  });
+
+  // BUG-9 — the 401 reject must tear down the inbound stream: the client
+  // may still be streaming a large multipart body nothing will ever read.
+  // The fake (req, res) pair can't observe real socket behavior (keep-alive
+  // reuse, bytes actually stopping); what IS observable at this seam is the
+  // teardown contract: `Connection: close` on the response and
+  // `req.destroy()` fired once the response has flushed — and not before.
+  it("verifyClient reject sets Connection: close and destroys the request after the response flushes", async () => {
+    const server = new OrpcWsServer<TestUser, { ping: unknown }>({
+      router: { ping: os.handler(async () => "pong") },
+      verifyClient: async () => ({
+        ok: false,
+        code: 401,
+        reason: "Bad token",
+      }),
+      uploads: { enabled: true, httpPath: "/upload" },
+    });
+
+    const handler = server.getHttpHandler()!;
+    const { req, res, written, reqDestroy, setHeader, emitFinish } =
+      makeFakePair("Bearer nope");
+
+    handler(req, res);
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    expect(written.statusCode).toBe(401);
+    // The keep-alive socket is unusable with an unread body — say so.
+    expect(setHeader).toHaveBeenCalledWith("connection", "close");
+    // Not destroyed yet: the error response must reach the wire first.
+    expect(reqDestroy).not.toHaveBeenCalled();
+    // Response flushed → inbound stream destroyed (bandwidth stops).
+    emitFinish();
+    expect(reqDestroy).toHaveBeenCalledOnce();
   });
 });

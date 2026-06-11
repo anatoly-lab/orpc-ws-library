@@ -246,6 +246,66 @@ describe("API-4 — token-expiry enforcement (enforceTokenExpiry: true)", () => 
   });
 });
 
+describe("API-4 / F4 — expiry beyond Node's 32-bit timer ceiling (~24.8 days)", () => {
+  // Node clamps setTimeout delays above 2^31-1 ms to 1ms — a single
+  // timer armed for a 30-day token would fire immediately, close 4001,
+  // and push the client into a refresh→reconnect→close loop that ends in
+  // terminal logout. The watchdog must instead sleep in <=MAX_DELAY
+  // segments and re-arm until the real expiry instant.
+  const MAX_DELAY = 2_147_483_647;
+  const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000; // 2_592_000_000 > MAX_DELAY
+
+  it("does not close at the clamp boundary — re-arms — and closes 4001 only at the real expiry", async () => {
+    const { ws, advance, getPending } = await runConnection({
+      enforceTokenExpiry: true,
+      clockNow: 0,
+      expiresAt: THIRTY_DAYS,
+    });
+
+    // First segment is clamped to the 32-bit ceiling, never beyond.
+    expect(getPending().length).toBe(1);
+    expect(getPending()[0]?.fireAt).toBe(MAX_DELAY);
+
+    // Cross the clamp boundary: the segment fires, sees the token is NOT
+    // yet expired, and re-arms for the remainder — no close.
+    advance(MAX_DELAY + 1);
+    expect(ws.close).not.toHaveBeenCalled();
+    expect(getPending().length).toBe(1);
+    expect(getPending()[0]?.fireAt).toBe(THIRTY_DAYS);
+
+    // One ms short of the real expiry: still open.
+    advance(THIRTY_DAYS - (MAX_DELAY + 1) - 1);
+    expect(ws.close).not.toHaveBeenCalled();
+
+    // At the real expiry: closed exactly once, 4001.
+    advance(1);
+    expect(ws.close).toHaveBeenCalledTimes(1);
+    expect(ws.close).toHaveBeenCalledWith(4001, "Token expired");
+  });
+
+  it("clears the re-armed segment on early close — no late close after the connection ended", async () => {
+    const { ws, advance, getPending } = await runConnection({
+      enforceTokenExpiry: true,
+      clockNow: 0,
+      expiresAt: THIRTY_DAYS,
+    });
+
+    // Get past the first segment so the timer in flight is a RE-ARMED
+    // one (the leak candidate F4 calls out), not the original.
+    advance(MAX_DELAY + 1);
+    expect(getPending().length).toBe(1);
+
+    // Connection closes normally before expiry → same teardown path
+    // clears the re-armed segment too.
+    ws.emitClose(1000);
+    expect(getPending().length).toBe(0);
+
+    // Long past the would-be expiry: no zombie close fires.
+    advance(THIRTY_DAYS * 2);
+    expect(ws.close).not.toHaveBeenCalled();
+  });
+});
+
 describe("API-4 — default off: zero behavior change", () => {
   it("DEFAULT_CONNECTION_CONFIG ships enforceTokenExpiry: false", () => {
     expect(DEFAULT_CONNECTION_CONFIG.enforceTokenExpiry).toBe(false);

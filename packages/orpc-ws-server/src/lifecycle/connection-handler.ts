@@ -56,6 +56,18 @@ import type {
 } from "./verify-client-orchestrator.js";
 
 /**
+ * Node's timer delay is a signed 32-bit int: any `setTimeout` delay above
+ * 2^31 - 1 ms (~24.8 days) is clamped to 1ms and fires almost immediately.
+ * For the API-4 expiry watchdog that's catastrophic, not cosmetic — a
+ * 30-day token would be "expired" right after open, the client refreshes
+ * and reconnects, gets closed again inside its storm window, and ends in
+ * terminal logout. So the watchdog never schedules past this ceiling: it
+ * sleeps at most MAX_TIMER_DELAY_MS, re-checks the clock on wake, and
+ * re-arms until the expiry instant is genuinely reached.
+ */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/**
  * Minimal structural type for the `RPCHandler` `upgrade` method. We
  * type-check just the bits we use — keeping `RPCHandler<TContext>`'s full
  * shape out of this file lets it stay framework-free of ORPC internals.
@@ -195,23 +207,39 @@ export class ConnectionHandler<TUser> {
     // The timer is per-connection (closure-captured) and cleared in the
     // 'close' handler below — the same teardown path that unregisters
     // ping/pong — so a normally-closed connection never leaks a timer.
+    // Re-armed segments (see MAX_TIMER_DELAY_MS) reassign the SAME
+    // `expiryTimer` binding, so the 'close' handler clears whichever
+    // segment is currently pending — a closed/replaced connection never
+    // sees a late close from a leftover segment.
     let expiryTimer: TimerHandle | null = null;
     if (this.enforceTokenExpiry && typeof auth.expiresAt === "number") {
-      const msUntilExpiry = Math.max(0, auth.expiresAt - this.clock.now());
-      expiryTimer = this.clock.setTimeout(() => {
-        expiryTimer = null;
-        this.logger.info("connection-handler: token expired, closing", {
-          connectionKey,
-        });
-        try {
-          ws.close(this.authFailedCloseCode, "Token expired");
-        } catch (err) {
-          this.logger.warn(
-            "connection-handler: ws.close() on token expiry threw",
-            { error: err instanceof Error ? err.message : String(err) },
-          );
-        }
-      }, msUntilExpiry);
+      const expiresAt = auth.expiresAt;
+      const armExpiryTimer = (): void => {
+        const msUntilExpiry = Math.max(0, expiresAt - this.clock.now());
+        const delay = Math.min(msUntilExpiry, MAX_TIMER_DELAY_MS);
+        expiryTimer = this.clock.setTimeout(() => {
+          expiryTimer = null;
+          if (this.clock.now() < expiresAt) {
+            // Woke early — the delay was clamped to the 32-bit ceiling,
+            // not the real expiry. Re-arm for the remainder; only a wake
+            // at/past `expiresAt` closes.
+            armExpiryTimer();
+            return;
+          }
+          this.logger.info("connection-handler: token expired, closing", {
+            connectionKey,
+          });
+          try {
+            ws.close(this.authFailedCloseCode, "Token expired");
+          } catch (err) {
+            this.logger.warn(
+              "connection-handler: ws.close() on token expiry threw",
+              { error: err instanceof Error ? err.message : String(err) },
+            );
+          }
+        }, delay);
+      };
+      armExpiryTimer();
     }
 
     ws.on("close", (code, reason: Buffer) => {

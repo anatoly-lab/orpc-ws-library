@@ -43,14 +43,22 @@ const okVerify: VerifyClient<TestUser> = async () => ({
  * `req.url` targets a real procedure key (`media/upload`) so that, on the
  * accept path, ORPC would actually try to match + read the body — which is
  * exactly what we want the procedure spy to detect.
+ *
+ * `req.destroy` / `res.once('finish')` back the BUG-9 early-reject
+ * teardown; `emitFinish` fires the captured 'finish' listeners the way a
+ * real response flush would.
  */
 function makeFakePair(headers: Record<string, string> = {}): {
   req: IncomingMessage;
   res: ServerResponse;
   next: ReturnType<typeof vi.fn>;
   written: { statusCode?: number; body?: string };
+  reqDestroy: ReturnType<typeof vi.fn>;
+  setHeader: ReturnType<typeof vi.fn>;
+  emitFinish: () => void;
 } {
   const written: { statusCode?: number; body?: string } = {};
+  const reqDestroy = vi.fn();
   const req = {
     headers: {
       authorization: "Bearer good",
@@ -60,10 +68,18 @@ function makeFakePair(headers: Record<string, string> = {}): {
     url: "/upload/media/upload",
     method: "POST",
     socket: { remoteAddress: "127.0.0.1" },
+    destroyed: false,
+    destroy: reqDestroy,
   } as unknown as IncomingMessage;
+  const finishListeners: (() => void)[] = [];
+  const setHeader = vi.fn();
   const res = {
     headersSent: false,
-    setHeader: vi.fn(),
+    writableFinished: false,
+    setHeader,
+    once: vi.fn((event: string, cb: () => void) => {
+      if (event === "finish") finishListeners.push(cb);
+    }),
     end: vi.fn((body?: string) => {
       written.body = body;
     }),
@@ -74,7 +90,10 @@ function makeFakePair(headers: Record<string, string> = {}): {
       written.statusCode = v;
     },
   });
-  return { req, res, next: vi.fn(), written };
+  const emitFinish = () => {
+    for (const cb of finishListeners.splice(0)) cb();
+  };
+  return { req, res, next: vi.fn(), written, reqDestroy, setHeader, emitFinish };
 }
 
 /** Drain a couple of microtask/macrotask turns for the async handler. */
@@ -110,6 +129,37 @@ describe("beforeUpload gate", () => {
     expect(procedureSpy).not.toHaveBeenCalled();
     // Reject is definitive — do NOT delegate to Express.
     expect(next).not.toHaveBeenCalled();
+  });
+
+  // BUG-9 — a beforeUpload reject must tear down the inbound stream: the
+  // client may still be streaming the very body the gate exists to refuse.
+  // The fake harness can't observe real socket behavior (whether the
+  // client's bytes actually stop); what IS observable at this seam is the
+  // teardown contract: `Connection: close` on the response and
+  // `req.destroy()` fired once the response flushed — and not before, so
+  // the error response reaches the wire first.
+  it("reject sets Connection: close and destroys the request after the response flushes", async () => {
+    const beforeUpload: BeforeUploadHook<TestUser> = () => ({ ok: false });
+
+    const router = { media: { upload: os.handler(async () => "pong") } };
+    const server = new OrpcWsServer<TestUser, typeof router>({
+      router,
+      verifyClient: okVerify,
+      uploads: { enabled: true, httpPath: "/upload", beforeUpload },
+    });
+
+    const handler = server.getHttpHandler()!;
+    const { req, res, written, reqDestroy, setHeader, emitFinish } =
+      makeFakePair({ "content-type": "image/png" });
+
+    handler(req, res);
+    await drain();
+
+    expect(written.statusCode).toBe(415);
+    expect(setHeader).toHaveBeenCalledWith("connection", "close");
+    expect(reqDestroy).not.toHaveBeenCalled();
+    emitFinish();
+    expect(reqDestroy).toHaveBeenCalledOnce();
   });
 
   it("honors the consumer's explicit reject code + reason (e.g. 413)", async () => {

@@ -15,7 +15,10 @@
 //      404 response so the consumer's HTTP server sees a clean answer.
 //   3. Pre-`handle()` auth: extract the Bearer token, run the consumer's
 //      `verifyClient`, return 401 on failure with the consumer's
-//      `code` / `reason`. The verified user lands in the ORPC `context`.
+//      `code` / `reason`. The verified user AND the Bearer token land in
+//      the ORPC `context` as `{ user, token }` — the same shape the WS
+//      transport builds in `ConnectionHandler.handle`, so procedures on
+//      the shared router behave identically over either transport.
 //
 // What this file does NOT own:
 //   - Mounting on an HTTP framework. The NestJS adapter does that
@@ -128,15 +131,19 @@ export function createHttpUploadHandler<TUser>(deps: {
   );
 
   /**
-   * Run the consumer's verifyClient. Returns the auth result; on success
-   * the caller invokes `rpcHandler.handle` with `result.user` as context.
+   * Run the consumer's verifyClient. Returns the auth result PLUS the
+   * extracted Bearer token; on success the caller invokes
+   * `rpcHandler.handle` with `{ user: result.user, token }` as context —
+   * the token rides along (BUG-8) so both transports present the
+   * identical `{ user, token }` context shape to the shared router (the
+   * WS transport builds it in `ConnectionHandler.handle`).
    *
    * `clientIp` mirrors the WS verifier's extraction (x-forwarded-for first
    * hop, then socket address).
    */
   const runVerify = async (
     req: IncomingMessage,
-  ): Promise<VerifyClientResult<TUser>> => {
+  ): Promise<{ auth: VerifyClientResult<TUser>; token: string | null }> => {
     const token = extractBearerToken(req);
     const fwd = req.headers["x-forwarded-for"];
     const clientIp =
@@ -156,15 +163,21 @@ export function createHttpUploadHandler<TUser>(deps: {
         logger.error("orpc-ws-server: HTTP verifyClient returned a non-conforming value", {
           clientIp,
         });
-        return { ok: false, code: 500, reason: "Internal server error" };
+        return {
+          auth: { ok: false, code: 500, reason: "Internal server error" },
+          token,
+        };
       }
-      return result;
+      return { auth: result, token };
     } catch (err) {
       logger.error("orpc-ws-server: HTTP verifyClient threw", {
         error: err instanceof Error ? err.message : String(err),
         clientIp,
       });
-      return { ok: false, code: 500, reason: "Internal server error" };
+      return {
+        auth: { ok: false, code: 500, reason: "Internal server error" },
+        token,
+      };
     }
   };
 
@@ -221,25 +234,60 @@ export function createHttpUploadHandler<TUser>(deps: {
     res.end(JSON.stringify({ error: reason }));
   };
 
+  /**
+   * Early reject for the pre-`handle()` paths (verifyClient /
+   * beforeUpload) — BUG-9. Same minimal JSON body as `sendError`, plus
+   * inbound-stream teardown: the client may still be streaming a large
+   * multipart body that nothing will ever read. Without teardown the
+   * keep-alive socket is unusable anyway (Node tears it down after the
+   * unread body) and some clients/proxies don't surface the early
+   * response until the whole body has uploaded.
+   *
+   * Policy: `Connection: close` + `req.destroy()` once the response has
+   * flushed. We destroy rather than `req.resume()`-drain because draining
+   * still RECEIVES the entire body just to discard it — the whole point
+   * of rejecting before `handle()` is to not spend that bandwidth.
+   * Destroying on `res` 'finish' (not immediately) lets the error
+   * response reach the wire first; if the response never finishes the
+   * socket is already dead and Node reclaims it without our help.
+   */
+  const sendEarlyReject = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    code: number,
+    reason: string,
+  ) => {
+    if (!res.headersSent) {
+      res.setHeader("connection", "close");
+    }
+    sendError(res, code, reason);
+    const destroyReq = () => {
+      if (!req.destroyed) req.destroy();
+    };
+    if (res.writableFinished) destroyReq();
+    else res.once("finish", destroyReq);
+  };
+
   return (req, res, next) => {
     // ORPC's Node RPCHandler returns a promise; we kick it off here.
     void (async () => {
-      const auth = await runVerify(req);
+      const { auth, token } = await runVerify(req);
       if (!auth.ok) {
         logger.warn("orpc-ws-server: HTTP upload rejected", {
           code: auth.code,
           reason: auth.reason,
         });
-        sendError(res, auth.code, auth.reason);
+        sendEarlyReject(req, res, auth.code, auth.reason);
         return;
       }
 
       // ----- Pre-body-buffer gate -----
       // Runs AFTER verifyClient succeeds (so the hook sees the
       // authenticated `auth.user`) and BEFORE the URL is normalised /
-      // `rpcHandler.handle()` reads the body. On reject we `sendError` and
-      // return WITHOUT touching `handle()` — so a wrong-content-type or
-      // oversized body is never buffered. A reject is definitive ("this
+      // `rpcHandler.handle()` reads the body. On reject we `sendEarlyReject`
+      // and return WITHOUT touching `handle()` — so a wrong-content-type or
+      // oversized body is never buffered, and the inbound stream is torn
+      // down (see `sendEarlyReject`). A reject is definitive ("this
       // upload isn't allowed"), so we do NOT call `next()`: there is no
       // "let Express try another route" semantics for a gated upload.
       const gate = await runBeforeUpload(req, auth.user);
@@ -250,7 +298,7 @@ export function createHttpUploadHandler<TUser>(deps: {
           code,
           reason,
         });
-        sendError(res, code, reason);
+        sendEarlyReject(req, res, code, reason);
         return;
       }
 
@@ -284,9 +332,16 @@ export function createHttpUploadHandler<TUser>(deps: {
       }
 
       try {
+        // Context parity with the WS transport (BUG-8): the same composed
+        // router runs behind both transports, so procedures must see the
+        // identical `{ user, token }` shape regardless of which one
+        // carried the call. `token` is the literal Bearer credential the
+        // client sent (null when absent) — same semantics as the WS
+        // `?token=` query param in `ConnectionHandler.handle`.
         const result = await rpcHandler.handle(req, res, {
           context: {
             user: auth.user,
+            token,
           },
         });
 
