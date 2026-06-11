@@ -406,7 +406,7 @@ describe("HeartbeatSubscriber — stop() / unsubscribe() equivalence", () => {
 });
 
 describe("HeartbeatSubscriber — stream error / close behavior", () => {
-  it("on stream error: logs error and does NOT auto-resubscribe", async () => {
+  it("on POST-config stream error: logs error and does NOT auto-resubscribe (watchdog owns recovery)", async () => {
     const { factory, calls } = makeFakeLinkFactory();
     const monitor = makeFakeMonitor();
     const logger = makeLogger();
@@ -417,6 +417,12 @@ describe("HeartbeatSubscriber — stream error / close behavior", () => {
     });
 
     await subscriber.subscribe();
+    await flush();
+
+    // Config first — the monitor is armed, so a later stream death is
+    // the watchdog's job (`onTimeout`), NOT the subscriber's. The
+    // PRE-config error shape retries instead — see the NFI-1 suite.
+    calls[0]?.stream.push({ type: "config", intervalMs: 30_000, timeoutMs: 5_000 });
     await flush();
 
     calls[0]?.stream.error(new Error("upstream blew up"));

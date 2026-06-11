@@ -336,6 +336,9 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     linkFactory,
     monitor: heartbeatMonitor,
     logger,
+    // The pre-config retry timer (NFI-1) goes through the Clock seam so
+    // composition-level tests stay deterministic.
+    clock,
   });
 
   // ----- 6. WebSocket factory -----

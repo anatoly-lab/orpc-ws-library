@@ -43,11 +43,23 @@
 //   The source's `subscribe()` did NOT auto-resubscribe on stream error
 //   or close — that's the composition root's job (heartbeat-timeout →
 //   ReconnectManager → fresh subscribe on next connect). We preserve
-//   that contract verbatim: the consumption loop exits, we log, we
-//   detach. The wiring at the composition root decides what happens
-//   next.
+//   that contract for POST-config failures: once the monitor is armed,
+//   a dead stream stops producing pings and the watchdog's `onTimeout`
+//   drives recovery. PRE-config failures are the one exception (NFI-1):
+//   if the stream dies before the `config` event, the monitor was never
+//   armed, `onTimeout` can never fire, and the connection is silently
+//   unmonitored (e.g. the client points at a server without the stealth
+//   heartbeat router, or the server-side procedure errors while the WS
+//   stays open). For that case ONLY we retry the subscription a bounded
+//   number of times — see `runLoop`'s catch path.
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import {
+  type Clock,
+  type Logger,
+  type TimerHandle,
+  noopLogger,
+  systemClock,
+} from "@repo/orpc-ws-shared";
 
 import type { LinkFactory } from "../client/link-factory.js";
 
@@ -55,13 +67,32 @@ import { HEARTBEAT_PATH, type HeartbeatEvent } from "./types.js";
 import type { HeartbeatMonitor } from "./monitor.js";
 
 /**
+ * Source defaults for the pre-config retry (NFI-1). Three retries, one
+ * second apart, covers a transient server-side hiccup; a deterministic
+ * failure (no stealth router on the server) exhausts the budget and is
+ * surfaced as an error log. Overridable via deps for tests.
+ */
+const DEFAULT_PRE_CONFIG_MAX_RETRIES = 3;
+const DEFAULT_PRE_CONFIG_RETRY_DELAY_MS = 1_000;
+
+/**
  * Dependencies for HeartbeatSubscriber. `logger` defaults to noop; the
- * composition root wires the real one.
+ * composition root wires the real one. `clock` defaults to the system
+ * clock — only the pre-config retry timer goes through it.
  */
 export interface HeartbeatSubscriberDeps {
   linkFactory: LinkFactory;
   monitor: HeartbeatMonitor;
   logger?: Logger;
+  clock?: Clock;
+  /**
+   * How many times a subscription that failed BEFORE the `config` event
+   * is retried (NFI-1). Post-config failures never retry — the armed
+   * watchdog owns recovery there. Default: 3.
+   */
+  preConfigMaxRetries?: number;
+  /** Delay between pre-config retries (ms). Default: 1000. */
+  preConfigRetryDelayMs?: number;
 }
 
 /**
@@ -86,6 +117,9 @@ export class HeartbeatSubscriber {
   private readonly linkFactory: LinkFactory;
   private readonly monitor: HeartbeatMonitor;
   private readonly logger: Logger;
+  private readonly clock: Clock;
+  private readonly preConfigMaxRetries: number;
+  private readonly preConfigRetryDelayMs: number;
 
   /**
    * AbortController for the current consumption loop. Replaced on every
@@ -113,11 +147,25 @@ export class HeartbeatSubscriber {
    * if the global counter moved on.
    */
   private generation = 0;
+  /**
+   * Pending pre-config retry timer (NFI-1). Armed ONLY by `runLoop`'s
+   * catch path when the stream failed before the `config` event. Any
+   * explicit `subscribe()` / `unsubscribe()` cancels it — only the
+   * retry chain itself re-arms — so a teardown (dispose / kick /
+   * terminal, all of which route through `unsubscribe()`) or a fresh
+   * per-open subscription can never race a stale retry.
+   */
+  private retryTimer: TimerHandle | null = null;
 
   constructor(deps: HeartbeatSubscriberDeps) {
     this.linkFactory = deps.linkFactory;
     this.monitor = deps.monitor;
     this.logger = deps.logger ?? noopLogger;
+    this.clock = deps.clock ?? systemClock;
+    this.preConfigMaxRetries =
+      deps.preConfigMaxRetries ?? DEFAULT_PRE_CONFIG_MAX_RETRIES;
+    this.preConfigRetryDelayMs =
+      deps.preConfigRetryDelayMs ?? DEFAULT_PRE_CONFIG_RETRY_DELAY_MS;
   }
 
   /**
@@ -131,6 +179,18 @@ export class HeartbeatSubscriber {
    * without starting a loop (generation counter — see Bug 18).
    */
   async subscribe(): Promise<void> {
+    // An explicit subscribe supersedes any pending pre-config retry
+    // (NFI-1) — the new subscription gets the full retry budget.
+    this.clearRetryTimer();
+    return this.subscribeWithRetryBudget(this.preConfigMaxRetries);
+  }
+
+  /**
+   * Internal `subscribe()` body, parameterized by the remaining
+   * pre-config retry budget (NFI-1). The public `subscribe()` always
+   * passes the full budget; the retry chain passes a decremented one.
+   */
+  private async subscribeWithRetryBudget(retryBudget: number): Promise<void> {
     // Claim a generation BEFORE any suspension point. If another
     // `subscribe()` lands while we're awaiting the prior loop below,
     // it claims a higher generation; we detect that after the await
@@ -166,7 +226,7 @@ export class HeartbeatSubscriber {
     const controller = new AbortController();
     this.abortController = controller;
 
-    const loop = this.runLoop(controller);
+    const loop = this.runLoop(controller, gen, retryBudget);
     this.activeLoop = loop;
     // The PUBLIC `subscribe()` returns once we've kicked off the loop —
     // we do NOT await `loop` here. The loop runs for the lifetime of the
@@ -190,6 +250,11 @@ export class HeartbeatSubscriber {
    * same shutdown path).
    */
   unsubscribe(): void {
+    // Cancel any pending pre-config retry (NFI-1): every teardown path
+    // (per-close hook, dispose, kick, terminal) routes through here, so
+    // a retry armed by a failed loop can never fire after the client
+    // stopped wanting a heartbeat.
+    this.clearRetryTimer();
     if (this.abortController) {
       this.abortController.abort();
       this.abortController = null;
@@ -221,8 +286,17 @@ export class HeartbeatSubscriber {
    * empty record, so this empty object is the only valid value. If the
    * library later surfaces context typing, both sides widen together.
    */
-  private async runLoop(controller: AbortController): Promise<void> {
+  private async runLoop(
+    controller: AbortController,
+    gen: number,
+    retryBudget: number,
+  ): Promise<void> {
     const { signal } = controller;
+    // Whether THIS loop saw the `config` event. Discriminates the two
+    // failure shapes in the catch below: post-config the monitor is
+    // armed and `onTimeout` owns recovery; pre-config nothing is armed
+    // and only a retry can restore monitoring (NFI-1).
+    let receivedConfig = false;
     try {
       this.logger.debug("heartbeat-subscriber: subscribing", {
         path: HEARTBEAT_PATH,
@@ -248,6 +322,7 @@ export class HeartbeatSubscriber {
         if (signal.aborted) break;
 
         if (event.type === "config") {
+          receivedConfig = true;
           this.logger.info("heartbeat-subscriber: config received", {
             intervalMs: event.intervalMs,
             timeoutMs: event.timeoutMs,
@@ -266,13 +341,24 @@ export class HeartbeatSubscriber {
         // AbortError on the next pump. Quiet log.
         this.logger.debug("heartbeat-subscriber: aborted");
       } else {
-        // Stream error during a live subscription. We do NOT
-        // auto-resubscribe — the composition root handles reconnect via
-        // the monitor's `onTimeout` callback wiring (which will fire
-        // when the deadline elapses). Log and let the loop end.
+        // Stream error during a live subscription.
         this.logger.error("heartbeat-subscriber: stream error", {
           error: error instanceof Error ? error.message : String(error),
         });
+        if (receivedConfig) {
+          // POST-config: no auto-resubscribe — the monitor is armed,
+          // pings have stopped, and the composition root's `onTimeout`
+          // wiring drives recovery when the deadline elapses.
+        } else {
+          // PRE-config (NFI-1): the monitor was never configured, so
+          // `start()` no-op'd and `onTimeout` can NEVER fire — without
+          // a retry this connection is silently unmonitored and a later
+          // half-open zombie goes undetected. Retry the subscription a
+          // bounded number of times. Guarded on the generation so a
+          // newer `subscribe()` that superseded this loop (Bug 18)
+          // doesn't get its healthy stream torn down by our retry.
+          this.schedulePreConfigRetry(gen, retryBudget);
+        }
       }
     } finally {
       // If this loop is the active one, detach. A `subscribe()` that
@@ -286,6 +372,51 @@ export class HeartbeatSubscriber {
         // `subscribe()` re-entry barrier, which has already awaited us
         // by the time this finally runs.
       }
+    }
+  }
+
+  /**
+   * Arm a bounded retry of the subscription after a PRE-config stream
+   * failure (NFI-1). Exhausting the budget logs an error and gives up —
+   * the connection stays unmonitored, matching the pre-fix behavior but
+   * now loudly and only after `preConfigMaxRetries` real attempts.
+   */
+  private schedulePreConfigRetry(gen: number, retryBudget: number): void {
+    if (this.generation !== gen) {
+      // A newer subscribe() superseded this loop while it was failing;
+      // that subscription owns its own retry budget. Stand down.
+      return;
+    }
+    if (retryBudget <= 0) {
+      this.logger.error(
+        "heartbeat-subscriber: stream failed before config and retry budget " +
+          "is exhausted; connection is UNMONITORED (no heartbeat watchdog)",
+        { maxRetries: this.preConfigMaxRetries },
+      );
+      return;
+    }
+    this.logger.warn(
+      "heartbeat-subscriber: stream failed before config; retrying subscription",
+      {
+        retriesLeft: retryBudget,
+        delayMs: this.preConfigRetryDelayMs,
+      },
+    );
+    this.clearRetryTimer();
+    this.retryTimer = this.clock.setTimeout(() => {
+      this.retryTimer = null;
+      // Re-check the generation at fire time: a subscribe()/unsubscribe()
+      // in the gap would have cleared this timer, but the check is cheap
+      // belt-and-braces against future re-wirings.
+      if (this.generation !== gen) return;
+      void this.subscribeWithRetryBudget(retryBudget - 1);
+    }, this.preConfigRetryDelayMs);
+  }
+
+  private clearRetryTimer(): void {
+    if (this.retryTimer) {
+      this.clock.clearTimeout(this.retryTimer);
+      this.retryTimer = null;
     }
   }
 }

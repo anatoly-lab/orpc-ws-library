@@ -591,7 +591,8 @@ describe("ReconnectManager — reconnect() debounce + jitter + mutex", () => {
   });
 
   it(
-    "concurrent reconnect() calls serialize via mutex (second call no-ops)",
+    "concurrent reconnect() calls serialize via mutex (second call does not " +
+      "double-refresh; it queues one trailing rerun — NFI-5)",
     async () => {
       // Hold refresh in flight by making it never resolve until we let it.
       let resolveRefresh: (v: boolean) => void = () => {};
@@ -608,16 +609,21 @@ describe("ReconnectManager — reconnect() debounce + jitter + mutex", () => {
       expect(ctx.manager.isReconnecting()).toBe(true);
 
       // A second reconnect, debounced + jitter elapses. With the mutex held
-      // it must NOT call refresh again — bails with the debug log.
+      // it must NOT call refresh again — it parks behind the trailing-rerun
+      // latch (NFI-5) instead of being dropped.
       const second = ctx.manager.reconnect();
       await ctx.advance(100);
       expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
 
-      // Release the first refresh; both promises settle.
+      // Release the first refresh; the trailing rerun then runs (its 0ms
+      // jitter timer needs one clock tick) and lands in the shared storm
+      // window → no second refresh, just a current-token socket rebuild.
       resolveRefresh(true);
       await first;
+      await ctx.advance(0);
       await second;
 
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
       expect(ctx.manager.isReconnecting()).toBe(false);
     },
   );

@@ -167,6 +167,29 @@ export class ReconnectManager {
    */
   private pendingReconnectResolvers: Array<() => void> = [];
   /**
+   * Trailing-rerun latch (NFI-5). A `reconnect()` whose debounce fires
+   * WHILE another reconnect is in flight used to short-circuit on the
+   * mutex and resolve without ANY reconnect happening after it — if that
+   * dropped call was the only signal for a NEW problem (e.g. a second
+   * heartbeat timeout after the in-flight run had already passed its
+   * refresh), the trigger was lost permanently. Now the mutex branch
+   * requests exactly ONE trailing rerun; the in-flight run's `finally`
+   * consumes the flag and runs `runReconnect` once more. Trigger-driven,
+   * not a loop: each additional rerun requires a fresh `reconnect()`
+   * landing during a flight. The rerun shares the storm window, so it
+   * rebuilds the socket with the current token instead of re-hitting
+   * the IdP (Bug 16 semantics preserved).
+   */
+  private trailingRerunRequested = false;
+  /**
+   * Resolvers for the `reconnect()` calls that requested the trailing
+   * rerun. They settle when the rerun completes (or short-circuits on a
+   * dead client), NOT when the unrelated in-flight run finishes —
+   * "my reconnect resolved" must mean "a reconnect ran after my call".
+   * `dispose()` settles them too: callers never hang.
+   */
+  private trailingRerunResolvers: Array<() => void> = [];
+  /**
    * Storm-guard timestamp. Was `lastWsAuthRefreshAttemptedAt` at module
    * scope in `lifecycle/event-handlers.ts` (source line 25). Now an
    * instance field — one window per client instance. CLAUDE.md "Storm
@@ -367,16 +390,19 @@ export class ReconnectManager {
   }
 
   /**
-   * Safe reconnect with debounce, jitter, and mutex. Verbatim source
-   * semantics except for the injected Clock / Rng:
+   * Safe reconnect with debounce, jitter, and mutex. Source semantics
+   * except for the injected Clock / Rng and the NFI-5 trailing rerun:
    *   - Clears any pending debounce timer; the latest call wins.
-   *   - After `debounceMs`, takes the mutex. Concurrent in-flight reconnects
-   *     short-circuit (the in-flight one wins).
+   *   - After `debounceMs`, takes the mutex. A call whose debounce fires
+   *     while another reconnect is in flight requests ONE trailing rerun
+   *     (NFI-5) — the in-flight run executes it on completion, so a
+   *     trigger that arrived mid-flight is served by a reconnect that
+   *     STARTS after it (the source dropped it silently).
    *   - Adds `rng.next() * jitterMs` jitter to spread thundering-herd load.
    *   - Hands off to TokenRefreshHandler.refreshAndReconnect.
    *
-   * Resolves when the post-debounce path completes (or short-circuits via
-   * the mutex). Never rejects — errors are logged.
+   * Resolves when a reconnect that started at-or-after this call completes
+   * (or short-circuits on a dead client). Never rejects — errors are logged.
    */
   async reconnect(): Promise<void> {
     if (this.isStopped()) {
@@ -450,6 +476,14 @@ export class ReconnectManager {
     const resolvers = this.pendingReconnectResolvers;
     this.pendingReconnectResolvers = [];
     for (const r of resolvers) r();
+    // NFI-5: callers parked behind a requested trailing rerun must not
+    // hang either. Clear the request so the in-flight run's `finally`
+    // doesn't schedule a rerun on a disposed client (its entry check
+    // would refuse anyway — this just keeps the teardown total).
+    this.trailingRerunRequested = false;
+    const trailing = this.trailingRerunResolvers;
+    this.trailingRerunResolvers = [];
+    for (const r of trailing) r();
     this.logger.debug("reconnect-manager: disposed");
   }
 
@@ -474,10 +508,17 @@ export class ReconnectManager {
     }
 
     if (this.reconnectInProgress) {
+      // NFI-5: don't drop the trigger. The in-flight run may have already
+      // passed the point where this call's underlying problem (a fresh
+      // heartbeat timeout, another wake) would be addressed — request one
+      // trailing rerun and hand it our resolvers; the in-flight run's
+      // `finally` consumes the request. Multiple mid-flight triggers
+      // coalesce into the same single rerun.
       this.logger.debug(
-        "reconnect-manager: reconnect already in progress, skipping",
+        "reconnect-manager: reconnect already in progress, queueing one trailing rerun",
       );
-      settleAll();
+      this.trailingRerunRequested = true;
+      this.trailingRerunResolvers.push(...resolvers);
       return;
     }
 
@@ -580,6 +621,18 @@ export class ReconnectManager {
     } finally {
       this.reconnectInProgress = false;
       settleAll();
+      if (this.trailingRerunRequested) {
+        // NFI-5: a reconnect() landed while we were in flight. Run
+        // exactly one more pass for it. The mutex is free again, so the
+        // rerun proceeds; its own entry checks (isStopped) and `finally`
+        // settle the carried resolvers on every path. If yet another
+        // reconnect() lands DURING the rerun, the flag is set afresh by
+        // the mutex branch — trigger-driven, never a self-loop.
+        this.trailingRerunRequested = false;
+        const trailing = this.trailingRerunResolvers;
+        this.trailingRerunResolvers = [];
+        void this.runReconnect(trailing);
+      }
     }
   }
 
