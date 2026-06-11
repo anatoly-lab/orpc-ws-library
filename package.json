@@ -19,9 +19,10 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:unit": "turbo run test",
+    "test:e2e": "turbo run build && npm run test:e2e -w @repo/tests-e2e",
     "ci": "turbo run lint typecheck test build",
     "clean": "turbo run clean && rimraf .turbo node_modules",
-
     "build:demo": "turbo run build --filter=@demo/contract --filter=@demo/spa --filter=@demo/server",
     "dev:demo": "turbo run dev --filter=@demo/server --filter=@demo/spa",
     "dev:server": "npm run dev -w @demo/server",
