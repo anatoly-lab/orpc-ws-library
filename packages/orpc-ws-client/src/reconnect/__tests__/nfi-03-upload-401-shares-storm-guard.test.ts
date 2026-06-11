@@ -21,9 +21,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Clock, Logger, Rng, TimerHandle } from "@repo/orpc-ws-shared";
 
-import type { TokenProvider } from "../../auth/token-provider.js";
 import { ReconnectManager } from "../reconnect-manager.js";
-import { TokenRefreshHandler } from "../token-refresh-handler.js";
+import type { TokenRefreshHandler } from "../token-refresh-handler.js";
 
 // ---------- Fake clock (same shape as reconnect-manager.test.ts) ----------
 
