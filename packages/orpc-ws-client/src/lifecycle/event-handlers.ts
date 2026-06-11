@@ -28,6 +28,12 @@
 //   - Bug 9 (stale-WS close clobbering): the isStaleWs branch derived from
 //     wrapper !== holder.get() drops the close on the floor without touching
 //     state — proven by the test suite.
+//   - Bug 6/17 (stale-WS open clobbering): same guard, mirrored on the open
+//     path. A replaced wrapper whose handshake completed just before a
+//     token-refresh swap can still deliver its queued open; without the
+//     guard it would mark the NEW wrapper's attempt as opened (resurrecting
+//     Bug 4's masked-handshake-failure loop), set `connected` while the new
+//     WS is still CONNECTING, and run the onOpen hook against a non-OPEN link.
 //   - Bug 10 (currentAttemptOpened lifecycle): we snapshot the flag BEFORE
 //     resetting it, so the decision tree sees attempt-N's reality but the
 //     holder is reset in time for attempt-(N+1)'s open/close pair. Verbatim
@@ -82,6 +88,16 @@ export interface EventHandlersDeps {
    * the heartbeat monitor, etc.
    */
   onClose?: () => void;
+  /**
+   * Optional kick-specific teardown hook, fired ONLY on the
+   * `session-replaced` decision (close 4005) — after state moves to
+   * `kicked` and after the generic `onClose` hook above. The composition
+   * root wires this to the kicked teardown (clear link + holder, stop
+   * the sleep detector) so the kick is as terminal as `dispose()` —
+   * F1/F3: without it, a late stale open or a sleep-wake could run
+   * machinery on a kicked client.
+   */
+  onKicked?: () => void;
 }
 
 /**
@@ -96,6 +112,7 @@ export class EventHandlers {
   private readonly logger: Logger;
   private readonly onOpenHook: (() => void) | undefined;
   private readonly onCloseHook: (() => void) | undefined;
+  private readonly onKickedHook: (() => void) | undefined;
 
   constructor(deps: EventHandlersDeps) {
     this.connectionState = deps.connectionState;
@@ -104,6 +121,7 @@ export class EventHandlers {
     this.logger = deps.logger ?? noopLogger;
     this.onOpenHook = deps.onOpen;
     this.onCloseHook = deps.onClose;
+    this.onKickedHook = deps.onKicked;
   }
 
   /**
@@ -113,13 +131,13 @@ export class EventHandlers {
    */
   createHandlers(_wrapper: ReconnectingWebSocket): WebSocketEventHandlers {
     // `_wrapper` is intentionally unused inside this method — the factory
-    // closure-binds the wrapper when wiring `ws.onclose` (see
+    // closure-binds the wrapper when wiring `ws.onopen` / `ws.onclose` (see
     // websocket-factory.ts), and passes it back as the second arg to
-    // `onClose` below. We accept it here so callers can construct
+    // `onOpen` / `onClose` below. We accept it here so callers can construct
     // handlers in a parallel position to the factory call site, and so
     // future hooks (e.g. per-wrapper logging) have a place to land.
     return {
-      onOpen: (event) => this.handleOpen(event),
+      onOpen: (event, w) => this.handleOpen(event, w),
       onClose: (event, w) => this.handleClose(event, w),
       onError: (event) => this.handleError(event),
     };
@@ -127,9 +145,22 @@ export class EventHandlers {
 
   // ---------- handlers ----------
 
-  private handleOpen(event: unknown): void {
+  private handleOpen(event: unknown, wrapper: ReconnectingWebSocket): void {
     // Normalize for consistency / future-proofing — open carries no payload.
     normalizeOpenEvent(event);
+
+    // Bug 6/17 stale-WS guard — mirror of handleClose's Bug 9 guard. A
+    // wrapper replaced by a token-refresh swap can still deliver a queued
+    // open (its handshake completed just before close()). Touching state
+    // here would mark the NEW wrapper's attempt as opened before it opened
+    // — misrouting its later pre-open close-1000 to normal-disconnect
+    // instead of auth-recovery (Bug 4's silent loop) — and would run the
+    // onOpen hook against a non-OPEN link. Drop it on the floor.
+    if (wrapper !== this.websocketHolder.get()) {
+      this.logger.debug("event-handlers: ignoring stale-WS open");
+      return;
+    }
+
     this.logger.info("event-handlers: WebSocket open");
     this.websocketHolder.markCurrentAttemptOpened();
     this.connectionState.setState(connected());
@@ -213,6 +244,11 @@ export class EventHandlers {
         }
         this.connectionState.setState(kicked("session_replaced"));
         this.runOnCloseHook();
+        // Kick-specific teardown AFTER the generic close hook so the
+        // ordering mirrors dispose(): heartbeat stops first (onClose),
+        // then the composition root clears the link/holder and stops the
+        // sleep detector. See `EventHandlersDeps.onKicked` (F1/F3).
+        this.runOnKickedHook();
         return;
 
       case "auth-recovery":
@@ -274,6 +310,17 @@ export class EventHandlers {
       this.onCloseHook();
     } catch (err) {
       this.logger.error("event-handlers: onClose hook threw", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private runOnKickedHook(): void {
+    if (!this.onKickedHook) return;
+    try {
+      this.onKickedHook();
+    } catch (err) {
+      this.logger.error("event-handlers: onKicked hook threw", {
         error: err instanceof Error ? err.message : String(err),
       });
     }

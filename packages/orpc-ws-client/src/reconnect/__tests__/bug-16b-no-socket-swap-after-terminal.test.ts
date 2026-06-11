@@ -5,8 +5,8 @@
 // that is still in flight when a concurrent 1008 close routes into
 // `tryAuthRecovery`, trips the guard, and fires terminal teardown. The
 // late-resolving refresh then reaches `swapSocket` — which, without the
-// composition root's `isDisposed: () => disposed || terminalAuthFired`
-// predicate, would build a brand-new WebSocket after terminal and let
+// composition root's unified `isDead` predicate (disposed / terminal /
+// kicked), would build a brand-new WebSocket after terminal and let
 // `handleOpen` flip state back to `connected` (zombie-after-terminal).
 //
 // Tested at the TokenRefreshHandler level (same shape as bug-12's
@@ -41,6 +41,9 @@ function makeReconnectConfig(): ReconnectConfig {
     reconnectionDelayGrowFactor: 1.3,
     connectionTimeout: 5_000,
     maxEnqueuedMessages: 0,
+    debounceMs: 100,
+    jitterMs: 1_000,
+    minRefreshIntervalMs: 30_000,
   };
 }
 
@@ -88,7 +91,7 @@ function buildHandler() {
     })),
     reconnectConfig: makeReconnectConfig(),
     linkClearer,
-    isDisposed: () => terminal,
+    isDead: () => terminal,
     logger: makeLogger(),
   });
 

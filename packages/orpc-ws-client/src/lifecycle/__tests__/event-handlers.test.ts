@@ -79,7 +79,7 @@ describe("EventHandlers — onOpen", () => {
     ctx.websocketHolder.set(ws);
     const handlers = ctx.handlers.createHandlers(ws);
 
-    handlers.onOpen(new Event("open"));
+    handlers.onOpen(new Event("open"), ws);
 
     expect(ctx.connectionState.getState()).toEqual({ status: "connected" });
     expect(ctx.websocketHolder.getCurrentAttemptOpened()).toBe(true);
@@ -287,7 +287,7 @@ describe("EventHandlers — Bug 10 cross-instance: currentAttemptOpened reset on
     const handlers = ctx.handlers.createHandlers(ws);
 
     // Attempt #1: open succeeds, then disconnects cleanly post-open (1000).
-    handlers.onOpen(new Event("open"));
+    handlers.onOpen(new Event("open"), ws);
     expect(ctx.websocketHolder.getCurrentAttemptOpened()).toBe(true);
     await handlers.onClose({ code: 1000, reason: "", wasClean: true }, ws);
 

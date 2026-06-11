@@ -33,12 +33,14 @@ export type UrlProvider =
 /**
  * WebSocket event handlers contract.
  *
- * `onClose` receives the wrapper it was attached to as a second argument.
- * Property-assigned `onclose` handlers see the NATIVE WebSocket on
+ * `onClose` AND `onOpen` receive the wrapper they were attached to as a
+ * second argument. Property-assigned handlers see the NATIVE WebSocket on
  * `event.target`, not the partysocket wrapper, so we can't use event.target
  * to detect a stale (previously-replaced) wrapper. The factory closure-binds
- * the wrapper when attaching the handler so onClose can compare it to the
- * holder's current wrapper (Bug 9 stale-WS guard).
+ * the wrapper when attaching each handler so the orchestrator can compare it
+ * to the holder's current wrapper (Bug 9 stale-CLOSE guard; Bug 6/17
+ * stale-OPEN guard — a replaced wrapper's queued open must not clobber the
+ * new wrapper's state).
  *
  * Handlers receive `unknown` raw events; the event-normalizer (the D3
  * anti-corruption layer) is responsible for turning them into a stable
@@ -47,7 +49,7 @@ export type UrlProvider =
  * the `cloneEventBrowser` bug documented in `event-normalizer.ts`).
  */
 export interface WebSocketEventHandlers {
-  onOpen: (event: unknown) => void;
+  onOpen: (event: unknown, wrapper: ReconnectingWebSocket) => void;
   onClose: (
     event: unknown,
     wrapper: ReconnectingWebSocket,

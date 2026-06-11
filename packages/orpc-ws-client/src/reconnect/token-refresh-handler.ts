@@ -96,14 +96,16 @@ export interface TokenRefreshHandlerDeps {
    */
   linkClearer: () => void;
   /**
-   * Bug 12 belt-and-braces: when this predicate returns `true`, the
-   * handler refuses to build/install a new WebSocket. The composition
-   * root wires it to the client's `disposed` flag so a refresh that
-   * resolves after `client.dispose()` cannot resurrect a connection.
-   * Optional — tests and the ReconnectManager's own dispose latch are
-   * the primary guards; this is the last line of defense at the swap.
+   * Bug 12 / F1 belt-and-braces: when this predicate returns `true`, the
+   * handler refuses to build/install a new WebSocket. "Dead" covers all
+   * THREE terminal states — `dispose()`, terminal auth failure, and
+   * `kicked` (session replaced, close 4005); the composition root wires
+   * its unified `isDead` predicate so a refresh that resolves after ANY
+   * death cannot resurrect a connection. Optional — tests and the
+   * ReconnectManager's own deadness checks are the primary guards; this
+   * is the last line of defense at the swap.
    */
-  isDisposed?: () => boolean;
+  isDead?: () => boolean;
   logger?: Logger;
 }
 
@@ -127,7 +129,7 @@ export class TokenRefreshHandler {
   private readonly heartbeatMonitor: Stoppable | undefined;
   private readonly heartbeatSubscriber: Stoppable | undefined;
   private readonly linkClearer: () => void;
-  private readonly isDisposed: (() => boolean) | undefined;
+  private readonly isDead: (() => boolean) | undefined;
   private readonly logger: Logger;
 
   /**
@@ -160,7 +162,7 @@ export class TokenRefreshHandler {
     this.heartbeatMonitor = deps.heartbeatMonitor;
     this.heartbeatSubscriber = deps.heartbeatSubscriber;
     this.linkClearer = deps.linkClearer;
-    this.isDisposed = deps.isDisposed;
+    this.isDead = deps.isDead;
     this.logger = deps.logger ?? noopLogger;
   }
 
@@ -258,11 +260,12 @@ export class TokenRefreshHandler {
    * the second call is dropped with a warn log.
    */
   private swapSocket(token: string | null): void {
-    if (this.isDisposed?.()) {
-      // Bug 12: a refresh that resolved after client.dispose() must not
-      // stand up a new WebSocket — the client object is dead.
+    if (this.isDead?.()) {
+      // Bug 12 / F1: a refresh that resolved after the client died —
+      // dispose(), terminal auth failure, or a 4005 kick — must not
+      // stand up a new WebSocket. The client object is dead.
       this.logger.warn(
-        "token-refresh-handler: client disposed; refusing to create a new WebSocket",
+        "token-refresh-handler: client is dead (disposed/terminal/kicked); refusing to create a new WebSocket",
       );
       return;
     }

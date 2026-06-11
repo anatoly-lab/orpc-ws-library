@@ -321,6 +321,14 @@ the practical severity of the rotation race (depends on the consumer's TokenProv
 
 ## BUG-6 — No stale-wrapper guard on `open`
 
+> **✅ RESOLVED** (verified + fixed). Mirrored the Bug-9 stale-close guard onto
+> the open path: `WebSocketEventHandlers.onOpen` now takes `(event, wrapper)`,
+> the factory closure-binds `ws` on `ws.onopen`, and `handleOpen` drops the
+> event when `wrapper !== websocketHolder.get()` (before any
+> `markCurrentAttemptOpened`/`setState(connected)`/hook). Test:
+> `bug-17-stale-ws-open-clobbers-state.test.ts`. Typechecks; run the client
+> suite to confirm.
+
 - **Severity:** Medium. **Likelihood:** Low (browser event-queue race), but the damage
   reintroduces historical Bug 4.
 - **Location:**

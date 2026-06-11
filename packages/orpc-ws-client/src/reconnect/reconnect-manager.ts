@@ -89,6 +89,19 @@ export interface ReconnectManagerDeps {
    * (token auth).
    */
   canRefresh?: boolean;
+  /**
+   * Composition-level "client is dead" predicate (F1/F3). The manager's
+   * own `disposed` / `terminalFired` latches only cover the deaths it
+   * participates in; the composition root also kills the client via the
+   * `kicked` state (session replaced, close 4005) and via the
+   * no-tokenProvider terminal path — neither routes through this
+   * instance. When the predicate returns `true`, every entry point and
+   * every after-await re-check refuses to run, so a reconnect armed
+   * before the death cannot complete after it (the F1 kicked → connected
+   * resurrection). Optional — defaults to "not dead"; the internal
+   * latches remain the baseline guards.
+   */
+  isDead?: () => boolean;
   clock?: Clock;
   rng?: Rng;
   logger?: Logger;
@@ -122,6 +135,7 @@ export class ReconnectManager {
   private readonly config: ReconnectManagerConfig;
   private readonly onTerminalAuthFailure: OnTerminalAuthFailure;
   private readonly canRefresh: boolean;
+  private readonly isDead: (() => boolean) | undefined;
   private readonly clock: Clock;
   private readonly rng: Rng;
   private readonly logger: Logger;
@@ -178,9 +192,22 @@ export class ReconnectManager {
     this.config = deps.reconnectConfig;
     this.onTerminalAuthFailure = deps.onTerminalAuthFailure;
     this.canRefresh = deps.canRefresh ?? true;
+    this.isDead = deps.isDead;
     this.clock = deps.clock ?? systemClock;
     this.rng = deps.rng ?? defaultRng;
     this.logger = deps.logger ?? noopLogger;
+  }
+
+  /**
+   * Unified deadness check (F1/F3): the instance's own latches (Bug 12 /
+   * Bug 14) OR the composition root's `isDead` predicate (disposed /
+   * terminal / kicked). Every entry point and every after-await re-check
+   * goes through here so all three terminal states behave identically —
+   * a reconnect armed before ANY death short-circuits instead of running
+   * to the swap and being refused there.
+   */
+  private isStopped(): boolean {
+    return this.disposed || this.terminalFired || (this.isDead?.() ?? false);
   }
 
   /**
@@ -205,18 +232,13 @@ export class ReconnectManager {
    * refresh path is uniform).
    */
   async tryAuthRecovery(closeCode: number): Promise<void> {
-    if (this.disposed) {
+    if (this.isStopped()) {
+      // Dead client — disposed (Bug 12), terminal (Bug 14), or kicked /
+      // composition-terminal (F1/F3): the library must not attempt
+      // another refresh. Repeat triggers (e.g. a straggler close event)
+      // no-op here.
       this.logger.debug(
-        "reconnect-manager: tryAuthRecovery after dispose(); ignoring",
-        { closeCode },
-      );
-      return;
-    }
-    if (this.terminalFired) {
-      // Bug 14: after terminal, the library must not attempt another
-      // refresh — repeat triggers (e.g. a straggler close event) no-op.
-      this.logger.debug(
-        "reconnect-manager: tryAuthRecovery after terminal auth failure; ignoring",
+        "reconnect-manager: tryAuthRecovery on a dead client (disposed/terminal/kicked); ignoring",
         { closeCode },
       );
       return;
@@ -254,9 +276,11 @@ export class ReconnectManager {
       });
     }
 
-    // Re-check after the await (Bug 12): a dispose() that landed while
-    // refresh() was in flight wins — no terminal callback post-teardown.
-    if (this.disposed) return;
+    // Re-check after the await (Bug 12 / F1): a dispose() — or a 4005
+    // kick / composition-level terminal — that landed while refresh() was
+    // in flight wins. No terminal callback post-teardown, and a kicked
+    // client must not be re-labeled "terminal auth failure".
+    if (this.isStopped()) return;
 
     if (!ok) {
       this.logger.warn(
@@ -279,11 +303,12 @@ export class ReconnectManager {
    * the mutex). Never rejects — errors are logged.
    */
   async reconnect(): Promise<void> {
-    if (this.disposed || this.terminalFired) {
-      // Disposed (Bug 12) or terminal (Bug 14): no reconnect machinery
-      // may run. Resolve immediately — callers must never hang.
+    if (this.isStopped()) {
+      // Dead client — disposed (Bug 12), terminal (Bug 14), or kicked /
+      // composition-terminal (F1/F3): no reconnect machinery may run.
+      // Resolve immediately — callers must never hang.
       this.logger.debug(
-        "reconnect-manager: reconnect() after dispose/terminal; ignoring",
+        "reconnect-manager: reconnect() on a dead client (disposed/terminal/kicked); ignoring",
       );
       return;
     }
@@ -347,10 +372,11 @@ export class ReconnectManager {
       for (const r of resolvers) r();
     };
 
-    if (this.disposed || this.terminalFired) {
-      // Disposed/terminal between scheduling and the debounce firing.
+    if (this.isStopped()) {
+      // Died (disposed/terminal/kicked) between scheduling and the
+      // debounce firing.
       this.logger.debug(
-        "reconnect-manager: runReconnect after dispose/terminal; skipping",
+        "reconnect-manager: runReconnect on a dead client; skipping",
       );
       settleAll();
       return;
@@ -375,11 +401,12 @@ export class ReconnectManager {
       });
       await this.delay(jitter);
 
-      // Re-check after the jitter delay (Bug 12): dispose() during the
-      // delay must win — no refresh, no socket swap.
-      if (this.disposed || this.terminalFired) {
+      // Re-check after the jitter delay (Bug 12 / F1): a dispose(), a
+      // 4005 kick, or a composition-level terminal during the delay must
+      // win — no refresh, no socket swap.
+      if (this.isStopped()) {
         this.logger.debug(
-          "reconnect-manager: disposed/terminal during jitter delay; aborting reconnect",
+          "reconnect-manager: client died during jitter delay; aborting reconnect",
         );
         return;
       }
@@ -438,7 +465,10 @@ export class ReconnectManager {
           error: err instanceof Error ? err.message : String(err),
         });
       }
-      if (this.disposed) return;
+      // Re-check after the refresh await (Bug 12 / F1): a death that
+      // landed mid-refresh wins — no terminal callback, and a kicked
+      // client must not be re-labeled "terminal auth failure".
+      if (this.isStopped()) return;
       if (!ok) {
         this.logger.warn(
           "reconnect-manager: reconnect refresh returned null, firing onTerminalAuthFailure",
@@ -464,7 +494,6 @@ export class ReconnectManager {
   }
 
   private fireTerminalAuthFailure(): void {
-    if (this.disposed) return;
     if (this.terminalFired) {
       // Bug 14: single fire per instance. Anything that re-triggers the
       // terminal path after the first fire (straggler close events,
@@ -474,6 +503,10 @@ export class ReconnectManager {
       );
       return;
     }
+    // Dead for another reason — disposed (Bug 12) or the composition
+    // root's kicked/terminal latch (F1/F3): a dead client must not fire
+    // the consumer's terminal callback on top of its own death.
+    if (this.isStopped()) return;
     this.terminalFired = true;
     try {
       this.onTerminalAuthFailure();

@@ -343,9 +343,14 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
 
   // ----- 6b. Terminal-auth-failure path + dispose flag -----
   // `disposed` is declared here (not next to `dispose()` in step 12)
-  // because the TokenRefreshHandler's `isDisposed` predicate below closes
-  // over it — the declaration must precede the wiring.
+  // because the unified `isDead` predicate below closes over it — the
+  // declaration must precede the wiring.
   let disposed = false;
+
+  // Declared here, ASSIGNED in step 10 — same forward-reference reason as
+  // `disposed`: the terminal/kick teardown closures below stop the
+  // detector, so the binding must exist before those closures are defined.
+  let sleepDetector: SleepDetector | null = null;
 
   // Single-fire terminal teardown (Bug 14). The public contract
   // (`onTerminalAuthFailure` docs above) says the client is TERMINAL after
@@ -378,6 +383,11 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
 
     heartbeatSubscriber.unsubscribe();
     heartbeatMonitor.stop();
+    // Terminal means ALL background machinery stops (F3). Pre-fix the
+    // sleep detector kept ticking, so a post-terminal wake still emitted
+    // `woke_from_sleep` and ran the full reconnect machinery just to be
+    // refused at the socket swap.
+    if (sleepDetector) sleepDetector.stop();
 
     const ws = websocketHolder.get();
     if (ws) {
@@ -408,6 +418,41 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
         });
       }
     }
+  };
+
+  // ONE notion of "this client is dead", shared by every reconnect-
+  // sensitive collaborator (F1/F3). The client has THREE terminal states —
+  // `dispose()`, terminal auth failure, and `kicked` (session replaced,
+  // close 4005) — and the reconnect machinery must refuse to run in ALL of
+  // them. The first two are composition-level latches; `kicked` lives in
+  // the state manager (the 4005 branch in event-handlers.ts sets it), so
+  // we read it from the state. Wired into BOTH the ReconnectManager
+  // (entry-point + after-await short-circuits) and the TokenRefreshHandler
+  // (last line of defense at the socket swap). Pre-fix only
+  // `disposed || terminalAuthFired` was checked: a reconnect armed before
+  // a 4005 (heartbeat-timeout debounce / in-flight refresh) completed
+  // AFTER the kick, swapped in a new socket, and `handleOpen` flipped
+  // `kicked` back to `connected` — stealing the session back from the tab
+  // that legitimately replaced it.
+  const isDead = (): boolean =>
+    disposed ||
+    terminalAuthFired ||
+    connectionState.getState().status === "kicked";
+
+  // Kicked teardown (F1/F3) — mirrors the terminal/dispose teardowns for
+  // the session-replaced case. The 4005 branch in event-handlers.ts
+  // already closed the wrapper (latching partysocket's `_closeCalled` so
+  // auto-retry stops) and its onClose hook already stopped the heartbeat;
+  // what was MISSING was clearing the link/holder — so a late stale open
+  // from the closed wrapper is dropped by the Bug 6/17 guard (holder is
+  // null) — and stopping the sleep detector, so a wake on a kicked client
+  // neither emits `woke_from_sleep` nor spins up reconnect machinery.
+  // All three calls are idempotent; a later `dispose()` re-running them is
+  // safe.
+  const handleKicked = (): void => {
+    linkFactory.clearLink();
+    websocketHolder.clear();
+    if (sleepDetector) sleepDetector.stop();
   };
 
   // ----- 7. Token refresh + reconnect manager (with forward-ref dance) -----
@@ -452,14 +497,15 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     heartbeatMonitor,
     heartbeatSubscriber,
     linkClearer: () => linkFactory.clearLink(),
-    // Refuse the socket swap after the client is dead — either disposed
-    // (Bug 12) OR terminal (Bug 14). The terminal guard closes a race the
+    // Refuse the socket swap after the client is dead — disposed (Bug 12),
+    // terminal (Bug 14), OR kicked (F1). The guard closes a race the
     // shared storm window (Bug 16/BUG-5) makes reachable: a reconnect()
     // refresh can still be in flight when a concurrent 1008 trips
-    // `tryAuthRecovery` into terminal teardown; without this, the resolving
-    // refresh would `swapSocket` a brand-new socket AFTER terminal and flip
-    // state back to `connected` (zombie-after-terminal).
-    isDisposed: () => disposed || terminalAuthFired,
+    // `tryAuthRecovery` into terminal teardown — or a concurrent 4005
+    // kicks the session; without this, the resolving refresh would
+    // `swapSocket` a brand-new socket AFTER the death and flip state back
+    // to `connected` (zombie-after-terminal / kicked resurrection).
+    isDead,
     logger,
   });
 
@@ -475,6 +521,13 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     // `reconnect()` path (sleep-wake / heartbeat timeout) — see
     // `ReconnectManagerDeps.canRefresh`.
     canRefresh: hasTokenProvider,
+    // Short-circuit ALL reconnect machinery at the entry points once the
+    // client is dead (F1/F3) — covering the deaths the manager's own
+    // latches don't know about: the `kicked` state (session replaced) and
+    // the no-tokenProvider terminal path, which fires
+    // `fireTerminalAuthFailure` directly without routing through this
+    // manager.
+    isDead,
     clock,
     rng,
     logger,
@@ -524,6 +577,11 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
       heartbeatSubscriber.unsubscribe();
       heartbeatMonitor.stop();
     },
+    // Kick-specific teardown (F1/F3) — runs AFTER the onClose hook above
+    // on the 4005 path, so the ordering mirrors dispose(): heartbeat
+    // stops first, then the link/holder are cleared and the sleep
+    // detector stops. See `handleKicked` in step 6b.
+    onKicked: handleKicked,
   });
 
   // ----- 9. Heartbeat timeout → reconnect -----
@@ -554,8 +612,9 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
   });
 
   // ----- 10. Sleep detector (optional) -----
+  // (`sleepDetector` itself is declared in step 6b — the terminal/kick
+  // teardown closures stop it, so the binding precedes them.)
   const sleepDetectionEnabled = opts.sleepDetection !== false;
-  let sleepDetector: SleepDetector | null = null;
   if (sleepDetectionEnabled) {
     sleepDetector = new SleepDetector({
       onWake: (sleepDurationMs) => {
@@ -584,8 +643,8 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
   };
 
   // ----- 12. Lifecycle: connect() / dispose() -----
-  // (`disposed` is declared in step 6b — the TokenRefreshHandler's
-  // `isDisposed` predicate closes over it.)
+  // (`disposed` is declared in step 6b — the unified `isDead` predicate
+  // closes over it.)
   const connect = (): void => {
     if (disposed) {
       logger.warn("orpc-ws-client: connect() called after dispose(); ignoring");

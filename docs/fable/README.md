@@ -9,11 +9,10 @@ library defect.
 finding are ✅ RESOLVED (see per-finding banners): **BUG-1, BUG-2, BUG-3,
 BUG-4** (client lifecycle) and **API-4** (server token-expiry, opt-in). BUG-1/3/4
 + API-4 are test-passing; BUG-2 typechecks (run the client suite to confirm).
-**BUG-5** (Medium — storm-guard single-window deviation, a locked-decision
-violation) is also ✅ RESOLVED (full fix: shared window + single-flight refresh
-+ no-swap-after-terminal guard). Still open proposals: **BUG-6/7/8/9/10**
-(Medium/Low), the SOLID god-files (client `index.ts` is now ~700 LOC), and the
-"Needs further investigation" items.
+**BUG-5** (storm-guard single-window deviation, a locked-decision violation) and
+**BUG-6** (stale-`open` guard) are also ✅ RESOLVED. Still open proposals:
+**BUG-7/8/9/10** (Medium/Low), the SOLID god-files (client `index.ts` is now
+~700 LOC), and the "Needs further investigation" items.
 
 ## Reports
 

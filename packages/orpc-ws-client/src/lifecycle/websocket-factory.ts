@@ -72,7 +72,11 @@ export class WebSocketFactory {
     // a mangled `code`. Do NOT swap these for addEventListener calls
     // without re-reading event-normalizer.ts and the source-app comment.
     ws.onopen = (event) => {
-      handlers.onOpen(event);
+      // Closure-bind `ws` for the same reason as onclose below: the
+      // stale-WS guard in onOpen (Bug 6/17) needs the partysocket wrapper
+      // identity, and property-assigned handlers only expose the NATIVE
+      // WebSocket on event.target.
+      handlers.onOpen(event, ws);
     };
     ws.onclose = (event) => {
       // Closure-bind `ws` so the handler can identify which wrapper it

@@ -14,9 +14,10 @@
 //     resolves every pending `reconnect()` promise, and latches `disposed`
 //     — checked at the top of every entry point AND re-checked after each
 //     `await`.
-//   - `TokenRefreshHandler` belt-and-braces: the injected `isDisposed`
-//     predicate makes `reconnectWithNewToken` refuse to build/install a
-//     new WebSocket post-teardown.
+//   - `TokenRefreshHandler` belt-and-braces: the injected `isDead`
+//     predicate (composition-wired to disposed/terminal/kicked) makes
+//     `reconnectWithNewToken` refuse to build/install a new WebSocket
+//     post-teardown.
 //
 // All timing through the fake clock — deterministic, no real timers.
 
@@ -231,7 +232,7 @@ describe("Bug 12 — ReconnectManager.dispose() cancels the reconnect machinery"
 });
 
 describe("Bug 12 — TokenRefreshHandler refuses the socket swap post-dispose", () => {
-  it("reconnectWithNewToken() is a no-op when isDisposed() returns true", () => {
+  it("reconnectWithNewToken() is a no-op when isDead() returns true", () => {
     let disposed = false;
     const holder = new WebSocketHolder();
     const create = vi.fn(() => {
@@ -255,7 +256,7 @@ describe("Bug 12 — TokenRefreshHandler refuses the socket swap post-dispose", 
       }),
       reconnectConfig: DEFAULT_RECONNECT_CONFIG,
       linkClearer,
-      isDisposed: () => disposed,
+      isDead: () => disposed,
       logger: makeLogger(),
     });
 

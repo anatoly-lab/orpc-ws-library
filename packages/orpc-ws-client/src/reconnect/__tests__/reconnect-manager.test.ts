@@ -177,6 +177,8 @@ interface BuildOptions {
   minRefreshIntervalMs?: number;
   debounceMs?: number;
   jitterMs?: number;
+  /** Composition-level deadness predicate (F1/F3) — see the F1/F3 suite. */
+  isDead?: () => boolean;
 }
 
 function build(opts: BuildOptions = {}) {
@@ -193,6 +195,7 @@ function build(opts: BuildOptions = {}) {
       minRefreshIntervalMs: opts.minRefreshIntervalMs ?? 30_000,
     },
     onTerminalAuthFailure,
+    isDead: opts.isDead,
     clock,
     rng,
     logger,
@@ -396,7 +399,7 @@ describe("ReconnectManager — reconnect() debounce + jitter + mutex", () => {
     "concurrent reconnect() calls serialize via mutex (second call no-ops)",
     async () => {
       // Hold refresh in flight by making it never resolve until we let it.
-      let resolveRefresh: ((v: boolean) => void) | null = null;
+      let resolveRefresh: (v: boolean) => void = () => {};
       const ctx = build({ debounceMs: 100, jitterMs: 0 });
       ctx.handler.refreshAndReconnect.mockImplementation(
         () =>
@@ -416,7 +419,7 @@ describe("ReconnectManager — reconnect() debounce + jitter + mutex", () => {
       expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
 
       // Release the first refresh; both promises settle.
-      resolveRefresh?.(true);
+      resolveRefresh(true);
       await first;
       await second;
 
@@ -425,7 +428,7 @@ describe("ReconnectManager — reconnect() debounce + jitter + mutex", () => {
   );
 
   it("isReconnecting() reflects in-flight refresh", async () => {
-    let resolveRefresh: ((v: boolean) => void) | null = null;
+    let resolveRefresh: (v: boolean) => void = () => {};
     const ctx = build({ debounceMs: 50, jitterMs: 0 });
     ctx.handler.refreshAndReconnect.mockImplementation(
       () =>
@@ -442,10 +445,183 @@ describe("ReconnectManager — reconnect() debounce + jitter + mutex", () => {
     await ctx.advance(50);
     expect(ctx.manager.isReconnecting()).toBe(true);
 
-    resolveRefresh?.(true);
+    resolveRefresh(true);
     await p;
     expect(ctx.manager.isReconnecting()).toBe(false);
   });
+});
+
+describe("ReconnectManager — composition-level isDead predicate (F1/F3 unified deadness)", () => {
+  // The manager's own latches (disposed / terminalFired) only cover the
+  // deaths it participates in. The composition root also kills the client
+  // via the `kicked` state (close 4005) and the no-tokenProvider terminal
+  // path — neither routes through this instance — and injects that
+  // knowledge as the `isDead` predicate. These tests pin the RM-level
+  // wiring: every entry point and every after-await re-check must consult
+  // the predicate, so a reconnect armed before ANY death short-circuits
+  // instead of refreshing / firing terminal on a dead client.
+  //
+  // Each death is simulated by flipping a mutable boolean behind the
+  // predicate at a precise point in the debounce → jitter → refresh
+  // pipeline (fake clock; deterministic).
+
+  it(
+    "isDead flipping true between reconnect() scheduling and the debounce " +
+      "firing skips the refresh; the promise still settles",
+    async () => {
+      let dead = false;
+      const ctx = build({
+        debounceMs: 1000,
+        jitterMs: 0,
+        isDead: () => dead,
+      });
+
+      const p = ctx.manager.reconnect();
+      // Halfway through the debounce window — reconnect armed, not fired.
+      await ctx.advance(500);
+      // The kick (or composition-level terminal) lands now.
+      dead = true;
+      // Debounce elapses → runReconnect's entry isStopped() re-check must
+      // short-circuit. Pre-wiring, only disposed/terminalFired were read
+      // and the refresh ran on the dead client.
+      await ctx.advance(500);
+
+      // Callers must never hang on a dead client — settleAll runs in the
+      // dead-client branch.
+      await expect(p).resolves.toBeUndefined();
+      expect(ctx.handler.refreshAndReconnect).not.toHaveBeenCalled();
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "isDead flipping true during the jitter delay aborts before the " +
+      "refresh; the promise still settles",
+    async () => {
+      let dead = false;
+      const ctx = build({
+        debounceMs: 1000,
+        jitterMs: 5000,
+        rng: makeFakeRng([0.4]), // jitter = 0.4 * 5000 = 2000ms
+        isDead: () => dead,
+      });
+
+      const p = ctx.manager.reconnect();
+      await ctx.advance(1000); // debounce fires; jitter timer scheduled
+      // We're inside the jitter delay — no refresh yet.
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(0);
+
+      // The kick lands mid-jitter.
+      dead = true;
+      // Jitter elapses → the post-jitter isStopped() re-check must abort.
+      await ctx.advance(2000);
+
+      await expect(p).resolves.toBeUndefined();
+      expect(ctx.handler.refreshAndReconnect).not.toHaveBeenCalled();
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "isDead flipping true while reconnect()'s refresh is in flight " +
+      "suppresses the !ok terminal escalation",
+    async () => {
+      let dead = false;
+      let resolveRefresh: (v: boolean) => void = () => {};
+      const ctx = build({ debounceMs: 100, jitterMs: 0, isDead: () => dead });
+      ctx.handler.refreshAndReconnect.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+
+      const p = ctx.manager.reconnect();
+      await ctx.advance(100); // debounce + 0 jitter → refresh in flight
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+
+      // The kick lands while refresh() is pending; the refresh then FAILS.
+      // Pre-wiring, the !ok branch fired onTerminalAuthFailure — relabeling
+      // a dead/kicked client as a terminal AUTH failure.
+      dead = true;
+      resolveRefresh(false);
+
+      await expect(p).resolves.toBeUndefined();
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "tryAuthRecovery on an already-dead client no-ops — no refresh, no " +
+      "onTerminalAuthFailure",
+    async () => {
+      const ctx = build({ isDead: () => true });
+
+      await ctx.manager.tryAuthRecovery(1008);
+
+      expect(ctx.handler.refreshAndReconnect).not.toHaveBeenCalled();
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "isDead flipping true while tryAuthRecovery's refresh is in flight " +
+      "suppresses the !ok terminal relabel",
+    async () => {
+      let dead = false;
+      let resolveRefresh: (v: boolean) => void = () => {};
+      const ctx = build({ isDead: () => dead });
+      ctx.handler.refreshAndReconnect.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+
+      // tryAuthRecovery runs synchronously up to the refresh await, so the
+      // resolver is captured by the time the call returns its promise.
+      const p = ctx.manager.tryAuthRecovery(1008);
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+
+      // The kick lands mid-refresh; the refresh then FAILS (null token).
+      // The post-await isStopped() re-check must win — a kicked client is
+      // not a terminal auth failure.
+      dead = true;
+      resolveRefresh(false);
+
+      await expect(p).resolves.toBeUndefined();
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "sanity: with isDead wired but always false, both flows still refresh " +
+      "(the negative assertions above aren't vacuous)",
+    async () => {
+      const ctx = build({
+        debounceMs: 1000,
+        jitterMs: 5000,
+        rng: makeFakeRng([0.4]),
+        isDead: () => false,
+      });
+
+      // Same advance pattern as the mid-debounce / mid-jitter cases above,
+      // minus the flip: the reconnect() flow runs to the refresh.
+      const p = ctx.manager.reconnect();
+      await ctx.advance(500);
+      await ctx.advance(500); // debounce fires
+      await ctx.advance(2000); // jitter elapses
+      await p;
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+
+      // And tryAuthRecovery's entry check lets a live client through
+      // (clock pushed past the shared storm window first).
+      ctx.setNow(60_000);
+      await ctx.manager.tryAuthRecovery(1008);
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(2);
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("ReconnectManager — error containment", () => {
