@@ -390,6 +390,31 @@ export class ReconnectManager {
   }
 
   /**
+   * NFI-3: the HTTP-upload transport observed a 401. Routes into the SAME
+   * storm-guarded auth-recovery path as a WS auth-failure close, because it
+   * IS the same event — the shared Bearer credential (the upload's
+   * `Authorization` header and the WS `?token=` come from one
+   * `TokenProvider`) was rejected. Reusing `tryAuthRecovery` rather than a
+   * parallel method means an upload 401 and a concurrent WS 1008/4001 issue
+   * exactly ONE refresh (the in-flight join branch), share the single 30s
+   * storm-guard window (CLAUDE.md "Library owns the 30s storm guard
+   * internally" lists HTTP-upload 401 as a trigger), and inherit the same
+   * terminal semantics — including the cookie-auth case, where the stub
+   * refresh returns null and a genuine auth rejection correctly goes
+   * terminal.
+   *
+   * No upload auto-retry (NFI-3 decision): this fires-and-forgets the
+   * recovery; the `upload()` caller still sees the original 401 rejection.
+   * Recovery refreshes the token and rolls the WS over, so the NEXT upload
+   * (and the live WS) use the fresh credential. The synthetic `401` close
+   * code is for log provenance only — the refresh path is uniform
+   * (`closeCode` is logging-only in `tryAuthRecovery`).
+   */
+  async notifyUploadAuthFailure(): Promise<void> {
+    await this.tryAuthRecovery(401);
+  }
+
+  /**
    * Safe reconnect with debounce, jitter, and mutex. Source semantics
    * except for the injected Clock / Rng and the NFI-5 trailing rerun:
    *   - Clears any pending debounce timer; the latest call wins.

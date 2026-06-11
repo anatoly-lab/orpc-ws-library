@@ -13,9 +13,11 @@ library defect.
 **Status: sweep complete.** All **10/10 bugs** (BUG-1..10) and all **5/5
 adversarial findings** (F1–F5) are ✅ RESOLVED, along with **API-4**
 (server token-expiry, opt-in), **SEC-3/SEC-4**, and **NFI-1/4/5**.
-Remaining open: **S1** (finite `reconnect.maxRetries` semantics) and
-**NFI-3** (HTTP-upload 401 → storm guard) await a maintainer decision;
-**S2** is won't-fix (cosmetic); SEC-5/6/7 are Info/accepted (SEC-2 is
+**S1** (finite `reconnect.maxRetries` semantics) is ✅ RESOLVED —
+option (c): a finite value is unsupported, so the library warns and
+forces `maxRetries` back to `Infinity` (documented in the client
+README). Remaining open: **NFI-3** (HTTP-upload 401 → storm guard)
+awaits a maintainer decision; **S2** is won't-fix (cosmetic); SEC-5/6/7 are Info/accepted (SEC-2 is
 documented, not code-changed); and the SOLID/architecture refactors
 (client `index.ts` is now ~700+ LOC) are deferred to a deliberate
 refactor effort. See [resolution-status.md](./resolution-status.md) for

@@ -17,6 +17,8 @@
 // it INTO this config so the storm-guard tuning is overridable per-instance
 // — CLAUDE.md "Configurable, not hardcoded".
 
+import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+
 /**
  * Tunables for the reconnect path. Single source of truth across:
  *   - `WebSocketFactory.create()` (partysocket-facing fields)
@@ -95,3 +97,38 @@ export const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
   jitterMs: 1000,
   minRefreshIntervalMs: 30_000,
 };
+
+/**
+ * Merge a consumer's partial override over the defaults AND enforce the
+ * library's reconnect-lifecycle contract (S1).
+ *
+ * `maxRetries` is deliberately NOT a supported tuning knob. The library
+ * assumes UNBOUNDED partysocket retries and owns "give up" itself, at the
+ * right layer: the storm guard trips to terminal-auth, a 4005 kicks the
+ * session, `dispose()` tears everything down. A FINITE `maxRetries` would let
+ * partysocket silently exhaust its internal retry loop — it emits NO event on
+ * exhaustion — leaving `connect()` a permanent no-op over a wedged connection
+ * with no signal (the S1 defect). The library can't even detect that state
+ * without reading partysocket internals, a coupling we refuse. So a finite
+ * override is unsupported: we warn (via the injected logger) and force it back
+ * to the default `Infinity`, keeping the "library owns give-up" contract real.
+ *
+ * Every other field merges normally — only `maxRetries` is constrained.
+ */
+export function resolveReconnectConfig(
+  override: Partial<ReconnectConfig> | undefined,
+  logger: Logger = noopLogger,
+): ReconnectConfig {
+  const merged: ReconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, ...override };
+  if (Number.isFinite(merged.maxRetries)) {
+    logger.warn(
+      "orpc-ws-client: a finite `reconnect.maxRetries` is unsupported and was ignored — " +
+        "the library assumes unbounded retries and owns give-up via the storm guard / " +
+        "terminal-auth / dispose paths. partysocket emits nothing on retry exhaustion, so " +
+        "a finite cap would wedge connect() with no signal. Forcing maxRetries back to Infinity.",
+      { requested: merged.maxRetries },
+    );
+    merged.maxRetries = DEFAULT_RECONNECT_CONFIG.maxRetries;
+  }
+  return merged;
+}

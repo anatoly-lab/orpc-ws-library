@@ -9,8 +9,10 @@ with its final disposition.
 **5/5 adversarial findings (F1–F5)** are fixed, **API-4** (token-expiry
 enforcement) landed opt-in with its **F4** timer-overflow follow-up fixed,
 **SEC-3** and **SEC-4** are fixed, and **NFI-1 / NFI-4 / NFI-5** are fixed.
-What remains open: **two decisions** awaiting the maintainer (**S1** finite
-`maxRetries` semantics, **NFI-3** HTTP-upload-401 → storm-guard wiring), **one
+What remains open: **one decision** awaiting the maintainer (**NFI-3**
+HTTP-upload-401 → storm-guard wiring); **S1** (finite `maxRetries`
+semantics) is now **RESOLVED** (option (c) — finite `maxRetries` is
+unsupported; warn + force back to `Infinity`). **One
 won't-fix** (S2, cosmetic transient state frame), the **Info/accepted**
 security items (SEC-5/6/7, plus SEC-2 which is documented rather than
 code-changed), the **SOLID/architecture refactors deferred** as a separate
@@ -57,7 +59,7 @@ Notes on the non-FIXED security items:
   *enforcement* (e.g. an Origin allowlist) is deliberately the consumer's
   choice.
 - **SEC-4** — note this is a **behavior change**: uploads now default to a
-  **100 MB** body limit. Raise `bodyLimitBytes` deliberately if you need more.
+  **25 MB** body limit. Raise `bodyLimitBytes` deliberately if you need more.
 - **SEC-5** — tradeoff documented in-code; the `Storage` seam is pluggable, so
   a consumer can inject an in-memory store or move to a BFF pattern. No change.
 - **SEC-6** — connection rate limiting belongs at the consumer's edge
@@ -103,20 +105,23 @@ Notes:
 
 | ID | Finding | Status |
 |---|---|---|
-| S1 (= NFI-2) | Finite `reconnect.maxRetries` makes `willRetry: true` a lie AND `connect()` a permanent no-op | ⏳ NEEDS DECISION |
+| S1 (= NFI-2) | Finite `reconnect.maxRetries` makes `willRetry: true` a lie AND `connect()` a permanent no-op | ✅ RESOLVED — option (c) |
 | S2 | Transient `willRetry: true` frame before terminal | 🚫 WON'T-FIX |
 
-- **S1** — the default `maxRetries` is `Infinity`, so stock setups are
-  unaffected. `partysocket@1.1.19` emits nothing on retry exhaustion; clean
-  detection needs its private `_connectLock` field. Three options for the
-  maintainer to choose between:
+- **S1** — **RESOLVED via option (c).** The default `maxRetries` is
+  `Infinity`, so stock setups are unaffected. `partysocket@1.1.19` emits
+  nothing on retry exhaustion; clean detection needs its private
+  `_connectLock` field. The maintainer chose **(c)**: a finite
+  `maxRetries` is unsupported. `resolveReconnectConfig()`
+  (`packages/orpc-ws-client/src/config/reconnect-config.ts`) detects a
+  finite override, logs a `logger.warn(...)`, and forces `maxRetries`
+  back to `Infinity`; documented in the client README's "Reconnect
+  configuration" section. The two rejected alternatives were:
   - **(a)** read `_connectLock` (exact for the pinned version; the codebase
     already relies on partysocket internals) → set `willRetry: false` + clear
     the holder so `connect()` works again;
   - **(b)** escape-hatch only — `connect()` calls `wrapper.reconnect()` when
-    `retryCount >= maxRetries` (no internals, but state keeps lying);
-  - **(c)** document finite `maxRetries` as unsupported; keep the `Infinity`
-    default.
+    `retryCount >= maxRetries` (no internals, but state keeps lying).
 - **S2** — cosmetic: the transient frame lands in the same synchronous tick as
   the terminal state; the `willRetry: true` is deliberate and documented; it
   is coalesced by `useSyncExternalStore`; and fixing it would couple

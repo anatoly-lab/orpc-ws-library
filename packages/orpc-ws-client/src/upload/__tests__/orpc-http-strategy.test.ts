@@ -190,6 +190,126 @@ describe("OrpcHttpUploadStrategy", () => {
     expect(observedSignal!.aborted).toBe(true);
   });
 
+  // ----- NFI-3: upload-401 → storm-guard hook -----
+
+  /**
+   * Install a fetch spy that returns a RAW HTTP error response — a plain
+   * `{ error }` body with the given status, exactly the shape the server's
+   * `sendEarlyReject` writes (NOT an ORPC error envelope). This is the
+   * critical fixture: oRPC's RPCLink does not recognise it as a typed
+   * ORPCError, so the only reliable 401 signal is `response.status`, which
+   * the strategy's custom `fetch` reads directly.
+   */
+  function installRawStatusFetch(status: number): () => void {
+    const original = globalThis.fetch;
+    const spy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "rejected" }), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    globalThis.fetch = spy as unknown as typeof globalThis.fetch;
+    return () => {
+      globalThis.fetch = original;
+    };
+  }
+
+  it("fires onUpload401 exactly once on a raw HTTP 401, while still rejecting (NFI-3)", async () => {
+    restore = installRawStatusFetch(401);
+    const tokenProvider: TokenProvider = {
+      getToken: () => "current-token",
+      refresh: async () => "current-token",
+    };
+    const onUpload401 = vi.fn();
+    const strategy = new OrpcHttpUploadStrategy({
+      httpUrl: "https://api.example.com/upload",
+      tokenProvider,
+      onUpload401,
+    });
+
+    // No auto-retry: the upload() caller still sees the rejection...
+    await expect(
+      strategy.upload(new Blob(["x"]), { procedure: ["media", "upload"] }),
+    ).rejects.toThrow();
+    // ...but the storm-guard hook fired on the raw 401 status (the rejected
+    // credential is still the current one — see the rotation test below).
+    expect(onUpload401).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT fire onUpload401 on a non-401 error like 500 (NFI-3 false-positive guard)", async () => {
+    // The dangerous failure mode: treating ANY upload error as auth failure
+    // would let a 500 / network blip drive spurious refreshes that could
+    // themselves trip the storm guard to terminal. Only a genuine 401 fires.
+    restore = installRawStatusFetch(500);
+    const onUpload401 = vi.fn();
+    const strategy = new OrpcHttpUploadStrategy({
+      httpUrl: "https://api.example.com/upload",
+      onUpload401,
+    });
+
+    await expect(
+      strategy.upload(new Blob(["x"]), { procedure: ["media", "upload"] }),
+    ).rejects.toThrow();
+    expect(onUpload401).not.toHaveBeenCalled();
+  });
+
+  it("does not fire onUpload401 on a successful (200) upload (NFI-3)", async () => {
+    const installed = installFetchSpy();
+    restore = installed.restore;
+    const onUpload401 = vi.fn();
+    const strategy = new OrpcHttpUploadStrategy({
+      httpUrl: "https://api.example.com/upload",
+      onUpload401,
+    });
+
+    await strategy.upload(new Blob(["x"]), { procedure: ["media", "upload"] });
+
+    expect(onUpload401).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire onUpload401 when the rejected token was already rotated away (H2)", async () => {
+    // The F2-class race: two uploads go out on the same stale token. The
+    // first 401 refreshes the token; the second upload's (slower) 401 lands
+    // AFTER the swap, carrying the OLD credential. Acting on it would
+    // re-enter the storm guard post-refresh and spuriously trip terminal.
+    // Simulate by rotating the provider's token at response time, so the
+    // request's Authorization no longer matches getToken().
+    const original = globalThis.fetch;
+    let current = "tok-old";
+    const tokenProvider: TokenProvider = {
+      getToken: () => current,
+      refresh: async () => current,
+    };
+    const fetchSpy = vi.fn(async () => {
+      // A concurrent refresh rotated the token while this stale request was
+      // in flight; by the time its 401 is observed, getToken() is the NEW
+      // value but the request carried `Bearer tok-old`.
+      current = "tok-new";
+      return new Response(JSON.stringify({ error: "rejected" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
+    restore = () => {
+      globalThis.fetch = original;
+    };
+
+    const onUpload401 = vi.fn();
+    const strategy = new OrpcHttpUploadStrategy({
+      httpUrl: "https://api.example.com/upload",
+      tokenProvider,
+      onUpload401,
+    });
+
+    await expect(
+      strategy.upload(new Blob(["x"]), { procedure: ["media", "upload"] }),
+    ).rejects.toThrow();
+    // Stale credential → recovery NOT triggered (no spurious terminal).
+    expect(onUpload401).not.toHaveBeenCalled();
+  });
+
   it("fires onProgress at 0% (start) and 100% (end)", async () => {
     const installed = installFetchSpy();
     restore = installed.restore;

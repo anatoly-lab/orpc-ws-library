@@ -46,6 +46,24 @@ ping/pong watchdog), sleep detection (Web Worker watches for clock
 jumps, triggers reconnect on wake), and a 30 s storm guard that
 de-duplicates all auth-failure triggers into a single window.
 
+## Reconnect configuration
+
+Pass a partial `reconnect` override to tune the reconnect path; every
+field of `ReconnectConfig` (backoff delays, grow factor, connection
+timeout, jitter, debounce, storm-guard window) is freely overridable —
+**except one.**
+
+> **`maxRetries` is fixed at `Infinity`; a finite value is unsupported.**
+> If you pass a finite `reconnect.maxRetries`, the library logs a warning
+> via the injected `logger` and ignores it, resetting it to `Infinity`.
+> The library owns "give up" itself — at the right layer (the 30 s storm
+> guard trips to terminal-auth, a `4005` close kicks the session,
+> `dispose()` tears everything down), not via a retry cap. partysocket
+> emits no event when its internal retry loop exhausts, so a finite cap
+> would silently wedge `connect()` over a dead connection with no signal,
+> and the library can't detect that without reading partysocket
+> internals (a coupling we refuse). Leave `maxRetries` at its default.
+
 ## Lifecycle
 
 ```ts

@@ -52,6 +52,16 @@ export interface OrpcHttpUploadStrategyDeps {
    * (typically reject as 401; cookie-only flows would accept).
    */
   tokenProvider?: TokenProvider;
+  /**
+   * NFI-3: invoked (fire-and-forget) when an upload receives an HTTP 401.
+   * The composition root wires this to the shared storm-guard / auth-
+   * recovery path (`ReconnectManager.notifyUploadAuthFailure`) so a stale
+   * token rejected on the upload channel triggers the SAME single-flight
+   * refresh + WS roll-over as a WS auth-failure close. Absent in standalone
+   * construction (tests) — the strategy then simply surfaces the 401 to the
+   * caller with no recovery, exactly as before.
+   */
+  onUpload401?: () => void;
   /** Structured logger; defaults to noop. */
   logger?: Logger;
 }
@@ -71,6 +81,8 @@ export class OrpcHttpUploadStrategy implements UploadStrategy {
   constructor(deps: OrpcHttpUploadStrategyDeps) {
     this.logger = deps.logger ?? noopLogger;
     const tokenProvider = deps.tokenProvider;
+    const onUpload401 = deps.onUpload401;
+    const logger = this.logger;
 
     this.link = new RPCLink({
       url: deps.httpUrl,
@@ -84,6 +96,59 @@ export class OrpcHttpUploadStrategy implements UploadStrategy {
         const token = tokenProvider.getToken();
         if (!token) return {};
         return { authorization: `Bearer ${token}` };
+      },
+      // NFI-3: observe the RAW HTTP status at the transport boundary. We
+      // can't reliably detect a 401 from the thrown error: the server's
+      // upload-reject path writes a plain `{ error }` body (not an ORPC
+      // error envelope), so ORPC's RPCLink does NOT raise a typed
+      // `ORPCError` with `.status === 401` — it throws a generic `Error`
+      // whose only 401 signal is the `Response` buried in `err.cause`.
+      // Sniffing that internal would couple us to an undocumented oRPC
+      // convention. Wrapping `fetch` instead reads `response.status`
+      // directly, before oRPC interprets the body at all — zero
+      // error-shape coupling. We only read `.status` (never the body, which
+      // would consume the stream oRPC needs) and return the Response
+      // untouched, so the upload still throws to the caller exactly as
+      // before (no auto-retry — NFI-3 decision).
+      fetch: async (request, init) => {
+        const response = await globalThis.fetch(request, init);
+        if (response.status === 401 && onUpload401) {
+          // H2: act on the 401 only if the credential that was REJECTED is
+          // still the current one. With token rotation two uploads can
+          // race — the first 401 triggers a refresh that swaps in a new
+          // token, then a slower upload still carrying the OLD token also
+          // 401s. Acting on that stale 401 would re-enter the storm guard
+          // AFTER the refresh already succeeded and spuriously trip
+          // terminal (the F2 stale-evidence class, via the upload channel).
+          // Compare the `Authorization` the request actually carried
+          // against the current token; a mismatch means "already refreshed
+          // away" → ignore. (`request` is the `Request` oRPC built from our
+          // `headers` callback; the `instanceof` guard keeps us safe if a
+          // future oRPC passes a URL/string instead — then we simply don't
+          // fire, the safe direction.)
+          const sentAuth =
+            request instanceof Request
+              ? request.headers.get("authorization")
+              : null;
+          const currentToken = tokenProvider ? tokenProvider.getToken() : null;
+          const currentAuth = currentToken ? `Bearer ${currentToken}` : null;
+          if (sentAuth === currentAuth) {
+            try {
+              // Fire-and-forget: recovery runs on the WS path; this call
+              // must never break the upload's own error propagation.
+              onUpload401();
+            } catch (err) {
+              logger.warn("orpc-http-strategy: onUpload401 hook threw", {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          } else {
+            logger.debug(
+              "orpc-http-strategy: upload 401 for a superseded credential; ignoring (token already rotated)",
+            );
+          }
+        }
+        return response;
       },
     });
   }

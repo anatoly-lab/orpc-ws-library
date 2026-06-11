@@ -13,9 +13,42 @@
 // and inspect its public surface. The `url` option is required but never
 // dialed (no `client.connect()` call).
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import type { Logger } from "@repo/orpc-ws-shared";
 
 import { createOrpcWsClient } from "../index.js";
+import type { TokenProvider } from "../auth/token-provider.js";
+
+const silentLogger: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+/** Stub global fetch to always answer a raw 401 (the upload-reject shape). */
+function install401Fetch(): () => void {
+  const original = globalThis.fetch;
+  globalThis.fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+  ) as unknown as typeof globalThis.fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
+/**
+ * Flush the fire-and-forget recovery chain. `refresh()` returns null
+ * immediately and `tryAuthRecovery` has no debounce, so the whole path is
+ * microtasks — a single macrotask turn drains it.
+ */
+const flushRecovery = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("createOrpcWsClient — upload composition", () => {
   it("does NOT expose `upload` when `uploads` is not configured", () => {
@@ -60,5 +93,77 @@ describe("createOrpcWsClient — upload composition", () => {
     ).rejects.toThrow(/not implemented/i);
 
     client.dispose();
+  });
+});
+
+// NFI-3 — the upload-401 → storm-guard WIRING, pinned at the composition
+// root (M4). The strategy test pins HTTP-status detection and the manager
+// test pins delegation; this pins that `createOrpcWsClient` actually
+// connects the two — reverting the `onUpload401:` line in index.ts breaks
+// these (and nothing else in the suite).
+describe("createOrpcWsClient — upload-401 storm-guard wiring (NFI-3)", () => {
+  it("routes an upload 401 into auth recovery when a tokenProvider is set", async () => {
+    const restore = install401Fetch();
+    // refresh() → null makes recovery fail cleanly and fire terminal WITHOUT
+    // building a WebSocket (refreshAndReconnect only swaps the socket on a
+    // non-null token), so this stays a pure in-memory composition assertion.
+    const refresh = vi.fn(async (): Promise<string | null> => null);
+    const tokenProvider: TokenProvider = { getToken: () => "stale", refresh };
+    const onTerminalAuthFailure = vi.fn();
+
+    const client = createOrpcWsClient<Record<string, never>>({
+      url: "ws://example.invalid/ws",
+      tokenProvider,
+      onTerminalAuthFailure,
+      uploads: {
+        strategy: "orpc-http",
+        httpUrl: "https://example.invalid/upload",
+      },
+      logger: silentLogger,
+      sleepDetection: false,
+    });
+
+    await expect(
+      client.upload!(new Blob(["x"]), { procedure: ["media", "upload"] as never }),
+    ).rejects.toThrow();
+    await flushRecovery();
+
+    // Both assertions fail if the index.ts `onUpload401:` wiring is reverted:
+    // recovery refreshes once and (refresh→null) goes terminal.
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(onTerminalAuthFailure).toHaveBeenCalledTimes(1);
+
+    client.dispose();
+    restore();
+  });
+
+  it("does NOT route upload-401 recovery under cookie-auth / no tokenProvider (M3 gate)", async () => {
+    const restore = install401Fetch();
+    const onTerminalAuthFailure = vi.fn();
+
+    const client = createOrpcWsClient<Record<string, never>>({
+      url: "ws://example.invalid/ws",
+      // No tokenProvider → cookie auth. `onUpload401` must NOT be wired, so
+      // an upload 401 surfaces to the caller only and never tears down a
+      // healthy cookie-authed client. Removing the M3 gate makes this fail:
+      // the stub cookie provider's null refresh would fire terminal.
+      onTerminalAuthFailure,
+      uploads: {
+        strategy: "orpc-http",
+        httpUrl: "https://example.invalid/upload",
+      },
+      logger: silentLogger,
+      sleepDetection: false,
+    });
+
+    await expect(
+      client.upload!(new Blob(["x"]), { procedure: ["media", "upload"] as never }),
+    ).rejects.toThrow();
+    await flushRecovery();
+
+    expect(onTerminalAuthFailure).not.toHaveBeenCalled();
+
+    client.dispose();
+    restore();
   });
 });
