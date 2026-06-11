@@ -1,0 +1,15 @@
+# Keep the Docker build context (and turbo-prune scan) small. The
+# multi-stage builds run `turbo prune` + `npm ci` from a clean slate, so
+# none of these belong in the context.
+node_modules
+**/node_modules
+**/dist
+.turbo
+**/.turbo
+.git
+.tshy
+.tshy-build
+**/*.tsbuildinfo
+tests-e2e/playwright-report
+tests-e2e/test-results
+**/coverage

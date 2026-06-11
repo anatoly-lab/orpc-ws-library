@@ -61,18 +61,28 @@ async function bootstrap(): Promise<void> {
   // is registered ahead of the adapter's upload route (mounted during
   // bootstrap) and short-circuits the `OPTIONS` preflight. See the header
   // comment for why this matters for auth.
+  // Allowed origins are env-driven (`DEMO_CORS_ORIGINS`, comma-separated)
+  // so a containerized SPA on a different origin can be added without a
+  // code change. Defaults to the local-dev / e2e Vite ports.
+  const corsOrigins = (process.env.DEMO_CORS_ORIGINS ??
+    "http://localhost:5173,http://localhost:4173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
   app.enableCors({
-    origin: ["http://localhost:5173", "http://localhost:4173"],
+    origin: corsOrigins,
     methods: ["POST", "OPTIONS"],
   });
 
   const { port, oidc } = readEnvConfig();
 
-  // Bind to loopback only. The demo is a local-dev / CI fixture, not
-  // a network service — exposing `/ws` on every interface (LAN, VPN)
-  // serves no purpose and broadens the trust surface.
-  await app.listen(port, "127.0.0.1");
-  logger.log(`demo-server bound on 127.0.0.1:${port}`);
+  // Bind host is env-driven: loopback by default (the demo is a
+  // local-dev / CI fixture, not a network service — exposing `/ws` on
+  // every interface serves no purpose), but containers set
+  // `HOST=0.0.0.0` so the port is reachable from outside the container.
+  const host = process.env.HOST ?? "127.0.0.1";
+  await app.listen(port, host);
+  logger.log(`demo-server bound on ${host}:${port}`);
   logger.log(`WS endpoint: ws://localhost:${port}/ws`);
   logger.log(`OIDC: issuer=${oidc.issuerUrl}, client=${oidc.clientId}`);
 }

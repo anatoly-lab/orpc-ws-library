@@ -1,6 +1,14 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "ui": "stream",
+  "globalDependencies": [
+    "tsconfig.base.json",
+    "eslint.config.js",
+    "vitest.config.base.ts"
+  ],
+  "futureFlags": {
+    "pruneIncludesGlobalFiles": true
+  },
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

@@ -10,6 +10,14 @@
 export interface OidcAuthConfig {
   /** OIDC issuer URL — the same one the SPA's `@repo/oidc-pkce` uses. */
   issuerUrl: string;
+  /**
+   * OPTIONAL internal base URL the SERVER fetches discovery + JWKS from,
+   * for split-host deployments (containers): the browser + token `iss`
+   * use the public `issuerUrl`, while this server reaches the IdP over
+   * the docker network at e.g. `http://keycloak:8080/realms/<realm>`.
+   * Undefined ⇒ verifier defaults to `issuerUrl` (local-dev unchanged).
+   */
+  discoveryUrl?: string;
   /** Expected client-bound claim — the SPA's OIDC client ID. */
   clientId: string;
 }
@@ -36,6 +44,11 @@ export function readEnvConfig(
     oidc: {
       issuerUrl:
         env.OIDC_ISSUER_URL ?? "http://localhost:18080/realms/orpc-ws-demo",
+      // Optional: only set when the env var is present, so an unset
+      // value stays `undefined` and the verifier falls back to issuerUrl.
+      ...(env.OIDC_DISCOVERY_URL
+        ? { discoveryUrl: env.OIDC_DISCOVERY_URL }
+        : {}),
       clientId: env.OIDC_CLIENT_ID ?? "orpc-ws-demo-spa",
     },
   };

@@ -13,6 +13,7 @@ import { createOidcVerifyClient } from "@repo/oidc-verifier-jose";
 import { fromNestShape, OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
 
 import { readEnvConfig } from "./config.js";
+import { HealthController } from "./health.controller.js";
 import { appRouter } from "./router.js";
 
 // Bridge the library's Logger seam to Nest's structured Logger so events
@@ -33,6 +34,11 @@ const nestLogger = new Logger("OrpcWs");
           // on Keycloak. Auth0 / Okta consumers would set `"aud"`.
           verifyClient: createOidcVerifyClient({
             issuerUrl: oidc.issuerUrl,
+            // Split-host (container) deployments fetch discovery + JWKS
+            // over the internal docker-network URL while validating the
+            // token `iss` against the public `issuerUrl`. Omitted in
+            // local dev ⇒ verifier defaults to issuerUrl.
+            ...(oidc.discoveryUrl ? { discoveryUrl: oidc.discoveryUrl } : {}),
             boundClaim: "azp",
             expectedClientId: oidc.clientId,
           }),
@@ -46,5 +52,6 @@ const nestLogger = new Logger("OrpcWs");
       },
     }),
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}
