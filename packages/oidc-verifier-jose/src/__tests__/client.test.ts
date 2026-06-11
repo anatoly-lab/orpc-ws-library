@@ -100,8 +100,8 @@ function mockOidcFetch(
   publicJwk: JWK,
   options: {
     jwksUri?: string;
-    onDiscovery?: () => void;
-    onJwks?: () => void;
+    onDiscovery?: (url: string) => void;
+    onJwks?: (url: string) => void;
     discoveryStatus?: number;
     discoveryBody?: unknown;
   } = {},
@@ -117,7 +117,7 @@ function mockOidcFetch(
             ? input.toString()
             : input.url;
       if (url.endsWith("/.well-known/openid-configuration")) {
-        options.onDiscovery?.();
+        options.onDiscovery?.(url);
         const status = options.discoveryStatus ?? 200;
         const body = options.discoveryBody ?? discoveryDoc();
         return new Response(
@@ -126,7 +126,7 @@ function mockOidcFetch(
         );
       }
       if (url === jwksUri) {
-        options.onJwks?.();
+        options.onJwks?.(url);
         return new Response(JSON.stringify({ keys: [publicJwk] }), {
           status: 200,
         });
@@ -577,5 +577,134 @@ describe("createOidcVerifyClient — custom mapUser", () => {
     expect(result.user).toEqual({ id: "user-1", mail: "u@example.com" });
     // `connectionKey` MUST still equal payload.sub even with custom mapper.
     expect(result.connectionKey).toBe("user-1");
+  });
+});
+
+describe("createOidcVerifyClient — discoveryUrl (split internal/public URLs)", () => {
+  // Container-networking case: the browser (and the token `iss`) use
+  // the PUBLIC issuer; the server container reaches the IdP only via
+  // the INTERNAL hostname. Discovery + JWKS must be fetched internally
+  // while `issuer`/`iss` validation stays pinned to the public URL.
+  const PUBLIC_ISSUER = "http://public.example:18080/realms/demo";
+  const INTERNAL_BASE = "http://internal.example:8080/realms/demo";
+  const PUBLIC_JWKS = `${PUBLIC_ISSUER}/protocol/openid-connect/certs`;
+  const INTERNAL_JWKS = `${INTERNAL_BASE}/protocol/openid-connect/certs`;
+
+  it("fetches discovery + JWKS from the internal URL but validates iss against the public issuer", async () => {
+    const discoveryUrls: string[] = [];
+    const jwksUrls: string[] = [];
+    // JWKS is ONLY served at the internal URL — a fetch of the public
+    // jwks_uri would hit the mock's "unexpected fetch" throw and fail
+    // verification, so success alone proves the rewrite. The recorded
+    // URLs make the assertion explicit anyway.
+    mockOidcFetch(keys.publicJwk, {
+      jwksUri: INTERNAL_JWKS,
+      // The IdP (KC_HOSTNAME pinned to the public URL) advertises the
+      // PUBLIC issuer + PUBLIC jwks_uri even when fetched internally.
+      discoveryBody: { issuer: PUBLIC_ISSUER, jwks_uri: PUBLIC_JWKS },
+      onDiscovery: (url) => discoveryUrls.push(url),
+      onJwks: (url) => jwksUrls.push(url),
+    });
+    const token = await mint(
+      keys.privateKey,
+      keys.publicJwk,
+      { sub: "user-1", azp: CLIENT_ID },
+      { issuer: PUBLIC_ISSUER },
+    );
+
+    const verify = createOidcVerifyClient({
+      issuerUrl: PUBLIC_ISSUER,
+      discoveryUrl: INTERNAL_BASE,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+    });
+    const result = await verify(ctx(token));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.user.sub).toBe("user-1");
+    // Discovery was fetched from the INTERNAL host, not the public one.
+    expect(discoveryUrls).toEqual([
+      `${INTERNAL_BASE}/.well-known/openid-configuration`,
+    ]);
+    // JWKS was fetched from the issuer-prefix-REWRITTEN internal URL —
+    // never from the public jwks_uri the discovery doc advertised.
+    expect(jwksUrls).toEqual([INTERNAL_JWKS]);
+  });
+
+  it("rejects a token whose iss is the internal URL (validation stays on the public issuer)", async () => {
+    mockOidcFetch(keys.publicJwk, {
+      jwksUri: INTERNAL_JWKS,
+      discoveryBody: { issuer: PUBLIC_ISSUER, jwks_uri: PUBLIC_JWKS },
+    });
+    // Minted with `iss` = INTERNAL url — must fail the issuer check
+    // even though that's the URL we fetch from.
+    const token = await mint(
+      keys.privateKey,
+      keys.publicJwk,
+      { sub: "user-1", azp: CLIENT_ID },
+      { issuer: INTERNAL_BASE },
+    );
+    const verify = createOidcVerifyClient({
+      issuerUrl: PUBLIC_ISSUER,
+      discoveryUrl: INTERNAL_BASE,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+    });
+    const result = await verify(ctx(token));
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects when the discovery doc advertises an issuer != issuerUrl", async () => {
+    // The metadata-issuer assertion still guards in split-URL mode: a
+    // doc advertising anything other than the configured PUBLIC issuer
+    // (here: the internal URL itself, the classic KC_HOSTNAME
+    // misconfiguration) is rejected before any token is checked.
+    mockOidcFetch(keys.publicJwk, {
+      jwksUri: INTERNAL_JWKS,
+      discoveryBody: { issuer: INTERNAL_BASE, jwks_uri: INTERNAL_JWKS },
+    });
+    const token = await mint(
+      keys.privateKey,
+      keys.publicJwk,
+      { sub: "user-1", azp: CLIENT_ID },
+      { issuer: PUBLIC_ISSUER },
+    );
+    const verify = createOidcVerifyClient({
+      issuerUrl: PUBLIC_ISSUER,
+      discoveryUrl: INTERNAL_BASE,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+    });
+    const result = await verify(ctx(token));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe(401);
+    expect(result.reason).toContain("issuer mismatch");
+  });
+
+  it("uses a foreign-host jwks_uri as-is (no rewrite when it doesn't start with issuerUrl)", async () => {
+    const FOREIGN_JWKS = "https://keys.cdn.example/tenant-demo/jwks.json";
+    const jwksUrls: string[] = [];
+    mockOidcFetch(keys.publicJwk, {
+      jwksUri: FOREIGN_JWKS,
+      discoveryBody: { issuer: PUBLIC_ISSUER, jwks_uri: FOREIGN_JWKS },
+      onJwks: (url) => jwksUrls.push(url),
+    });
+    const token = await mint(
+      keys.privateKey,
+      keys.publicJwk,
+      { sub: "user-1", azp: CLIENT_ID },
+      { issuer: PUBLIC_ISSUER },
+    );
+    const verify = createOidcVerifyClient({
+      issuerUrl: PUBLIC_ISSUER,
+      discoveryUrl: INTERNAL_BASE,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+    });
+    const result = await verify(ctx(token));
+    expect(result.ok).toBe(true);
+    expect(jwksUrls).toEqual([FOREIGN_JWKS]);
   });
 });

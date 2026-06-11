@@ -9,11 +9,18 @@
 // Symmetric duplication is the lesser evil — `~80 LOC` vs. a runtime
 // coupling between two transports.
 //
-// Cache strategy: module-level `Map<issuerUrl, Promise<OidcMetadata>>`.
+// Cache strategy: module-level
+// `Map<"${fetchUrl}\n${expectedIssuer}", Promise<OidcMetadata>>`.
 //   - Storing the PROMISE means concurrent callers share one in-flight
 //     fetch — N parallel initial verifies produce ONE network request.
-//   - Per-issuer keying lets one server talk to multiple IdPs (rare,
-//     but cheap).
+//   - Keyed by the (fetch URL, expected issuer) PAIR, not the fetch URL
+//     alone: a cached entry has already passed the issuer-mismatch
+//     assertion for ITS expected issuer, so handing it to a caller with
+//     a different expected issuer would silently skip that caller's
+//     validation. Pair-keying keeps "cache hit" equivalent to
+//     "fetch + validate succeeded for THIS config". When `discoveryUrl`
+//     is omitted the two halves are equal, so per-issuer keying (the
+//     old behavior) falls out unchanged.
 //   - Module-level so a future operator who wires two verifyClients
 //     for the same realm doesn't pay double discovery cost.
 //
@@ -49,11 +56,20 @@ function stripTrailingSlash(url: string): string {
 }
 
 /**
- * Fetch + parse + validate the OIDC discovery document for `issuerUrl`.
+ * Fetch + parse + validate the OIDC discovery document.
  *
- * Concurrent calls for the same issuer share one in-flight promise.
- * After resolution the cache keeps the value indefinitely — discovery
- * docs are effectively static for the process lifetime.
+ * `fetchUrl` is the base the document is FETCHED from;
+ * `expectedIssuerUrl` is what the document's `issuer` field must equal
+ * (trailing-slash normalized). They differ only in split-URL
+ * deployments (`OidcVerifierConfig.discoveryUrl` set): the server
+ * fetches over an internal host while the IdP advertises — and signs
+ * into tokens — the public issuer. `expectedIssuerUrl` defaults to
+ * `fetchUrl`, which is the classic single-URL behavior.
+ *
+ * Concurrent calls for the same (fetchUrl, expectedIssuer) pair share
+ * one in-flight promise. After resolution the cache keeps the value
+ * indefinitely — discovery docs are effectively static for the process
+ * lifetime.
  *
  * Throws `OidcDiscoveryError` on:
  *   - non-2xx HTTP response,
@@ -61,22 +77,36 @@ function stripTrailingSlash(url: string): string {
  *   - missing required fields (`issuer`, `jwks_uri`),
  *   - issuer mismatch (after trailing-slash normalization).
  */
-export async function fetchMetadata(issuerUrl: string): Promise<OidcMetadata> {
-  const cached = metadataCache.get(issuerUrl);
+export async function fetchMetadata(
+  fetchUrl: string,
+  expectedIssuerUrl: string = fetchUrl,
+): Promise<OidcMetadata> {
+  // "\n" cannot appear in a URL, so the joined key is unambiguous.
+  const cacheKey = `${fetchUrl}\n${expectedIssuerUrl}`;
+  const cached = metadataCache.get(cacheKey);
   if (cached) return cached;
 
-  const promise = doFetch(issuerUrl).catch((err: unknown) => {
-    // Evict on failure so a retry can re-attempt rather than getting
-    // back the same poisoned promise forever.
-    metadataCache.delete(issuerUrl);
-    throw err;
-  });
-  metadataCache.set(issuerUrl, promise);
+  const promise = doFetch(fetchUrl, expectedIssuerUrl).catch(
+    (err: unknown) => {
+      // Evict on failure so a retry can re-attempt rather than getting
+      // back the same poisoned promise forever.
+      metadataCache.delete(cacheKey);
+      throw err;
+    },
+  );
+  metadataCache.set(cacheKey, promise);
   return promise;
 }
 
-async function doFetch(issuerUrl: string): Promise<OidcMetadata> {
-  const url = `${stripTrailingSlash(issuerUrl)}/.well-known/openid-configuration`;
+async function doFetch(
+  fetchUrl: string,
+  expectedIssuerUrl: string,
+): Promise<OidcMetadata> {
+  const url = `${stripTrailingSlash(fetchUrl)}/.well-known/openid-configuration`;
+  // Error `details.issuerUrl` carries the EXPECTED (public) issuer —
+  // it identifies which verifier config failed; the message strings
+  // carry the actually-fetched URL.
+  const issuerUrl = expectedIssuerUrl;
 
   let resp: Response;
   try {
@@ -159,4 +189,36 @@ function validate(raw: unknown, issuerUrl: string): OidcMetadata {
     issuer,
     jwks_uri: doc["jwks_uri"] as string,
   };
+}
+
+/**
+ * Resolve the URL to actually fetch JWKS from in a split-URL setup.
+ *
+ * The discovery doc's `jwks_uri` is advertised on the PUBLIC issuer
+ * host (the IdP doesn't know it's also reachable internally), which the
+ * server may not be able to reach. If `jwks_uri` lives under
+ * `issuerUrl`, swap that prefix for `discoveryUrl` — same path, the
+ * internally-reachable host. A `jwks_uri` on any other host (CDN-hosted
+ * keys, non-split providers) is returned as-is.
+ *
+ * Prefix matching is path-segment-safe: `issuerUrl` must be followed by
+ * `/` (or match exactly) so `http://h:80` never claims
+ * `http://h:8080/...` as its own.
+ *
+ * No-op when `discoveryUrl` equals `issuerUrl` (i.e. the field was
+ * omitted) — back-compat fast path.
+ */
+export function rewriteJwksUri(
+  jwksUri: string,
+  issuerUrl: string,
+  discoveryUrl: string,
+): string {
+  const publicBase = stripTrailingSlash(issuerUrl);
+  const fetchBase = stripTrailingSlash(discoveryUrl);
+  if (publicBase === fetchBase) return jwksUri;
+  if (jwksUri === publicBase) return fetchBase;
+  if (jwksUri.startsWith(`${publicBase}/`)) {
+    return fetchBase + jwksUri.slice(publicBase.length);
+  }
+  return jwksUri;
 }

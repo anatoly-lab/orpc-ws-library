@@ -42,7 +42,7 @@ import {
 
 import type { VerifyClient } from "@repo/orpc-ws-server";
 
-import { fetchMetadata } from "./discovery.js";
+import { fetchMetadata, rewriteJwksUri } from "./discovery.js";
 import { type OidcUser, type OidcVerifierConfig } from "./types.js";
 
 /**
@@ -108,6 +108,13 @@ export function createOidcVerifyClient<TUser = OidcUser>(
   const project: (payload: JWTPayload) => TUser =
     mapUser ?? (defaultMapUser as (payload: JWTPayload) => TUser);
 
+  // Where to FETCH discovery + JWKS from. Defaults to the public
+  // issuer (single-URL case — behavior identical to before
+  // `discoveryUrl` existed). When set, the server talks to the IdP
+  // over this internal host while all VALIDATION (discovery `issuer`,
+  // token `iss`) stays pinned to the public `issuerUrl`.
+  const discoveryBase = cfg.discoveryUrl ?? cfg.issuerUrl;
+
   // JWKS lazy + cached. `createRemoteJWKSet` returns a callable that
   // does its own rotation handling; we just need to build it once
   // per process (per factory call, really, but the discovery cache
@@ -121,12 +128,24 @@ export function createOidcVerifyClient<TUser = OidcUser>(
     }
 
     try {
-      const metadata = await fetchMetadata(cfg.issuerUrl);
+      const metadata = await fetchMetadata(discoveryBase, cfg.issuerUrl);
       if (jwks === null) {
-        jwks = createRemoteJWKSet(new URL(metadata.jwks_uri));
+        // The advertised `jwks_uri` is on the public issuer host; in a
+        // split-URL setup the server can't reach it — rewrite the
+        // issuer prefix to the internal base (no-op when discoveryUrl
+        // is unset or jwks_uri lives on a foreign host).
+        jwks = createRemoteJWKSet(
+          new URL(rewriteJwksUri(metadata.jwks_uri, cfg.issuerUrl, discoveryBase)),
+        );
       }
 
       const { payload } = await jwtVerify(token, jwks, {
+        // `metadata.issuer` is asserted equal to the PUBLIC
+        // `cfg.issuerUrl` by `fetchMetadata` (trailing-slash
+        // normalized), so this validates `iss` against the public
+        // issuer — never the internal fetch host. Using the doc's
+        // exact string (vs cfg's) keeps the comparison robust to a
+        // consumer-side trailing slash.
         issuer: metadata.issuer,
       });
 

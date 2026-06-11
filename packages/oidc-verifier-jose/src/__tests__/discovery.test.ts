@@ -8,7 +8,11 @@
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
-import { __resetMetadataCache, fetchMetadata } from "../discovery.js";
+import {
+  __resetMetadataCache,
+  fetchMetadata,
+  rewriteJwksUri,
+} from "../discovery.js";
 import { OidcDiscoveryError } from "../types.js";
 
 /**
@@ -191,5 +195,110 @@ describe("fetchMetadata — caching", () => {
     await fetchMetadata(a);
     await fetchMetadata(b);
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("fetchMetadata — split fetch URL vs expected issuer", () => {
+  // Split-URL deployments (`OidcVerifierConfig.discoveryUrl`): fetch
+  // over the internal host, validate `issuer` against the public URL.
+  const PUBLIC_ISSUER = "http://public.example:18080/realms/demo";
+  const INTERNAL_BASE = "http://internal.example:8080/realms/demo";
+
+  it("fetches from the fetch URL while validating issuer against the expected issuer", async () => {
+    // KC_HOSTNAME-pinned IdP: the doc fetched internally still
+    // advertises the PUBLIC issuer.
+    const spy = mockFetchOnce(keycloakDiscoveryDoc(PUBLIC_ISSUER));
+    const meta = await fetchMetadata(INTERNAL_BASE, PUBLIC_ISSUER);
+    const call = spy.mock.calls[0];
+    if (!call) throw new Error("fetch not called");
+    expect(call[0]).toBe(
+      `${INTERNAL_BASE}/.well-known/openid-configuration`,
+    );
+    expect(meta.issuer).toBe(PUBLIC_ISSUER);
+  });
+
+  it("rejects when the doc's issuer matches the fetch URL instead of the expected issuer", async () => {
+    // Misconfigured IdP (no public-hostname pinning): the doc echoes
+    // the internal URL — must be rejected against the PUBLIC issuer.
+    mockFetchOnce(keycloakDiscoveryDoc(INTERNAL_BASE));
+    await expect(
+      fetchMetadata(INTERNAL_BASE, PUBLIC_ISSUER),
+    ).rejects.toBeInstanceOf(OidcDiscoveryError);
+  });
+
+  it("keys the cache by the (fetch URL, expected issuer) PAIR — a hit never skips issuer validation", async () => {
+    // Same fetch URL, two different expected issuers. If the cache were
+    // keyed by fetch URL alone, the second call would get the first
+    // call's (valid-for-A) metadata WITHOUT re-validating — silently
+    // accepting an issuer it should reject. Pair-keying forces a second
+    // fetch + its own validation, which fails here.
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      // Fresh Response per call — a Response body is single-use.
+      async () =>
+        new Response(JSON.stringify(keycloakDiscoveryDoc(PUBLIC_ISSUER)), {
+          status: 200,
+        }),
+    );
+    const meta = await fetchMetadata(INTERNAL_BASE, PUBLIC_ISSUER);
+    expect(meta.issuer).toBe(PUBLIC_ISSUER);
+    await expect(
+      fetchMetadata(INTERNAL_BASE, "http://other.example/realms/demo"),
+    ).rejects.toThrow(/issuer mismatch/);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("omitting the expected issuer defaults it to the fetch URL (back-compat single-URL behavior)", async () => {
+    const issuer = "https://auth.example.com/realms/demo";
+    const spyA = mockFetchOnce(keycloakDiscoveryDoc(issuer));
+    const one = await fetchMetadata(issuer);
+    // Explicit two-arg form with equal halves shares the same cache
+    // entry — no second fetch.
+    const two = await fetchMetadata(issuer, issuer);
+    expect(one).toBe(two);
+    expect(spyA).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("rewriteJwksUri", () => {
+  const PUBLIC_ISSUER = "http://public.example:18080/realms/demo";
+  const INTERNAL_BASE = "http://internal.example:8080/realms/demo";
+
+  it("rewrites the issuer prefix to the discovery base", () => {
+    expect(
+      rewriteJwksUri(
+        `${PUBLIC_ISSUER}/protocol/openid-connect/certs`,
+        PUBLIC_ISSUER,
+        INTERNAL_BASE,
+      ),
+    ).toBe(`${INTERNAL_BASE}/protocol/openid-connect/certs`);
+  });
+
+  it("is a no-op when discoveryUrl equals issuerUrl (back-compat path)", () => {
+    const jwks = `${PUBLIC_ISSUER}/protocol/openid-connect/certs`;
+    expect(rewriteJwksUri(jwks, PUBLIC_ISSUER, PUBLIC_ISSUER)).toBe(jwks);
+  });
+
+  it("leaves a foreign-host jwks_uri untouched", () => {
+    const jwks = "https://keys.cdn.example/jwks.json";
+    expect(rewriteJwksUri(jwks, PUBLIC_ISSUER, INTERNAL_BASE)).toBe(jwks);
+  });
+
+  it("tolerates trailing slashes on both bases", () => {
+    expect(
+      rewriteJwksUri(
+        `${PUBLIC_ISSUER}/certs`,
+        `${PUBLIC_ISSUER}/`,
+        `${INTERNAL_BASE}/`,
+      ),
+    ).toBe(`${INTERNAL_BASE}/certs`);
+  });
+
+  it("does not treat a longer port as a prefix match (path-segment boundary)", () => {
+    // "http://h:1808" must not claim "http://h:18080/..." — the prefix
+    // check requires a "/" boundary after the issuer base.
+    const jwks = "http://public.example:18080/realms/demo/certs";
+    expect(
+      rewriteJwksUri(jwks, "http://public.example:1808", INTERNAL_BASE),
+    ).toBe(jwks);
   });
 });

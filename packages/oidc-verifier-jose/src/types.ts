@@ -68,6 +68,28 @@ export interface OidcVerifierConfig {
   issuerUrl: string;
 
   /**
+   * OPTIONAL internal base URL to FETCH discovery + JWKS from, for
+   * deployments where the server reaches the IdP over a different host
+   * than the browser does (container networking, reverse proxy, BFF).
+   * Example: browser + token `iss` use `http://localhost:18080/realms/x`
+   * (the public `issuerUrl`) while the server container only reaches
+   * the IdP at `http://keycloak:8080/realms/x` (this field).
+   *
+   * Defaults to `issuerUrl` — omitting it keeps behavior identical to
+   * before this field existed.
+   *
+   * Validation is UNCHANGED by this field: the discovery document's
+   * `issuer` and the token's `iss` claim are still asserted against the
+   * public `issuerUrl` (the IdP signs the public URL into tokens even
+   * when discovery is fetched over the internal host — e.g. Keycloak
+   * with `KC_HOSTNAME` pinned). If the discovery doc's `jwks_uri`
+   * starts with `issuerUrl`, that prefix is rewritten to this URL so
+   * the JWKS fetch also goes over the internal host; a `jwks_uri` on a
+   * different host is used as-is.
+   */
+  discoveryUrl?: string;
+
+  /**
    * Claim that binds the token to a specific OIDC client. See
    * `BoundClaim` for per-IdP guidance.
    *
