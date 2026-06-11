@@ -1,28 +1,66 @@
 // Playwright globalSetup.
 //
-// Boots Keycloak (testcontainers) once before the test run and stashes
-// the handle on globalThis so global-teardown can stop it. Playwright's
-// globalSetup intentionally has no other shared-state primitive —
-// config is serialized across the worker boundary, so the live
-// container handle MUST live on the parent's globalThis.
+// Brings up the WHOLE stack (Keycloak + demo-server + demo-spa) as Docker
+// containers on one network, then polls each health endpoint until ready.
+// This replaces the old hybrid where Playwright's `webServer` started the
+// server + SPA as host dev processes — see setup/containers.ts header for
+// why that was the root cause of local-only failures.
 //
-// The demo server and SPA are NOT started here. They run as Playwright
-// `webServer` entries (see `playwright.config.ts`), which is the
-// idiomatic way to manage two long-lived dev processes for an e2e run
-// and gives us free log-on-failure surfacing.
+// The live stack handle lives on a module singleton inside containers.ts
+// (not stashed on globalThis): Playwright serializes config across the
+// worker boundary, so the handle can't travel through config — but the
+// container handles do not need to reach the workers anyway. The specs only
+// need the URLs, which we publish via process.env below. global-teardown
+// imports stopStack() from the same module to reap them.
 
-import { startKeycloak, type KeycloakHandle } from "./containers.js";
+import {
+  buildImages,
+  startStack,
+  type StackHandle,
+} from "./containers.js";
 
-// Augment globalThis so TS knows about the stashed handle.
-declare global {
-  // eslint-disable-next-line no-var
-  var __keycloak: KeycloakHandle | undefined;
+/** Poll an HTTP endpoint until it returns 200, or throw after the deadline. */
+async function waitForOk(
+  url: string,
+  label: string,
+  timeoutMs = 60_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr = "";
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return;
+      lastErr = `status ${res.status}`;
+    } catch (err) {
+      lastErr = err instanceof Error ? err.message : String(err);
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  throw new Error(`[setup] ${label} not ready (${url}): ${lastErr}`);
+}
+
+/** Wait until every host-facing health endpoint reports ready. */
+async function waitForSystemReady(stack: StackHandle): Promise<void> {
+  await waitForOk(`${stack.serverUrl}/health/live`, "demo-server");
+  await waitForOk(`${stack.spaUrl}/health`, "demo-spa");
 }
 
 export default async function globalSetup(): Promise<void> {
-  console.log("[setup] Starting Keycloak...");
-  const keycloak = await startKeycloak();
-  console.log(`[setup] Keycloak ready at ${keycloak.url}`);
+  console.log("[setup] Building images...");
+  await buildImages();
 
-  globalThis.__keycloak = keycloak;
+  console.log("[setup] Starting stack...");
+  const stack = await startStack();
+
+  console.log("[setup] Waiting for system readiness...");
+  await waitForSystemReady(stack);
+
+  // Publish URLs for the specs / playwright.config baseURL. The container
+  // handles stay on the containers.ts singleton for teardown.
+  process.env.E2E_SPA_URL = stack.spaUrl;
+  process.env.E2E_SERVER_URL = stack.serverUrl;
+  process.env.E2E_KEYCLOAK_URL = stack.keycloakUrl;
+
+  console.log(`[setup] System ready. SPA at ${stack.spaUrl}`);
 }
