@@ -1,11 +1,13 @@
 // Phase 3.3 — verify-client orchestrator unit tests.
 //
-// Three behaviors pinned:
+// Four behaviors pinned:
 //   1. The ws callback resolves true + stashes the auth result when the
 //      consumer's verify returns ok.
 //   2. The ws callback resolves false + reports code/reason when verify
 //      returns !ok.
 //   3. getAuthForRequest(req) returns the same result the verify stashed.
+//   4. SEC-3 — `info.origin` / `info.secure` from the ws upgrade are
+//      forwarded to the consumer's verify (absent origin → "").
 
 import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "http";
@@ -72,6 +74,51 @@ describe("VerifyClientOrchestrator", () => {
       expect.objectContaining({ req, token: "t1" }),
     );
     expect(callback).toHaveBeenCalledWith(true);
+  });
+
+  // SEC-3 — the consumer's verify must see the upgrade's Origin header
+  // and the wss/ws flag, so an origin allowlist is implementable without
+  // reaching into req.headers manually.
+  it("forwards info.origin and info.secure to the consumer verify (SEC-3)", async () => {
+    const verify = vi.fn(async () => ({
+      ok: true as const,
+      user: { sub: "x" },
+    }));
+    const orch = new VerifyClientOrchestrator<FakeUser>(verify);
+    const cb = orch.buildWsVerifyClient();
+
+    cb(
+      { origin: "https://app.example.com", secure: true, req: fakeReq({}) },
+      vi.fn(),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(verify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        origin: "https://app.example.com",
+        secure: true,
+      }),
+    );
+  });
+
+  // SEC-3 — non-browser clients send no Origin header; ws then passes
+  // `undefined` at runtime (its types lie). The orchestrator normalizes
+  // to "" so a consumer allowlist check fails closed instead of throwing
+  // on `undefined`.
+  it("normalizes an absent Origin header to empty string (SEC-3)", async () => {
+    const verify = vi.fn(async () => ({
+      ok: true as const,
+      user: { sub: "x" },
+    }));
+    const orch = new VerifyClientOrchestrator<FakeUser>(verify);
+    const cb = orch.buildWsVerifyClient();
+
+    cb({ origin: undefined, secure: false, req: fakeReq({}) }, vi.fn());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(verify).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "", secure: false }),
+    );
   });
 
   it("on ok result: stashes auth result for getAuthForRequest", async () => {

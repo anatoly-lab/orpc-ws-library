@@ -16,7 +16,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage, ServerResponse } from "http";
 import { os } from "@orpc/server";
 
-import { OrpcWsServer, type VerifyClient } from "../../index.js";
+import {
+  DEFAULT_UPLOAD_BODY_LIMIT_BYTES,
+  OrpcWsServer,
+  type VerifyClient,
+} from "../../index.js";
 import { extractBearerToken } from "../http-verify.js";
 
 interface TestUser {
@@ -67,6 +71,33 @@ describe("OrpcWsServer.getHttpHandler", () => {
     expect(cfg.enabled).toBe(true);
     expect(cfg.httpPath).toBe("/files");
     expect(cfg.bodyLimitBytes).toBe(1024);
+  });
+
+  // SEC-4 — uploads enabled without an explicit limit must NOT accept
+  // unbounded bodies: the 100 MB default applies.
+  it("applies the default 100 MB body limit when uploads is enabled without an explicit limit (SEC-4)", () => {
+    const server = new OrpcWsServer<TestUser, { ping: unknown }>({
+      router: { ping: os.handler(async () => "pong") },
+      verifyClient: okVerify,
+      uploads: { enabled: true },
+    });
+    expect(server.getUploadConfig().bodyLimitBytes).toBe(
+      DEFAULT_UPLOAD_BODY_LIMIT_BYTES,
+    );
+    expect(DEFAULT_UPLOAD_BODY_LIMIT_BYTES).toBe(100 * 1024 * 1024);
+  });
+
+  // SEC-4 — an explicit `bodyLimitBytes: undefined` must not silently
+  // disable the cap: only a number override is honored.
+  it("an explicit `bodyLimitBytes: undefined` falls back to the default, not unbounded (SEC-4)", () => {
+    const server = new OrpcWsServer<TestUser, { ping: unknown }>({
+      router: { ping: os.handler(async () => "pong") },
+      verifyClient: okVerify,
+      uploads: { enabled: true, bodyLimitBytes: undefined },
+    });
+    expect(server.getUploadConfig().bodyLimitBytes).toBe(
+      DEFAULT_UPLOAD_BODY_LIMIT_BYTES,
+    );
   });
 });
 
@@ -197,6 +228,35 @@ describe("HTTP handler: pre-handle verifyClient", () => {
     expect(verify).toHaveBeenCalledOnce();
     const call = verify.mock.calls[0]?.[0];
     expect(call?.token).toBe("my-good-token");
+  });
+
+  // SEC-3 parity — the HTTP transport feeds the SAME verifyClient as the
+  // WS upgrade, so it must surface origin/secure the same way: Origin
+  // header (absent → ""), TLS flag off the socket (plain → false).
+  it("forwards origin and secure to verifyClient (SEC-3)", async () => {
+    const verify = vi.fn<VerifyClient<TestUser>>(async () => ({
+      ok: false,
+      code: 401,
+      reason: "Unauthorized",
+    }));
+    const server = new OrpcWsServer<TestUser, { ping: unknown }>({
+      router: { ping: os.handler(async () => "pong") },
+      verifyClient: verify,
+      uploads: { enabled: true, httpPath: "/upload" },
+    });
+
+    const handler = server.getHttpHandler()!;
+    const { req, res } = makeFakePair("Bearer tok");
+    (req.headers as Record<string, string>).origin = "https://app.example.com";
+
+    handler(req, res);
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    const call = verify.mock.calls[0]?.[0];
+    expect(call?.origin).toBe("https://app.example.com");
+    // The fake socket carries no `encrypted` flag — plain HTTP.
+    expect(call?.secure).toBe(false);
   });
 
   it("returns 401 when verifyClient rejects", async () => {

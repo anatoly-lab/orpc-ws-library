@@ -55,6 +55,7 @@ import {
   VerifyClientOrchestrator,
   type VerifyClient,
 } from "./lifecycle/verify-client-orchestrator.js";
+import { closeWssWithGrace } from "./lifecycle/wss-shutdown.js";
 import {
   ConnectionHandler,
   type ConnectionHandlerHooks,
@@ -107,6 +108,7 @@ export type {
 } from "./upload/http-config.js";
 export {
   DEFAULT_UPLOAD_HTTP_CONFIG,
+  DEFAULT_UPLOAD_BODY_LIMIT_BYTES,
   DEFAULT_BEFORE_UPLOAD_REJECT_CODE,
   DEFAULT_BEFORE_UPLOAD_REJECT_REASON,
 } from "./upload/http-config.js";
@@ -190,6 +192,11 @@ export class OrpcWsServer<TUser, TContract extends object> {
   private readonly connectionConfig: ConnectionConfig;
   private readonly heartbeatConfig: HeartbeatConfig;
   private readonly logger: Logger;
+  /**
+   * Kept on the instance (not just threaded through the constructor)
+   * because `dispose()` needs it for the NFI-4 shutdown-grace timer.
+   */
+  private readonly clock: Clock;
 
   private readonly verifyOrchestrator: VerifyClientOrchestrator<TUser>;
   private readonly registry: ConnectionRegistry;
@@ -232,6 +239,7 @@ export class OrpcWsServer<TUser, TContract extends object> {
     };
     this.logger = opts.logger ?? noopLogger;
     const clock: Clock = opts.clock ?? systemClock;
+    this.clock = clock;
     const hooks = opts.hooks ?? {};
 
     // ----- 2. Verify orchestrator -----
@@ -293,10 +301,19 @@ export class OrpcWsServer<TUser, TContract extends object> {
     // handler is built only when `uploads.enabled` is true so the cost
     // (extra ORPC plugin instances, body-limit middleware, etc.) lands
     // only on consumers who opted in.
-    this.uploadConfig = {
+    const mergedUploads: UploadHttpConfig<TUser> = {
       ...DEFAULT_UPLOAD_HTTP_CONFIG,
       ...opts.uploads,
     };
+    // SEC-4: only a NUMBER override of `bodyLimitBytes` is honored. An
+    // explicit `bodyLimitBytes: undefined` in `opts.uploads` would
+    // otherwise win the spread and silently disable the 100 MB default —
+    // re-opening the unbounded-body DoS the default exists to close. To
+    // effectively disable the cap a consumer sets a very large number.
+    if (typeof mergedUploads.bodyLimitBytes !== "number") {
+      mergedUploads.bodyLimitBytes = DEFAULT_UPLOAD_HTTP_CONFIG.bodyLimitBytes;
+    }
+    this.uploadConfig = mergedUploads;
     this.httpUploadHandler = this.uploadConfig.enabled
       ? createHttpUploadHandler<TUser>({
           composedRouter,
@@ -446,6 +463,13 @@ export class OrpcWsServer<TUser, TContract extends object> {
    * doesn't reach a half-disposed registry. Close connections second so
    * clients get the explicit close frame BEFORE the TCP RST.
    * Close the WSS last; once it's down, no new upgrades land.
+   *
+   * The await is bounded (NFI-4): `ws`'s `close()` callback waits for
+   * every client's close handshake, and a dead client would otherwise
+   * stall it until `ws`'s internal ~30 s fallback. `closeWssWithGrace`
+   * force-terminates stragglers after `connection.shutdownGraceMs`
+   * (default 5000) on the injected clock, so dispose resolves promptly
+   * without touching clients that close cleanly inside the window.
    */
   async dispose(): Promise<void> {
     if (this.disposed) return;
@@ -461,8 +485,11 @@ export class OrpcWsServer<TUser, TContract extends object> {
 
     if (this.wss) {
       const wss = this.wss;
-      await new Promise<void>((resolve) => {
-        wss.close(() => resolve());
+      await closeWssWithGrace({
+        wss,
+        clock: this.clock,
+        graceMs: this.connectionConfig.shutdownGraceMs,
+        logger: this.logger,
       });
       this.wss = null;
     }

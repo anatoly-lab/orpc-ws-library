@@ -58,6 +58,21 @@ export interface ConnectionConfig {
    * populates `expiresAt` (e.g. `@repo/oidc-verifier-jose`).
    */
   enforceTokenExpiry: boolean;
+  /**
+   * Grace window (ms) `dispose()` waits for clients to finish the WS
+   * close handshake before force-`terminate()`ing the stragglers.
+   * Default 5000.
+   *
+   * Why (NFI-4): `dispose()` sends a graceful `close()` to every client
+   * and then awaits the `ws` server's close — which waits for each
+   * client's close handshake to complete. A dead / half-open client
+   * never completes it, and `ws`'s own internal fallback timer takes
+   * ~30 s, so one zombie could hang server shutdown that long. Clients
+   * that close cleanly inside the window are untouched (they still get
+   * the clean `shutdownCloseCode` frame); only stragglers are
+   * terminated, and only after the window elapses.
+   */
+  shutdownGraceMs: number;
 }
 
 /**
@@ -72,4 +87,5 @@ export const DEFAULT_CONNECTION_CONFIG: ConnectionConfig = {
   sessionReplacedCloseCode: 4005,
   authFailedCloseCode: 4001,
   enforceTokenExpiry: false,
+  shutdownGraceMs: 5000,
 };

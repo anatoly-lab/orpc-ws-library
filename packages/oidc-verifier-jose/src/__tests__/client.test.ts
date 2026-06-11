@@ -142,8 +142,12 @@ function ctx(token: string | null): {
   req: IncomingMessage;
   token: string | null;
   clientIp: string | undefined;
+  origin: string;
+  secure: boolean;
 } {
-  return { req: fakeReq, token, clientIp: undefined };
+  // `origin` / `secure` are required on `VerifyClientContext` (SEC-3) but
+  // the OIDC verifier ignores them — token validity is origin-agnostic.
+  return { req: fakeReq, token, clientIp: undefined, origin: "", secure: false };
 }
 
 // ----- Setup -----

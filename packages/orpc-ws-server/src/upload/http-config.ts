@@ -100,12 +100,23 @@ export const DEFAULT_BEFORE_UPLOAD_REJECT_CODE = 415;
 export const DEFAULT_BEFORE_UPLOAD_REJECT_REASON = "Unsupported Media Type";
 
 /**
+ * Default request-body cap when uploads are enabled — 100 MB (SEC-4).
+ *
+ * Secure-by-default posture: before this constant existed, enabling
+ * uploads without an explicit `bodyLimitBytes` accepted UNBOUNDED bodies
+ * (a resource-exhaustion vector). 100 MB is generous enough not to break
+ * typical file uploads while still bounding a trivial DoS; consumers
+ * with bigger payloads raise the limit deliberately.
+ */
+export const DEFAULT_UPLOAD_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
+
+/**
  * Configuration for the HTTP upload transport.
  *
- * Defaults are conservative: disabled, root path `/upload`, no body
- * limit applied. Consumers who enable uploads should consider setting
- * `bodyLimitBytes` — ORPC's HTTP path has no implicit ceiling and
- * unbounded uploads are a vector for resource exhaustion.
+ * Defaults are conservative: disabled, root path `/upload`, body limit
+ * 100 MB ({@link DEFAULT_UPLOAD_BODY_LIMIT_BYTES}). ORPC's HTTP path has
+ * no implicit ceiling of its own, so the library ships the bound — see
+ * SEC-4 in docs/fable/security-review.md.
  *
  * Generic over `TUser` so `beforeUpload` receives the same typed
  * principal the server core threads through `OrpcWsServerOptions<TUser>`
@@ -128,9 +139,17 @@ export interface UploadHttpConfig<TUser = unknown> {
    */
   httpPath: string;
   /**
-   * Optional cap on request body size in bytes, applied by ORPC's
-   * `BodyLimitPlugin`. When omitted, no cap is applied at the ORPC layer
-   * (the consumer's HTTP framework may still apply its own).
+   * Cap on request body size in bytes, applied by ORPC's
+   * `BodyLimitPlugin`. Defaults to 100 MB
+   * ({@link DEFAULT_UPLOAD_BODY_LIMIT_BYTES}) — uploads larger than the
+   * limit are rejected (SEC-4: secure by default; raise deliberately).
+   *
+   * Only a **number** override is honored: passing an explicit
+   * `undefined` does NOT disable the cap — the default applies whenever
+   * no number is given, so the unbounded-body posture is unreachable by
+   * accident. To effectively disable the cap, set a very large value
+   * (e.g. `Number.MAX_SAFE_INTEGER`). The consumer's HTTP framework may
+   * still apply its own, tighter limit.
    */
   bodyLimitBytes?: number;
   /**
@@ -144,8 +163,8 @@ export interface UploadHttpConfig<TUser = unknown> {
 }
 
 /**
- * Defaults. Disabled, `/upload`, no body limit, no `beforeUpload` gate.
- * Consumers opt in by setting `enabled: true` in
+ * Defaults. Disabled, `/upload`, 100 MB body limit, no `beforeUpload`
+ * gate. Consumers opt in by setting `enabled: true` in
  * `OrpcWsServerOptions.uploads`.
  *
  * Typed via `satisfies` (NOT an explicit `UploadHttpConfig<...>`
@@ -162,4 +181,5 @@ export interface UploadHttpConfig<TUser = unknown> {
 export const DEFAULT_UPLOAD_HTTP_CONFIG = {
   enabled: false,
   httpPath: "/upload",
+  bodyLimitBytes: DEFAULT_UPLOAD_BODY_LIMIT_BYTES,
 } satisfies UploadHttpConfig<unknown>;

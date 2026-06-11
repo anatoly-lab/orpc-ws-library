@@ -50,6 +50,28 @@ export interface VerifyClientContext {
    * pathological case where neither is available.
    */
   clientIp: string | undefined;
+  /**
+   * The `Origin` header on the upgrade request (`ws`'s `info.origin`).
+   * Empty string when the client sent no Origin header — non-browser
+   * clients (curl, native apps, server-to-server) typically omit it.
+   *
+   * WebSocket upgrades are NOT subject to the same-origin policy, so
+   * cross-site WebSocket hijacking is stopped only by credential
+   * validity unless the consumer checks this value (SEC-3). It is
+   * attacker-controlled (a non-browser client can send anything), but
+   * browsers always set it truthfully — so it works as an allowlist
+   * for browser traffic. Enforcement stays the consumer's choice; the
+   * library only surfaces the value. An empty string naturally fails
+   * an allowlist check (fail-closed).
+   */
+  origin: string;
+  /**
+   * Whether the upgrade arrived over TLS (`wss://`) — `ws`'s
+   * `info.secure`. `false` for plain `ws://`. Behind a TLS-terminating
+   * proxy the Node process sees plain TCP, so this is `false` even when
+   * the public edge is TLS.
+   */
+  secure: boolean;
 }
 
 /**
@@ -90,9 +112,16 @@ export type VerifyClient<TUser> = (
 /**
  * Signature `ws`'s `verifyClient` option (async form) expects. We build
  * this from the consumer's `VerifyClient` and pass it to `WebSocketServer`.
+ *
+ * `origin` is declared `string | undefined` even though `ws`'s own types
+ * say `string`: at runtime `ws` populates it straight from the request's
+ * Origin header, which is absent for non-browser clients. Accepting the
+ * wider type here is assignability-safe (parameter contravariance) and
+ * keeps the normalization (`?? ""`) honest instead of relying on a typed
+ * lie.
  */
 export type WsVerifyClientFn = (
-  info: { origin: string; secure: boolean; req: IncomingMessage },
+  info: { origin: string | undefined; secure: boolean; req: IncomingMessage },
   callback: (
     res: boolean,
     code?: number,
@@ -146,8 +175,13 @@ export class VerifyClientOrchestrator<TUser> {
       const { req } = info;
       const clientIp = extractClientIp(req);
       const token = extractToken(req);
+      // SEC-3: surface Origin + wss/ws to the consumer's verify so an
+      // origin allowlist is possible without digging into req.headers.
+      // Absent Origin header normalizes to "" (see VerifyClientContext).
+      const origin = info.origin ?? "";
+      const secure = info.secure;
 
-      this.verify({ req, token, clientIp })
+      this.verify({ req, token, clientIp, origin, secure })
         .then((result) => {
           if (result.ok) {
             this.authByReq.set(req, result);

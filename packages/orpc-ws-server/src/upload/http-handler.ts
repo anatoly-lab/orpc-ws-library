@@ -116,6 +116,11 @@ export function createHttpUploadHandler<TUser>(deps: {
   // Plugins are installed conditionally; body-limit is the only one we
   // touch in v1. The RPCHandler accepts `Router<any, T>` — we type the
   // context as a record holding `user`, mirroring the WS context shape.
+  //
+  // SEC-4 note: `OrpcWsServer` resolves the config before building this
+  // handler, so `bodyLimitBytes` is always a number there (100 MB default,
+  // number-only override). The `undefined` branch survives for direct
+  // construction with a hand-rolled config (tests / future adapters).
   const plugins =
     deps.config.bodyLimitBytes !== undefined
       ? [new BodyLimitPlugin({ maxBodySize: deps.config.bodyLimitBytes })]
@@ -139,7 +144,13 @@ export function createHttpUploadHandler<TUser>(deps: {
    * WS transport builds it in `ConnectionHandler.handle`).
    *
    * `clientIp` mirrors the WS verifier's extraction (x-forwarded-for first
-   * hop, then socket address).
+   * hop, then socket address). `origin` / `secure` mirror the WS upgrade
+   * path (SEC-3): the consumer's ONE `verifyClient` sees the same context
+   * shape over either transport, so an origin allowlist written for the
+   * WS path gates uploads too. Origin normalizes to "" when the header is
+   * absent (non-browser clients); `secure` reads the TLS flag off the
+   * socket (`TLSSocket.encrypted`) — `false` behind a TLS-terminating
+   * proxy, same caveat as the WS path.
    */
   const runVerify = async (
     req: IncomingMessage,
@@ -150,8 +161,22 @@ export function createHttpUploadHandler<TUser>(deps: {
       typeof fwd === "string" && fwd.length > 0
         ? fwd.split(",")[0]?.trim()
         : req.socket.remoteAddress;
+    const origin = req.headers.origin ?? "";
+    // `req.socket` is a `tls.TLSSocket` (which carries `encrypted: true`)
+    // when the consumer's server terminates TLS itself; plain `net.Socket`
+    // otherwise. The structural widening names the seam without `any`.
+    const socketMaybeTls = req.socket as typeof req.socket & {
+      encrypted?: boolean;
+    };
+    const secure = socketMaybeTls.encrypted === true;
     try {
-      const result = await deps.verifyClient({ req, token, clientIp });
+      const result = await deps.verifyClient({
+        req,
+        token,
+        clientIp,
+        origin,
+        secure,
+      });
       // Fail-closed normalisation. `verifyClient` is typed to return a
       // `VerifyClientResult`, but a plain-JS consumer can violate that
       // contract at runtime (return `undefined`, a bare boolean, etc.) —
