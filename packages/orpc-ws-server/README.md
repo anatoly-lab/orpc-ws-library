@@ -91,6 +91,23 @@ keeps it alive. Two opt-in levers close that gap:
    `server.closeUser(sub, 4001, "session invalidated")`. The library
    ships no built-in pub/sub for this; the transport is yours.
 
+### Operational security
+
+The paired client sends the WS token as a `?token=` query parameter on
+the upgrade URL. The library itself never logs the token — but anything
+in front of it might: reverse-proxy and load-balancer access logs, and
+APM traces, capture full request URLs (JWT included) unless told not
+to. If you terminate `/ws` behind nginx, an ALB, Cloudflare, etc.:
+
+1. **Scrub or disable query-string logging** on the `/ws` path (e.g.
+   drop the `token` parameter from the log format).
+2. **Serve over `wss://`** — TLS already encrypts the URL on the wire;
+   the exposure is logs, not transit.
+3. If query-string tokens are unacceptable in your environment, omit
+   `tokenProvider` on the client and use **cookie auth** instead — the
+   browser attaches cookies to the upgrade request, and your
+   `verifyClient` reads them off `ctx.req`.
+
 ## OIDC verifier
 
 For OIDC against any spec-compliant IdP (Keycloak, Auth0, Okta,
@@ -134,7 +151,7 @@ HTTP). Off by default; `getHttpHandler()` returns `null` until you pass
 uploads: {
   enabled: true,
   httpPath: "/upload",       // default
-  bodyLimitBytes: 50 * 1024 * 1024,  // optional ORPC BodyLimitPlugin cap
+  bodyLimitBytes: 50 * 1024 * 1024,  // override the 100 MB default cap
 }
 ```
 

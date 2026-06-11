@@ -5,14 +5,21 @@ model. Scope: the library packages under `packages/*` (cores + adapters +
 OIDC helpers). Demo apps and e2e are in scope only where they reveal a
 library defect.
 
-**Status: triage in progress.** All four **High**-severity bugs plus the seed
-finding are ✅ RESOLVED (see per-finding banners): **BUG-1, BUG-2, BUG-3,
-BUG-4** (client lifecycle) and **API-4** (server token-expiry, opt-in). BUG-1/3/4
-+ API-4 are test-passing; BUG-2 typechecks (run the client suite to confirm).
-**BUG-5** (storm-guard single-window deviation, a locked-decision violation) and
-**BUG-6** (stale-`open` guard) are also ✅ RESOLVED. Still open proposals:
-**BUG-7/8/9/10** (Medium/Low), the SOLID god-files (client `index.ts` is now
-~700 LOC), and the "Needs further investigation" items.
+> **Authoritative status record:**
+> [resolution-status.md](./resolution-status.md) — every finding from this
+> review and the follow-up adversarial review, with its final disposition.
+> Per-finding banners in the individual reports may lag behind it.
+
+**Status: sweep complete.** All **10/10 bugs** (BUG-1..10) and all **5/5
+adversarial findings** (F1–F5) are ✅ RESOLVED, along with **API-4**
+(server token-expiry, opt-in), **SEC-3/SEC-4**, and **NFI-1/4/5**.
+Remaining open: **S1** (finite `reconnect.maxRetries` semantics) and
+**NFI-3** (HTTP-upload 401 → storm guard) await a maintainer decision;
+**S2** is won't-fix (cosmetic); SEC-5/6/7 are Info/accepted (SEC-2 is
+documented, not code-changed); and the SOLID/architecture refactors
+(client `index.ts` is now ~700+ LOC) are deferred to a deliberate
+refactor effort. See [resolution-status.md](./resolution-status.md) for
+the full table and notes.
 
 ## Reports
 
