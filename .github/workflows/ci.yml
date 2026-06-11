@@ -48,8 +48,13 @@ jobs:
   e2e:
     name: Playwright E2E (Keycloak + demo app)
     runs-on: ubuntu-latest
-    # Heavier than the unit job: builds Keycloak in Docker, spawns demo server,
-    # drives real Chromium login flow. Runs in parallel with `verify`.
+    # Heavier than the unit job: globalSetup builds the demo-server + demo-spa
+    # Docker images and brings the whole stack (Keycloak + server + spa) up as
+    # containers on one network, then drives the real Chromium login flow.
+    # Runs in parallel with `verify`. ubuntu-latest ships Docker, so no extra
+    # services/setup are needed. (No host turbo build: the images build
+    # everything internally via `turbo prune`, and the `verify` job already
+    # validates the host build.)
 
     steps:
       - name: Checkout
@@ -60,14 +65,6 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-
-      - name: Cache Turborepo
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: turbo-e2e-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            turbo-e2e-${{ runner.os }}-
 
       - name: Install dependencies (with Playwright browser)
         # Allow the @repo/tests-e2e postinstall to download Chromium normally.
@@ -80,13 +77,10 @@ jobs:
         working-directory: tests-e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Build demo apps + library packages
-        # Playwright globalSetup runs `turbo run build --filter=@demo/*` but
-        # pre-building once with the turbo cache is faster and surfaces build
-        # errors before the Keycloak container starts.
-        run: npx turbo run build
-
       - name: Run Playwright E2E
+        # globalSetup docker-builds the app images (Docker layer cache makes
+        # warm runs fast) and starts the containerized stack. CI=true gives the
+        # Playwright config its retry budget.
         working-directory: tests-e2e
         run: npm run test:e2e
         env:
