@@ -100,6 +100,19 @@ export class HeartbeatSubscriber {
    * conflicting timestamps.
    */
   private activeLoop: Promise<void> | null = null;
+  /**
+   * Monotonic subscribe-call counter (Bug 18 fix). `subscribe()` is
+   * async — the teardown barrier `await`s the prior loop, and the
+   * barrier's field-nulling is NOT atomic across that suspension. Two
+   * concurrent `subscribe()` calls could interleave: caller A nulls the
+   * fields and awaits; caller B sees a clean slate, starts its loop and
+   * installs its controller; A resumes and OVERWRITES the fields —
+   * leaving B's loop live but unreachable by `unsubscribe()`. The
+   * generation counter makes "a newer subscribe superseded me" detectable:
+   * each call captures `++generation` up front and bails after the await
+   * if the global counter moved on.
+   */
+  private generation = 0;
 
   constructor(deps: HeartbeatSubscriberDeps) {
     this.linkFactory = deps.linkFactory;
@@ -113,9 +126,17 @@ export class HeartbeatSubscriber {
    *
    * If a previous subscription is still draining, this method first
    * aborts it and awaits its loop body — guarantees a single live
-   * consumption loop at any time.
+   * consumption loop at any time. Concurrent `subscribe()` calls
+   * coalesce: the newest call wins, earlier in-flight calls bail
+   * without starting a loop (generation counter — see Bug 18).
    */
   async subscribe(): Promise<void> {
+    // Claim a generation BEFORE any suspension point. If another
+    // `subscribe()` lands while we're awaiting the prior loop below,
+    // it claims a higher generation; we detect that after the await
+    // and bail instead of starting a second loop (Bug 18).
+    const gen = ++this.generation;
+
     // Tear down any prior subscription and wait for its loop to exit.
     // Without this await, a `subscribe()` called from inside the
     // composition root's reconnect path could start a second loop
@@ -130,6 +151,16 @@ export class HeartbeatSubscriber {
         // logged debug); awaiting it here is purely a sync barrier.
         await prior;
       }
+    }
+
+    // Bug 18 regression guard: a newer `subscribe()` ran while we were
+    // suspended on the barrier. It saw the fields we nulled, started a
+    // fresh loop, and installed its controller. If we proceeded now we
+    // would overwrite `abortController`/`activeLoop` and orphan that
+    // loop — alive, consuming pings, but unreachable by `unsubscribe()`.
+    // The newer caller owns the subscription; this one yields.
+    if (this.generation !== gen) {
+      return;
     }
 
     const controller = new AbortController();

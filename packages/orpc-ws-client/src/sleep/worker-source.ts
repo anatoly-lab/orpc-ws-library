@@ -56,11 +56,17 @@ self.setInterval(function () {
 export function defaultWorkerFactory(): Worker {
   const blob = new Blob([WORKER_SOURCE], { type: "application/javascript" });
   const url = URL.createObjectURL(blob);
-  // The worker holds a reference to the object URL until terminate(),
-  // so we don't `revokeObjectURL` here — doing so would race with the
-  // worker boot. The URL is released when the page unloads; for a
-  // long-lived SPA the memory cost is one URL entry per detector
-  // instance, which is negligible. If the library grows to recycle
-  // workers, revisit.
-  return new Worker(url);
+  const worker = new Worker(url);
+  // Revoke the object URL once the worker has provably booted. Revoking
+  // synchronously here would race the worker's fetch of its own script
+  // (per-browser behavior differs), but the worker's FIRST message can
+  // only arrive after the script loaded and ran — so that's the portable
+  // safe point to release the blob. Without this, every factory call
+  // leaks one URL entry: the factory runs once per `SleepDetector.start()`
+  // (NOT once per detector instance — start()/stop() are designed to
+  // cycle, each cycle creating a fresh worker; see Bug 20).
+  worker.addEventListener("message", () => URL.revokeObjectURL(url), {
+    once: true,
+  });
+  return worker;
 }
