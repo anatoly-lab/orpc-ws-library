@@ -228,6 +228,20 @@ export class TokenRefreshHandler {
   }
 
   /**
+   * Whether a `tokenProvider.refresh()` flight is currently pending (F2).
+   * The ReconnectManager's auth-recovery path reads this to JOIN an
+   * in-flight refresh (its `refreshAndReconnect` call lands on the same
+   * single-flight memo above) instead of counting the duplicate trigger
+   * against the storm guard. Without the join, partysocket's double-fired
+   * `onclose` (one 1008 → two `tryAuthRecovery` calls ~1ms apart) tripped
+   * the guard → terminal while the first call's refresh was still in
+   * flight and about to succeed — a spurious forced logout.
+   */
+  isRefreshing(): boolean {
+    return this.refreshInFlight !== null;
+  }
+
+  /**
    * Tear down the current connection and stand up a new one carrying
    * `newToken`. See `swapSocket` for the mechanics and guards.
    */

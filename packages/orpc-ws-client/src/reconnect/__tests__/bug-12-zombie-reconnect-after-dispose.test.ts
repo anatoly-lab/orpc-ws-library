@@ -115,6 +115,9 @@ function build(opts: { refreshResult?: boolean } = {}) {
     refreshAndReconnect,
     reconnectWithNewToken: vi.fn(),
     isReconnecting: vi.fn(() => false),
+    // The only tryAuthRecovery call in this suite is post-dispose (dies at
+    // the isStopped() gate), but the stub keeps the seam complete.
+    isRefreshing: vi.fn(() => false),
   } as unknown as TokenRefreshHandler;
   const onTerminalAuthFailure = vi.fn();
   const logger = makeLogger();

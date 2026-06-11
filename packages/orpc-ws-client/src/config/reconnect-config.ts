@@ -66,9 +66,12 @@ export interface ReconnectConfig {
   jitterMs: number;
   /**
    * Storm-guard window (ms). If `tryAuthRecovery` is called within this
-   * many ms of the previous attempt, the second call short-circuits to
-   * `onTerminalAuthFailure` instead of refreshing again. Source default
-   * (from `auth-failure.MIN_REFRESH_INTERVAL_MS`): 30_000ms.
+   * many ms of a COMPLETED auth-recovery refresh, the call short-circuits
+   * to `onTerminalAuthFailure` instead of refreshing again. (F2: a call
+   * landing while a refresh is still in flight JOINS it, and a window
+   * stamped by a routine `reconnect()` refresh does not trip the guard —
+   * only auth-recovery-provenance stamps do.) Source default (from
+   * `auth-failure.MIN_REFRESH_INTERVAL_MS`): 30_000ms.
    */
   minRefreshIntervalMs: number;
 }

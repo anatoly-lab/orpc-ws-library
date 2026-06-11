@@ -108,6 +108,9 @@ function build(
     reconnectWithNewToken: vi.fn(),
     reconnectWithCurrentToken: vi.fn(),
     isReconnecting: vi.fn(() => false),
+    // Refreshes in this suite are awaited to completion before the next
+    // trigger — the F2 join branch never applies here.
+    isRefreshing: vi.fn(() => false),
   } as unknown as TokenRefreshHandler;
   const reconnectWithCurrentToken = (
     handler as unknown as { reconnectWithCurrentToken: ReturnType<typeof vi.fn> }

@@ -1,9 +1,13 @@
 // ReconnectManager regression tests.
 //
-// Covers the Phase 1.3 behavioral contract:
+// Covers the Phase 1.3 behavioral contract (F2-amended):
 //   - Storm guard within the configured window (default 30s) — first call
-//     refreshes, second short-circuits to `onTerminalAuthFailure`. After the
-//     window elapses, refresh is allowed again.
+//     refreshes; once that refresh has COMPLETED, a second call within the
+//     window is a genuine storm and short-circuits to
+//     `onTerminalAuthFailure`. After the window elapses, refresh is allowed
+//     again. (F2: a call while the refresh is still IN FLIGHT joins it, and
+//     a window stamped by a routine `reconnect()` refresh does not trip the
+//     guard — see the F2 suite below.)
 //   - `onTerminalAuthFailure` fires when refresh returns null AND when the
 //     storm guard trips. These are the only two paths that fire it.
 //   - Debounce: N triggers within debounceMs coalesce to one reconnect.
@@ -146,25 +150,41 @@ function makeLogger(): Logger & { calls: { level: string; msg: string }[] } {
 
 // ---------- Fake TokenRefreshHandler ----------
 // Just enough surface for the manager. Tests configure `refreshAndReconnect`
-// to return true/false or throw.
+// to return true/false or throw. `isRefreshing` mirrors the real handler's
+// single-flight memo (F2): true while a `refreshAndReconnect` call is
+// pending, false once it settles. Tests that replace `refreshAndReconnect`
+// via `mockImplementation` bypass the tracking and must override
+// `isRefreshing` themselves if the join branch matters to them.
 
 function makeFakeHandler(
   options: { result?: boolean | Error } = {},
 ): TokenRefreshHandler & {
   refreshAndReconnect: ReturnType<typeof vi.fn>;
+  isRefreshing: ReturnType<typeof vi.fn>;
 } {
   const result = options.result ?? true;
-  const refreshAndReconnect = vi.fn(async () => {
-    if (result instanceof Error) throw result;
-    return result;
+  let inFlight = 0;
+  const refreshAndReconnect = vi.fn(() => {
+    inFlight += 1;
+    const flight = (async () => {
+      if (result instanceof Error) throw result;
+      return result;
+    })();
+    return flight.finally(() => {
+      inFlight -= 1;
+    });
   });
+  const isRefreshing = vi.fn(() => inFlight > 0);
   // Other methods aren't called in these tests; stub for typing.
   const stub = {
     refreshAndReconnect,
     reconnectWithNewToken: vi.fn(),
+    reconnectWithCurrentToken: vi.fn(),
     isReconnecting: vi.fn(() => false),
+    isRefreshing,
   } as unknown as TokenRefreshHandler & {
     refreshAndReconnect: ReturnType<typeof vi.fn>;
+    isRefreshing: ReturnType<typeof vi.fn>;
   };
   return stub;
 }
@@ -228,11 +248,15 @@ describe("ReconnectManager — storm guard (instance-state 30s window)", () => {
   });
 
   it(
-    "second tryAuthRecovery call within minRefreshIntervalMs short-circuits " +
-      "to onTerminalAuthFailure (no second refresh)",
+    "second tryAuthRecovery within minRefreshIntervalMs of a COMPLETED " +
+      "auth-recovery refresh short-circuits to onTerminalAuthFailure " +
+      "(genuine storm — no second refresh)",
     async () => {
       const ctx = build();
 
+      // The await resolves the first auth-recovery refresh fully — NOT
+      // in flight (the F2 join branch doesn't apply), provenance stamped
+      // as auth-recovery. This is the genuine-storm shape.
       await ctx.manager.tryAuthRecovery(1008);
       expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
 
@@ -279,6 +303,10 @@ describe("ReconnectManager — storm guard (instance-state 30s window)", () => {
     async () => {
       const ctx = build();
 
+      // Each call is awaited to completion before the next — the second
+      // is NOT a concurrent duplicate (which would JOIN the in-flight
+      // refresh under F2) but a fresh auth failure after a completed
+      // auth-recovery refresh: the guard's terminal trip.
       await ctx.manager.tryAuthRecovery(1008);
       await ctx.manager.tryAuthRecovery(1008);
 
@@ -297,6 +325,173 @@ describe("ReconnectManager — storm guard (instance-state 30s window)", () => {
 
       expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
       expect(ctx.onTerminalAuthFailure).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("ReconnectManager — F2 storm-guard false positives (join + provenance)", () => {
+  // The storm guard's terminal trip is REAL (BUG-3: it kills the client →
+  // forced re-login), so it must fire only on a GENUINE storm — a second
+  // auth failure AFTER the first auth-recovery refresh COMPLETED within
+  // the window. Two false-positive shapes are pinned here:
+  //   (A) partysocket double-fires `onclose` over Node `ws`, so one 1008
+  //       lands in `tryAuthRecovery` twice ~1ms apart — the second call
+  //       must JOIN the in-flight refresh, not go terminal.
+  //   (B) a successful ROUTINE (heartbeat/sleep) refresh stamps the shared
+  //       window; the new socket's pre-open 1000 routes to auth recovery
+  //       within it — that's the FIRST auth failure and deserves a real
+  //       refresh, not an instant logout (provenance flag).
+
+  // Shared-flight fake: every refreshAndReconnect call returns a promise
+  // the TEST settles, all with one outcome — mirroring the real handler's
+  // single-flight memo (the network-level sharing itself is pinned by the
+  // bug-16 single-flight tests at the handler layer).
+  function holdRefresh(ctx: ReturnType<typeof build>) {
+    const resolvers: Array<(v: boolean) => void> = [];
+    ctx.handler.refreshAndReconnect.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    ctx.handler.isRefreshing.mockImplementation(() => resolvers.length > 0);
+    return (v: boolean) => {
+      for (const r of resolvers.splice(0)) r(v);
+    };
+  }
+
+  it(
+    "f2-storm-guard-join: a second tryAuthRecovery WHILE the refresh is in " +
+      "flight joins it — no terminal, shared outcome",
+    async () => {
+      const ctx = build();
+      const settleRefresh = holdRefresh(ctx);
+
+      // First 1008: stamps the window, starts the (held) refresh.
+      const p1 = ctx.manager.tryAuthRecovery(1008);
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+
+      // The double-fired close arrives ~1ms later, refresh still pending.
+      // Pre-F2 this tripped the storm guard → terminal → forced logout
+      // while the in-flight refresh was about to succeed.
+      ctx.setNow(1);
+      const p2 = ctx.manager.tryAuthRecovery(1008);
+
+      // Deferred: the duplicate defers to the primary's in-flight refresh —
+      // NO second refreshAndReconnect (so no throwaway socket swap), and NOT
+      // terminal. The primary's single call owns the whole outcome.
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+
+      // The shared flight succeeds; both callers settle, still no terminal.
+      settleRefresh(true);
+      await p1;
+      await p2;
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "f2-storm-guard-join-failure: a joined refresh that fails fires " +
+      "onTerminalAuthFailure exactly once (Bug 14 latch covers both callers)",
+    async () => {
+      const ctx = build();
+      const settleRefresh = holdRefresh(ctx);
+
+      const p1 = ctx.manager.tryAuthRecovery(1008);
+      ctx.setNow(1);
+      const p2 = ctx.manager.tryAuthRecovery(1008);
+
+      // The duplicate (p2) deferred to the primary (p1) and did nothing.
+      // The primary's refresh token really is dead → it fires terminal
+      // exactly once. (The single-fire latch additionally backstops any
+      // stray re-trigger.)
+      settleRefresh(false);
+      await p1;
+      await p2;
+      expect(ctx.onTerminalAuthFailure).toHaveBeenCalledTimes(1);
+      // Only the primary ever called refresh — the duplicate did not.
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it(
+    "f2-storm-guard-provenance: a routine reconnect() refresh within the " +
+      "window does NOT make the next auth failure terminal — it refreshes",
+    async () => {
+      const ctx = build({ debounceMs: 100, jitterMs: 0 });
+
+      // Routine sleep-wake / heartbeat-timeout reconnect: refresh succeeds
+      // and stamps the SHARED window with ROUTINE provenance.
+      const p = ctx.manager.reconnect();
+      await ctx.advance(100); // debounce (zero jitter)
+      await p;
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+
+      // The new socket's pre-open 1000 routes to auth recovery within the
+      // window. This is the FIRST actual auth failure — pre-F2 the shared
+      // stamp tripped the guard and force-logged-out a healthy session.
+      ctx.setNow(5_000);
+      await ctx.manager.tryAuthRecovery(1000);
+
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(2);
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "f2-storm-guard-genuine: after a COMPLETED auth-recovery refresh, a " +
+      "second auth failure within the window is still terminal (storm " +
+      "protection preserved)",
+    async () => {
+      const ctx = build();
+
+      // Bad-token hot loop: 1008 → refresh succeeds → new socket → 1008
+      // again. The refresh isn't helping; the guard must still kill it.
+      await ctx.manager.tryAuthRecovery(1008); // completes (awaited)
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+
+      ctx.setNow(5_000);
+      await ctx.manager.tryAuthRecovery(1008);
+
+      expect(ctx.handler.refreshAndReconnect).toHaveBeenCalledTimes(1);
+      expect(ctx.onTerminalAuthFailure).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("ReconnectManager — F5 dispose() cancels the jitter-delay timer", () => {
+  it(
+    "f5-dispose-clears-jitter-timer: dispose() mid-jitter clears the " +
+      "pending timer, settles the reconnect promise, and runs no work",
+    async () => {
+      const ctx = build({
+        debounceMs: 100,
+        jitterMs: 5000,
+        rng: makeFakeRng([0.4]), // jitter = 2000ms
+      });
+
+      const p = ctx.manager.reconnect();
+      await ctx.advance(100); // debounce fires; jitter timer armed
+      expect(ctx.handler.refreshAndReconnect).not.toHaveBeenCalled();
+      expect(ctx.getPending().length).toBe(1); // the jitter timer
+
+      ctx.manager.dispose();
+
+      // F5: pre-fix, dispose() cleared only the DEBOUNCE timer — the
+      // jitter timer's handle was never stored, so it outlived the client
+      // and fired into the fake clock later. Now no timer survives.
+      expect(ctx.getPending().length).toBe(0);
+
+      // dispose() releases the awaited delay; runReconnect's post-jitter
+      // isStopped() re-check aborts and the coalesced waiters settle —
+      // callers never hang on a dead client.
+      await expect(p).resolves.toBeUndefined();
+
+      // Even as time marches on, nothing runs.
+      await ctx.advance(10_000);
+      expect(ctx.handler.refreshAndReconnect).not.toHaveBeenCalled();
+      expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
     },
   );
 });

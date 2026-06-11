@@ -1,9 +1,11 @@
 // Bug 16b regression — no socket swap after the client goes TERMINAL.
 //
-// The shared storm window (Bug 16 / BUG-5) makes this race reachable: a
-// heartbeat-timeout `reconnect()` stamps the window and awaits a refresh
-// that is still in flight when a concurrent 1008 close routes into
-// `tryAuthRecovery`, trips the guard, and fires terminal teardown. The
+// The race: terminal teardown lands while a refresh is still in flight —
+// e.g. a heartbeat-timeout `reconnect()` awaits its refresh when a GENUINE
+// storm trips `tryAuthRecovery` into terminal (a prior auth-recovery
+// refresh completed, then auth failed again within the window — the F2
+// join/provenance fix narrows but does not remove this path), or a 4005
+// kick / no-tokenProvider terminal fires at composition level. The
 // late-resolving refresh then reaches `swapSocket` — which, without the
 // composition root's unified `isDead` predicate (disposed / terminal /
 // kicked), would build a brand-new WebSocket after terminal and let
@@ -110,9 +112,9 @@ describe("Bug 16b — a refresh that resolves after terminal must not swap in a 
     expect(ctx.refresh).toHaveBeenCalledTimes(1);
     expect(ctx.create).not.toHaveBeenCalled();
 
-    // Concurrent 1008 → tryAuthRecovery sees "within window" → TERMINAL
-    // teardown runs (composition root flips `terminalAuthFired`) — all
-    // BEFORE the in-flight refresh settles.
+    // TERMINAL teardown runs (composition root flips `terminalAuthFired`
+    // — genuine storm, 4005 kick, or no-tokenProvider path; the handler
+    // doesn't care which) — all BEFORE the in-flight refresh settles.
     ctx.setTerminal();
 
     // The IdP now answers with a perfectly good token — too late.

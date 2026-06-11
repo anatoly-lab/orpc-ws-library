@@ -118,6 +118,11 @@ function buildManager() {
     reconnectWithNewToken: vi.fn(),
     reconnectWithCurrentToken,
     isReconnecting: vi.fn(() => false),
+    // Every refreshAndReconnect in this suite is awaited to completion
+    // before the next trigger — never in flight, so the F2 join branch
+    // stays out of the picture and the window/provenance logic is what's
+    // exercised.
+    isRefreshing: vi.fn(() => false),
   } as unknown as TokenRefreshHandler;
   const onTerminalAuthFailure = vi.fn();
   const manager = new ReconnectManager({
@@ -248,7 +253,7 @@ describe("Bug 16 — reconnect() shares the storm-guard window with tryAuthRecov
     expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
   });
 
-  it("reconnect()'s stamp is visible to tryAuthRecovery (single window, both directions)", async () => {
+  it("reconnect()'s stamp is visible to tryAuthRecovery, but with ROUTINE provenance — first auth failure refreshes, the next one is terminal (F2)", async () => {
     const ctx = buildManager();
 
     const p = ctx.manager.reconnect();
@@ -256,13 +261,24 @@ describe("Bug 16 — reconnect() shares the storm-guard window with tryAuthRecov
     await p;
     expect(ctx.refreshAndReconnect).toHaveBeenCalledTimes(1);
 
-    // A 1008 close right after a fresh refresh means the FRESH token was
-    // rejected — tryAuthRecovery's storm guard must trip on the stamp the
-    // reconnect() path wrote (terminal-on-trip semantics unchanged), not
-    // start a second refresh.
+    // A 1008 close right after a ROUTINE refresh is the FIRST auth
+    // failure, not a hot loop. The pre-F2 semantics ("any within-window
+    // stamp trips terminal") force-logged-out a healthy session here —
+    // interleaving B: sleep-wake refresh succeeds, the new socket's
+    // pre-open close routes to auth recovery within the window. With
+    // provenance, the guard sees the stamp came from runReconnect and
+    // performs a real auth-recovery refresh instead.
     await ctx.manager.tryAuthRecovery(1008);
 
-    expect(ctx.refreshAndReconnect).toHaveBeenCalledTimes(1);
+    expect(ctx.refreshAndReconnect).toHaveBeenCalledTimes(2);
+    expect(ctx.onTerminalAuthFailure).not.toHaveBeenCalled();
+
+    // That auth-recovery refresh COMPLETED and re-stamped the SAME shared
+    // window with auth provenance — so the NEXT failure inside it is a
+    // genuine storm. The single-window contract still holds; only the
+    // terminal trip became provenance-aware.
+    await ctx.manager.tryAuthRecovery(1008);
+    expect(ctx.refreshAndReconnect).toHaveBeenCalledTimes(2);
     expect(ctx.onTerminalAuthFailure).toHaveBeenCalledTimes(1);
   });
 });

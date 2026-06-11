@@ -145,6 +145,20 @@ export class ReconnectManager {
   /** Debounce-timer handle so a second `reconnect()` call can reset it. */
   private reconnectDebounceTimer: TimerHandle | null = null;
   /**
+   * Jitter-delay timer handle + resolver (F5). `runReconnect`'s
+   * `delay(jitter)` used to schedule an anonymous timeout whose handle was
+   * never stored, so `dispose()` could clear the debounce timer but NOT a
+   * jitter delay already in flight — the orphaned timer outlived the
+   * client (the post-jitter `isStopped()` re-check aborted the WORK, but
+   * the clock entry still fired). At most one delay is in flight at a
+   * time (the `reconnectInProgress` mutex serializes `runReconnect`), so
+   * a single slot suffices. `dispose()` clears the timer AND resolves the
+   * delay early, letting `runReconnect` fall through to its `isStopped()`
+   * abort and settle its waiters — callers must never hang.
+   */
+  private jitterDelayTimer: TimerHandle | null = null;
+  private jitterDelayResolve: (() => void) | null = null;
+  /**
    * Pending resolvers for any `reconnect()` calls that are currently sitting
    * inside the debounce window. When the debounce fires (or when the call
    * short-circuits via the mutex), every accumulated resolver is invoked —
@@ -161,8 +175,9 @@ export class ReconnectManager {
    * `runReconnect` — immediately before calling `refreshAndReconnect`
    * (Bug 16 / BUG-5: "single window across all triggers"). A follow-up
    * call within `minRefreshIntervalMs` short-circuits: terminal in
-   * `tryAuthRecovery` (auth-failure hot loop), no-refresh socket rebuild
-   * in `runReconnect` (normal churn).
+   * `tryAuthRecovery` — but only when the prior stamp was itself an
+   * auth-recovery refresh, see `lastRefreshWasAuthRecovery` (F2) — and a
+   * no-refresh socket rebuild in `runReconnect` (normal churn).
    *
    * Initialized to `-Infinity` so the FIRST call always passes the guard
    * (since `now - (-Infinity)` is `Infinity`, never less than the window).
@@ -171,6 +186,20 @@ export class ReconnectManager {
    * bug-shaped default we deliberately avoid.
    */
   private lastRefreshAttemptedAt = Number.NEGATIVE_INFINITY;
+  /**
+   * Provenance of the most recent `lastRefreshAttemptedAt` stamp (F2):
+   * `true` when it came from an AUTH-recovery refresh (`tryAuthRecovery`),
+   * `false` when it came from a routine `runReconnect` refresh (heartbeat
+   * timeout / sleep-wake). The storm guard's terminal trip requires
+   * auth-recovery provenance: "refreshed because auth failed, and auth
+   * failed AGAIN within the window" is a genuine hot loop, but "routinely
+   * refreshed, then hit the FIRST auth failure" is not. Pre-F2, a
+   * successful sleep-wake refresh that stamped the shared window followed
+   * by the new socket's pre-open 1000 (routed to auth recovery) within
+   * the window went straight to terminal — a spurious forced logout on
+   * what was the very first auth signal.
+   */
+  private lastRefreshWasAuthRecovery = false;
   /**
    * Single-fire latch for `onTerminalAuthFailure` (Bug 14). Once the
    * library has given up on auth recovery, repeat triggers (partysocket
@@ -215,15 +244,26 @@ export class ReconnectManager {
    * `onAuthRecoveryNeeded` when the close-decision tree decides this close
    * is auth-related (1008 / 4001 / pre-open 1000).
    *
-   * Behavior:
-   *   - If now - lastRefreshAttemptedAt < minRefreshIntervalMs:
-   *     storm guard trips. We treat this as a terminal auth failure
-   *     because something is forcing us to refresh in a hot loop (almost
-   *     always a bad refresh token or a server policy 1008-ing every
-   *     reconnect). Firing `onTerminalAuthFailure` lets the consumer
-   *     redirect to /login instead of burning Keycloak quota.
-   *   - Otherwise: stamp the timestamp BEFORE calling refresh (so a
-   *     concurrent close races into the storm-guard branch correctly),
+   * Behavior (F2: terminal only on a GENUINE storm), in order:
+   *   - If a refresh is already in flight (`isRefreshing()`): DEFER to it.
+   *     partysocket double-fires `onclose` (one 1008 → two calls ~1ms
+   *     apart), and the old wrapper can auto-retry a stale token while a
+   *     slow refresh is pending — neither duplicate is new evidence of an
+   *     auth hot loop. The primary caller that started the flight owns the
+   *     refresh, the swap, and terminal-on-failure; the duplicate returns
+   *     without re-driving the swap (no throwaway socket).
+   *   - Else if now - lastRefreshAttemptedAt < minRefreshIntervalMs AND
+   *     the prior stamp was an auth-recovery refresh: genuine storm — a
+   *     prior auth-driven refresh COMPLETED and we are auth-failing again
+   *     within the window. The refresh isn't helping (almost always a bad
+   *     refresh token or a server policy 1008-ing every reconnect).
+   *     Firing `onTerminalAuthFailure` lets the consumer redirect to
+   *     /login instead of burning Keycloak quota.
+   *   - Otherwise (outside the window, OR within it but the last stamp
+   *     was a ROUTINE `runReconnect` refresh — the first real auth
+   *     failure deserves a recovery attempt, not an instant logout):
+   *     stamp the timestamp + provenance BEFORE calling refresh (so a
+   *     concurrent close races into the join/storm branches correctly),
    *     then hand off to TokenRefreshHandler. On `false` return (refresh
    *     itself failed), fire `onTerminalAuthFailure`.
    *
@@ -243,10 +283,41 @@ export class ReconnectManager {
       );
       return;
     }
+
+    if (this.tokenRefreshHandler.isRefreshing()) {
+      // F2 join: a refresh is ALREADY in flight — this trigger is a
+      // DUPLICATE of the one that started it (partysocket double-fires the
+      // close event; or the old wrapper auto-retried with the stale token
+      // while a slow refresh was still pending), NOT a second independent
+      // auth failure. Pre-F2 this fell into the storm guard and went
+      // terminal while the in-flight refresh was about to succeed.
+      //
+      // The PRIMARY caller (the one that started the flight) owns the whole
+      // outcome — the single-flighted token refresh, the socket swap, AND
+      // firing terminal on failure. So this duplicate must do NOTHING:
+      // re-driving `refreshAndReconnect` here would make each joiner run its
+      // OWN `reconnectWithNewToken`, standing up a throwaway socket that the
+      // stale-WS guard immediately discards — a wasted handshake on every
+      // double-fired recovery (the common case). Defer to the primary.
+      this.logger.debug(
+        "reconnect-manager: auth-recovery joined an in-flight refresh; deferring to the primary",
+        { closeCode },
+      );
+      return;
+    }
+
     const now = this.clock.now();
     const elapsed = now - this.lastRefreshAttemptedAt;
 
-    if (elapsed < this.config.minRefreshIntervalMs) {
+    if (
+      elapsed < this.config.minRefreshIntervalMs &&
+      this.lastRefreshWasAuthRecovery
+    ) {
+      // Genuine storm: the prior AUTH-recovery refresh COMPLETED (not in
+      // flight — the join branch above owns that case) and auth failed
+      // again within the window. A within-window stamp from a ROUTINE
+      // refresh deliberately does NOT trip this (F2) — see
+      // `lastRefreshWasAuthRecovery`.
       this.logger.warn(
         "reconnect-manager: auth-recovery storm guard tripped, treating as terminal auth failure",
         {
@@ -261,8 +332,13 @@ export class ReconnectManager {
 
     // Stamp BEFORE the await. Two concurrent close events arriving inside
     // the same tick must NOT both pass the storm guard — the first writes
-    // the timestamp synchronously, the second reads it and short-circuits.
+    // the timestamp synchronously, the second reads it and short-circuits
+    // (via the join branch while the refresh is in flight, via the storm
+    // branch once it has completed). Provenance: this stamp is an
+    // auth-recovery refresh, so a repeat within the window IS storm
+    // evidence.
     this.lastRefreshAttemptedAt = now;
+    this.lastRefreshWasAuthRecovery = true;
     this.logger.info("reconnect-manager: starting auth-recovery refresh", {
       closeCode,
     });
@@ -341,11 +417,11 @@ export class ReconnectManager {
 
   /**
    * Cancel all reconnect machinery (Bug 12). Called by the composition
-   * root's `dispose()`. Clears the armed debounce timer, resolves every
-   * pending `reconnect()` promise (callers must not hang on a client
-   * that will never reconnect), and latches `disposed` so any in-flight
-   * `refresh()` that resolves later is discarded instead of standing up
-   * a zombie WebSocket.
+   * root's `dispose()`. Clears the armed debounce timer AND any in-flight
+   * jitter-delay timer (F5), resolves every pending `reconnect()` promise
+   * (callers must not hang on a client that will never reconnect), and
+   * latches `disposed` so any in-flight `refresh()` that resolves later
+   * is discarded instead of standing up a zombie WebSocket.
    *
    * Idempotent.
    */
@@ -355,6 +431,21 @@ export class ReconnectManager {
     if (this.reconnectDebounceTimer) {
       this.clock.clearTimeout(this.reconnectDebounceTimer);
       this.reconnectDebounceTimer = null;
+    }
+    if (this.jitterDelayTimer) {
+      // F5: the jitter-delay timer is armed by `runReconnect`, not by the
+      // debounce path above — clearing only the debounce timer left this
+      // one to outlive the client. No timer survives dispose().
+      this.clock.clearTimeout(this.jitterDelayTimer);
+      this.jitterDelayTimer = null;
+    }
+    if (this.jitterDelayResolve) {
+      // Release the `runReconnect` awaiting the (now-cancelled) delay so
+      // its post-jitter `isStopped()` re-check aborts the work and its
+      // `finally` settles the coalesced waiters — callers must not hang.
+      const release = this.jitterDelayResolve;
+      this.jitterDelayResolve = null;
+      release();
     }
     const resolvers = this.pendingReconnectResolvers;
     this.pendingReconnectResolvers = [];
@@ -448,8 +539,13 @@ export class ReconnectManager {
       // Stamp the SHARED window BEFORE the await (same rule as
       // `tryAuthRecovery`): two near-simultaneous triggers must not both
       // pass the window check — the first writes synchronously, the
-      // second reads it and takes the no-refresh branch.
+      // second reads it and takes the no-refresh branch. Provenance (F2):
+      // this is a ROUTINE refresh — it suppresses back-to-back refreshes
+      // via the shared window, but it must NOT arm the storm guard's
+      // terminal trip in `tryAuthRecovery` (a first auth failure right
+      // after a successful sleep-wake refresh is not a hot loop).
       this.lastRefreshAttemptedAt = now;
+      this.lastRefreshWasAuthRecovery = false;
 
       // Honor the refresh outcome (Bug 15). The source dropped this
       // boolean, which left a heartbeat-timeout recovery whose refresh
@@ -489,7 +585,15 @@ export class ReconnectManager {
 
   private delay(ms: number): Promise<void> {
     return new Promise<void>((resolve) => {
-      this.clock.setTimeout(() => resolve(), ms);
+      // Record handle + resolver so dispose() can cancel the pending
+      // timer and release the awaiting `runReconnect` (F5) — see the
+      // `jitterDelayTimer` field comment.
+      this.jitterDelayResolve = resolve;
+      this.jitterDelayTimer = this.clock.setTimeout(() => {
+        this.jitterDelayTimer = null;
+        this.jitterDelayResolve = null;
+        resolve();
+      }, ms);
     });
   }
 
