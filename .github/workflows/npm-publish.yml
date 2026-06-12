@@ -1,0 +1,109 @@
+name: Publish to npm (@orpc-ws)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # Allows manual triggering from GitHub UI
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for npm OIDC trusted publishing
+
+    # Presence of the NPM_TOKEN secret selects the auth path (see the two
+    # mutually-exclusive Publish steps below). Absent => OIDC; present => token.
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Workaround for npm/cli#9151: npm 10.9.7 (bundled with Node 22.22.2) crashes
+      # when upgrading directly to npm 11.x. Install 11.11.1 first as a stepping stone.
+      # Remove this workaround when Node 22 ships with npm >= 10.9.8.
+      - name: Upgrade npm
+        run: |
+          npm install -g npm@11.11.1
+          npm install -g npm@11.12.1
+
+      - name: Verify npm version supports OIDC
+        run: |
+          NPM_VERSION=$(npm --version)
+          echo "npm version: $NPM_VERSION"
+          # npm >= 11.5.1 is required for trusted publishing
+          node -e "
+            const v = '$NPM_VERSION'.split('.').map(Number);
+            if (v[0] < 11 || (v[0] === 11 && v[1] < 5) || (v[0] === 11 && v[1] === 5 && v[2] < 1)) {
+              console.error('ERROR: npm >= 11.5.1 required for trusted publishing, got $NPM_VERSION');
+              process.exit(1);
+            }
+            console.log('npm version OK for trusted publishing');
+          "
+
+      - name: Install dependencies
+        run: npm ci
+
+      # On tag pushes, the tag must match the canonical (root) version exactly —
+      # the whole monorepo publishes in lockstep at that one version. Skips
+      # cleanly on workflow_dispatch (no tag to check).
+      - name: Verify tag matches version
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "Tag version:  $TAG_VERSION"
+          echo "Root version: $PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "ERROR: tag v$TAG_VERSION does not match root package.json version $PKG_VERSION"
+            echo "Run 'npm run release:version $TAG_VERSION' and commit before tagging."
+            exit 1
+          fi
+          echo "Tag matches root version."
+
+      - name: Build
+        run: npx turbo run build
+
+      # CRITICAL — two mutually-exclusive auth paths. Read before editing.
+      #
+      # `setup-node` (above, with registry-url) wrote an .npmrc containing
+      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+      # at a path it controls (RUNNER_TEMP, via NPM_CONFIG_USERCONFIG) — so
+      # hand-appending to ~/.npmrc would be IGNORED. We instead drive that
+      # placeholder via the NODE_AUTH_TOKEN env, exactly like the anki repo.
+      #
+      # OIDC path (steady state): the NPM_TOKEN secret is absent, this step is
+      # skipped, NODE_AUTH_TOKEN is never set (so the placeholder expands to
+      # nothing) and npm falls through to OIDC trusted publishing. This is the
+      # proven anki-mcp-server setup.
+      #
+      # Bootstrap path (first publish only, before the package + trusted-
+      # publisher link exist on npmjs): set the NPM_TOKEN secret; THIS step runs
+      # and sets NODE_AUTH_TOKEN to the (guaranteed non-empty) token.
+      #
+      # The split matters: a single `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`
+      # would expand to an EMPTY string when the secret is absent, and npm then
+      # attempts empty-token auth — which BYPASSES OIDC and 404s. Gating on the
+      # secret's presence means NODE_AUTH_TOKEN is only ever set to a real value.
+      - name: Publish to npm (bootstrap — token auth)
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "Bootstrap mode: authenticating with NPM_TOKEN"
+          bash scripts/publish-all.sh
+
+      - name: Publish to npm (steady state — OIDC trusted publishing)
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: |
+          echo "Steady-state mode: authenticating via OIDC trusted publishing"
+          bash scripts/publish-all.sh
