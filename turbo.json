@@ -33,7 +33,7 @@
       "persistent": true
     },
     "typecheck": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["build"],
       "inputs": [
         "src/**",
         "tsconfig.json",

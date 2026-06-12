@@ -16,12 +16,12 @@
 // @orpc/*, …) are left untouched. Only the publishable packages get their own
 // `version` bumped; apps/tests-e2e keep their version, only their pins move.
 //
-// Finally it regenerates package-lock.json (`npm install --package-lock-only`)
-// so the committed lockfile matches — otherwise `npm ci` in the release/publish
+// Finally it regenerates package-lock.json (a full `npm install`) so the
+// committed lockfile matches — otherwise `npm ci` in the release/publish
 // workflows fails with "package.json and package-lock.json not in sync".
 //
-// Idempotent and deterministic: re-running with the current version touches
-// nothing (no-op diff). Requires npm available on PATH for the lockfile step.
+// Re-running with the current version is a near no-op (package.json files
+// unchanged); the lockfile step keeps the lock complete. Requires npm on PATH.
 //
 // Usage: node scripts/sync-version.mjs <version>
 
@@ -142,12 +142,13 @@ console.log(
   `\nStamped ${bumped} publishable packages + root to ${version} (${written} file(s) changed).`,
 );
 
-// Keep the lockfile in sync so `npm ci` works in CI. Pure version/pin moves of
-// local workspaces don't need the network, but we don't pass --offline so npm
-// can fill any genuinely-missing metadata; in practice this is a fast no-fetch
-// recompute.
-console.log("Regenerating package-lock.json (npm install --package-lock-only)…");
-execFileSync("npm", ["install", "--package-lock-only"], {
+// Keep the lockfile in sync so `npm ci` works in CI. We run a FULL `npm install`
+// (NOT --package-lock-only): the lock must contain EVERY platform-specific
+// optional dependency (e.g. @esbuild/linux-x64, @esbuild/win32-x64, …), and
+// --package-lock-only records only the current platform's — which makes a
+// stricter `npm ci` (newer npm) fail with "Missing: @esbuild/… from lock file".
+console.log("Regenerating package-lock.json (npm install)…");
+execFileSync("npm", ["install"], {
   cwd: repoRoot,
   stdio: "inherit",
 });
