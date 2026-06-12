@@ -16,7 +16,7 @@ import { __resetMetadataCache } from "../discovery.js";
 import type { OidcConfig, Storage, Tokens } from "../types.js";
 
 // Compile-time guard: the returned tokenProvider must remain
-// structurally compatible with @repo/orpc-ws-client's TokenProvider.
+// structurally compatible with @orpc-ws/client's TokenProvider.
 // We inline an identical-shape interface here (re-importing from the
 // client package would add a runtime dep we don't want) — TypeScript's
 // structural typing makes the `satisfies` check fail if the shapes drift.

@@ -41,7 +41,7 @@ import type {
   Logger,
   Rng,
   TimerHandle,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import type { TokenProvider } from "../../auth/token-provider.js";
 import { TokenRefreshHandler } from "../token-refresh-handler.js";

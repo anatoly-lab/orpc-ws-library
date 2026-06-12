@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
+import { OidcCallback } from "@orpc-ws/oidc-react/react-router";
 
 import { AppLayout } from "./AppLayout.js";
 import { Home } from "./pages/Home.js";
@@ -20,7 +20,7 @@ export function App(): ReactElement {
             establishes the session and must run pre-connection, ungated by the
             guard. No `renderError` is passed, so the callback inherits the
             library's neutral default copy (`formatCallbackError` from
-            `@repo/oidc-pkce`). A future advanced demo will show overriding
+            `@orpc-ws/oidc-pkce`). A future advanced demo will show overriding
             `renderError` to supply localized/branded copy. */}
         <Route
           path="/auth/callback"

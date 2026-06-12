@@ -39,7 +39,7 @@ import type {
  * Public surface of one OIDC auth instance.
  *
  * The flow / status / clear methods are the consumer-facing dance. The
- * `tokenProvider` field is what gets plugged into `@repo/orpc-ws-client`'s
+ * `tokenProvider` field is what gets plugged into `@orpc-ws/client`'s
  * `createOrpcWsClient({ tokenProvider })`.
  *
  * `redirectToLogin` / `handleCallback` / `logout` are async because the
@@ -96,7 +96,7 @@ export interface OidcAuth {
   prefetchMetadata(): Promise<void>;
 
   /**
-   * Structurally compatible with `@repo/orpc-ws-client`'s `TokenProvider`.
+   * Structurally compatible with `@orpc-ws/client`'s `TokenProvider`.
    * Pass directly as the `tokenProvider` option on `createOrpcWsClient`.
    */
   tokenProvider: TokenProvider;

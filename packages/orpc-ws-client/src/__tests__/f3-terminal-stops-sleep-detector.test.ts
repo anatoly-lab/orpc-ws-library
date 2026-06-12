@@ -31,7 +31,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
 
-import { systemClock, type Clock } from "@repo/orpc-ws-shared";
+import { systemClock, type Clock } from "@orpc-ws/shared";
 
 import {
   createOrpcWsClient,

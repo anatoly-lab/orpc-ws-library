@@ -1,17 +1,17 @@
-# `@repo/oidc-verifier-jose`
+# `@orpc-ws/oidc-verifier-jose`
 
 Server-side OIDC access-token verifier. Uses OIDC Discovery so it works
 against any compliant IdP — Keycloak, Auth0, Okta, Cognito, Microsoft.
 Produces a `VerifyClient` callback that drops directly into
-`@repo/orpc-ws-server`'s `verifyClient` option.
+`@orpc-ws/server`'s `verifyClient` option.
 
 Node-only. The browser-side counterpart is
-[`@repo/oidc-pkce`](../oidc-pkce/README.md).
+[`@orpc-ws/oidc-pkce`](../oidc-pkce/README.md).
 
 ## Install
 
 ```bash
-npm install @repo/oidc-verifier-jose
+npm install @orpc-ws/oidc-verifier-jose
 ```
 
 `jose` is a direct dependency.
@@ -19,8 +19,8 @@ npm install @repo/oidc-verifier-jose
 ## Quickstart
 
 ```ts
-import { createOidcVerifyClient } from "@repo/oidc-verifier-jose";
-import { OrpcWsServer } from "@repo/orpc-ws-server";
+import { createOidcVerifyClient } from "@orpc-ws/oidc-verifier-jose";
+import { OrpcWsServer } from "@orpc-ws/server";
 
 const verifyClient = createOidcVerifyClient({
   issuerUrl: "https://auth.example.com/realms/demo",
@@ -150,6 +150,6 @@ createOidcVerifyClient({
 ## See also
 
 - Top-level [README](../../README.md)
-- [`@repo/orpc-ws-server`](../orpc-ws-server/README.md) — paired server (consumes `VerifyClient`)
-- [`@repo/oidc-pkce`](../oidc-pkce/README.md) — browser-side counterpart
+- [`@orpc-ws/server`](../orpc-ws-server/README.md) — paired server (consumes `VerifyClient`)
+- [`@orpc-ws/oidc-pkce`](../oidc-pkce/README.md) — browser-side counterpart
 - [src/index.ts](./src/index.ts) — full export surface

@@ -18,14 +18,11 @@
     "@nestjs/common": "11.1.24",
     "@nestjs/core": "11.1.24",
     "@nestjs/platform-express": "11.1.24",
-    "@orpc/contract": "1.14.4",
     "@orpc/server": "1.14.4",
-    "@repo/oidc-verifier-jose": "0.1.0",
-    "@repo/orpc-ws-server-nestjs": "0.1.0",
+    "@orpc-ws/oidc-verifier-jose": "0.1.0",
+    "@orpc-ws/server-nestjs": "0.1.0",
     "express": "5.1.0",
-    "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2",
-    "zod": "4.4.3"
+    "reflect-metadata": "0.2.2"
   },
   "devDependencies": {
     "@types/express": "5.0.0",

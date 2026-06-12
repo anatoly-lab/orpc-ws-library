@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { HEARTBEAT_NAMESPACE, HEARTBEAT_PATH } from "@repo/orpc-ws-shared";
+import { HEARTBEAT_NAMESPACE, HEARTBEAT_PATH } from "@orpc-ws/shared";
 
 import { composeRouter } from "../router-composer.js";
 

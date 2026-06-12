@@ -7,7 +7,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      name: "@repo/orpc-ws-server",
+      name: "@orpc-ws/server",
     },
   }),
 );

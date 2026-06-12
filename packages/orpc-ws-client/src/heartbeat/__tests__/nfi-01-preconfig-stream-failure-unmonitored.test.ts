@@ -18,7 +18,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Clock, Logger, TimerHandle } from "@repo/orpc-ws-shared";
+import type { Clock, Logger, TimerHandle } from "@orpc-ws/shared";
 
 import type { LinkFactory } from "../../client/link-factory.js";
 import type { HeartbeatMonitor } from "../monitor.js";

@@ -7,7 +7,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      name: "@repo/orpc-ws-shared",
+      name: "@orpc-ws/shared",
     },
   }),
 );

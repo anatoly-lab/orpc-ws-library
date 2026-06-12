@@ -37,8 +37,8 @@ import {
   noopLogger,
   systemClock,
   defaultRng,
-} from "@repo/orpc-ws-shared";
-import type { TimerHandle } from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
+import type { TimerHandle } from "@orpc-ws/shared";
 
 import type { OnTerminalAuthFailure } from "../auth/types.js";
 

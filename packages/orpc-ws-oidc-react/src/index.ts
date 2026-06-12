@@ -1,8 +1,8 @@
-// Public surface of @repo/orpc-ws-oidc-react.
+// Public surface of @orpc-ws/oidc-react.
 //
 // This package exposes ONLY the library's React bindings (hooks + provider).
 // The framework-free APIs are imported DIRECTLY from the cores —
-// `@repo/orpc-ws-client` (transport) and `@repo/oidc-pkce` (auth) — not
+// `@orpc-ws/client` (transport) and `@orpc-ws/oidc-pkce` (auth) — not
 // re-exported here.
 //
 // Why: it keeps the layering honest in a framework-agnostic library. This

@@ -21,7 +21,7 @@
 // production outage. Implementation-plan.md §3 "Cross-cutting concerns"
 // makes this explicit.
 
-import { HEARTBEAT_NAMESPACE } from "@repo/orpc-ws-shared";
+import { HEARTBEAT_NAMESPACE } from "@orpc-ws/shared";
 
 /**
  * Spread the system router into the consumer's. Throws on collision.

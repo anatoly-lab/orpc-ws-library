@@ -1,4 +1,4 @@
-# `@repo/orpc-ws-shared`
+# `@orpc-ws/shared`
 
 Shared helper package. Holds the seam interfaces every other package in
 this monorepo depends on, so the client core and server core can agree on
@@ -7,7 +7,7 @@ dependency on each other. It's **published** because the cores depend on
 it at runtime — but it's an implementation-detail dependency, not a
 package you import directly.
 
-If you're a consumer of `@repo/orpc-ws-client` or `@repo/orpc-ws-server`,
+If you're a consumer of `@orpc-ws/client` or `@orpc-ws/server`,
 you don't import from here directly — `Logger` and `HeartbeatEvent` are
 re-exported from the public packages. This README exists for library
 contributors.
@@ -51,23 +51,23 @@ public packages they already depend on:
 
 | Bridge              | Re-exported from                                          |
 | ------------------- | --------------------------------------------------------- |
-| `consoleLogger`     | `@repo/orpc-ws-client`, `@repo/orpc-ws-server`, `@repo/orpc-ws-server-nestjs` |
-| `fromPinoShape`     | `@repo/orpc-ws-client`, `@repo/orpc-ws-server`, `@repo/orpc-ws-server-nestjs` |
-| `fromNestShape`     | `@repo/orpc-ws-server-nestjs` only (Nest is a server-side concept) |
+| `consoleLogger`     | `@orpc-ws/client`, `@orpc-ws/server`, `@orpc-ws/server-nestjs` |
+| `fromPinoShape`     | `@orpc-ws/client`, `@orpc-ws/server`, `@orpc-ws/server-nestjs` |
+| `fromNestShape`     | `@orpc-ws/server-nestjs` only (Nest is a server-side concept) |
 
 Usage:
 
 - **`consoleLogger(prefix?)`** — wraps the global `console`. Universal,
   zero-dep, fine for SPAs and quick scripts.
   ```ts
-  import { consoleLogger, createOrpcWsClient } from "@repo/orpc-ws-client";
+  import { consoleLogger, createOrpcWsClient } from "@orpc-ws/client";
   createOrpcWsClient({ logger: consoleLogger("orpc-ws"), ... });
   ```
 - **`fromPinoShape(pino)`** — adapts a Pino-style logger. Swaps to Pino's
   native `(obj, msg)` arg order when meta is present.
   ```ts
   import pino from "pino";
-  import { fromPinoShape } from "@repo/orpc-ws-server";
+  import { fromPinoShape } from "@orpc-ws/server";
   // pass to OrpcWsServer / OrpcWsModule.forRoot({ logger: ... })
   ```
 - **`fromNestShape(nestLogger)`** — adapts a NestJS `Logger`. Routes `info`
@@ -75,7 +75,7 @@ Usage:
   `{ msg, ...meta }` payload.
   ```ts
   import { Logger } from "@nestjs/common";
-  import { fromNestShape, OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
+  import { fromNestShape, OrpcWsModule } from "@orpc-ws/server-nestjs";
   OrpcWsModule.forRoot({ logger: fromNestShape(new Logger("OrpcWs")), ... });
   ```
 

@@ -1,9 +1,9 @@
-# `@repo/orpc-ws-server` — Test scope (Phase 4)
+# `@orpc-ws/server` — Test scope (Phase 4)
 
 This note clarifies what the **library** test suite covers vs. what is
 explicitly **consumer-owned** and intentionally NOT tested in the library.
 
-## Library-owned tests (in `@repo/orpc-ws-server`)
+## Library-owned tests (in `@orpc-ws/server`)
 
 The server-core test suite covers the transport layer:
 

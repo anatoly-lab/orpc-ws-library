@@ -12,7 +12,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Logger } from "@repo/orpc-ws-shared";
+import type { Logger } from "@orpc-ws/shared";
 
 import {
   DEFAULT_RECONNECT_CONFIG,

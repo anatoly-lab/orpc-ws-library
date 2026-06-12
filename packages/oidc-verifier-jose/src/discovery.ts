@@ -1,7 +1,7 @@
 // OIDC Discovery — fetch + cache the `.well-known/openid-configuration`
 // document for the verifier.
 //
-// Mirrors `@repo/oidc-pkce/src/discovery.ts` (browser side) deliberately:
+// Mirrors `@orpc-ws/oidc-pkce/src/discovery.ts` (browser side) deliberately:
 // same cache strategy, same trailing-slash tolerance, same eviction-on-
 // failure semantics. The two cannot share code because the browser
 // counterpart lives in a DOM-typed package and importing it from a
@@ -153,7 +153,7 @@ async function safeReadBody(resp: Response): Promise<string> {
  * `jwks_uri` (for `createRemoteJWKSet`).
  *
  * Issuer-mismatch check uses trailing-slash-normalized equality, NOT
- * strict equality — see the comment in `@repo/oidc-pkce/discovery.ts`
+ * strict equality — see the comment in `@orpc-ws/oidc-pkce/discovery.ts`
  * for the public-vs-internal URL case this guards against.
  */
 function validate(raw: unknown, issuerUrl: string): OidcMetadata {

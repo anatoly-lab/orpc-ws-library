@@ -14,10 +14,10 @@
 //
 // The names here describe the protocol contract the SPA consumes (OIDC
 // issuer URL, OIDC client ID) — NOT IdP-shaped names, because the SPA's
-// `@repo/oidc-pkce` library is provider-agnostic.
+// `@orpc-ws/oidc-pkce` library is provider-agnostic.
 
 export interface AppConfig {
-  /** OIDC issuer URL — passed verbatim to `@repo/oidc-pkce`'s `createOidcAuth`. */
+  /** OIDC issuer URL — passed verbatim to `@orpc-ws/oidc-pkce`'s `createOidcAuth`. */
   OIDC_ISSUER_URL: string;
   /** OIDC client ID (the public SPA client registered with the IdP). */
   OIDC_CLIENT_ID: string;

@@ -1,6 +1,6 @@
-# `@repo/orpc-ws-server-nestjs`
+# `@orpc-ws/server-nestjs`
 
-NestJS adapter for `@repo/orpc-ws-server`. Thin wrapper that bridges
+NestJS adapter for `@orpc-ws/server`. Thin wrapper that bridges
 the framework-free core into Nest's lifecycle:
 
 - `OnApplicationBootstrap` → `server.attach(httpServer)`
@@ -10,7 +10,7 @@ the framework-free core into Nest's lifecycle:
 ## Install
 
 ```bash
-npm install @repo/orpc-ws-server-nestjs @repo/orpc-ws-server
+npm install @orpc-ws/server-nestjs @orpc-ws/server
 ```
 
 Peer deps (provided by the host app): `@nestjs/common` >= 10,
@@ -24,7 +24,7 @@ entry point is `forRootAsync`:
 
 ```ts
 import { Module } from "@nestjs/common";
-import { OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
+import { OrpcWsModule } from "@orpc-ws/server-nestjs";
 import { AuthService } from "./auth/auth.service";
 import { appRouter } from "./router";
 
@@ -75,10 +75,10 @@ close code (`4001` is the adapter default for "auth failed").
 
 For OIDC against any spec-compliant IdP (Keycloak, Auth0, Okta,
 Cognito, Google), drop in
-[`@repo/oidc-verifier-jose`](../oidc-verifier-jose/README.md):
+[`@orpc-ws/oidc-verifier-jose`](../oidc-verifier-jose/README.md):
 
 ```ts
-import { createOidcVerifyClient } from "@repo/oidc-verifier-jose";
+import { createOidcVerifyClient } from "@orpc-ws/oidc-verifier-jose";
 
 useFactory: () => ({
   router: appRouter,
@@ -134,10 +134,10 @@ off — when disabled, no extra route or body-parsing middleware.
 `uploads` also accepts an optional `beforeUpload` gate (reject by
 content-type / size before the body is buffered) — threaded unchanged
 from the core; see
-[`@repo/orpc-ws-server`](../orpc-ws-server/README.md#beforeupload).
+[`@orpc-ws/server`](../orpc-ws-server/README.md#beforeupload).
 
 Client side: `client.upload(file, { procedure: ["files","upload"] })`
-— see [`@repo/orpc-ws-client`](../orpc-ws-client/README.md#uploads--opt-in-http-transport).
+— see [`@orpc-ws/client`](../orpc-ws-client/README.md#uploads--opt-in-http-transport).
 
 ## HTTP adapter
 
@@ -146,12 +146,12 @@ returns a Node `http.Server` under `@nestjs/platform-express`, which
 `new WebSocketServer({ server })` attaches to cleanly. Fastify
 intercepts HTTP upgrade events differently — needs `noServer: true` +
 manual `httpServer.on('upgrade', …)` wiring. If you're on Fastify
-today, use `@repo/orpc-ws-server` directly.
+today, use `@orpc-ws/server` directly.
 
 ## Logging
 
 Adapter uses Nest's `Logger`. The core uses the shape from
-`@repo/orpc-ws-shared` (`debug` / `info` / `warn` / `error` + structured
+`@orpc-ws/shared` (`debug` / `info` / `warn` / `error` + structured
 metadata). Pass a Nest-Logger-backed implementation through
 `OrpcWsModuleOptions.logger` to unify sinks.
 
@@ -160,7 +160,7 @@ metadata). Pass a Nest-Logger-backed implementation through
 1. **You must call `app.enableShutdownHooks()` in `main.ts`** or
    `dispose()` never runs.
 2. **Express only on v1.** Fastify needs manual upgrade wiring — use
-   `@repo/orpc-ws-server` directly.
+   `@orpc-ws/server` directly.
 3. **`verifyClient` runs BEFORE the Nest request pipeline.** No
    `@Req()` decorator, no guards, no interceptors. Inject your
    `AuthService` through `useFactory` and call it directly.
@@ -168,8 +168,8 @@ metadata). Pass a Nest-Logger-backed implementation through
 ## See also
 
 - Top-level [README](../../README.md)
-- [`@repo/orpc-ws-server`](../orpc-ws-server) — framework-free core
-- [`@repo/orpc-ws-client`](../orpc-ws-client) — paired client
+- [`@orpc-ws/server`](../orpc-ws-server) — framework-free core
+- [`@orpc-ws/client`](../orpc-ws-client) — paired client
 - [Migration guide](../../docs/migration-anki-mcp-saas.md)
 - [Sequence diagrams](../../docs/diagrams/)
 - [src/index.ts](./src/index.ts) — full export surface

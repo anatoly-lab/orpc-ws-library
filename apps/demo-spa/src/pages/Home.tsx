@@ -11,7 +11,7 @@
 
 import { useState, type ChangeEvent, type ReactElement } from "react";
 
-import { useConnectionState, useWsSubscription } from "@repo/orpc-ws-oidc-react";
+import { useConnectionState, useWsSubscription } from "@orpc-ws/oidc-react";
 
 import { authClient, wsClient } from "../lib/ws-client.js";
 import styles from "./styles.module.css";

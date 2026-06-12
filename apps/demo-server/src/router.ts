@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { implement } from "@orpc/server";
 
 import { appContract, type TickEvent } from "@demo/contract";
-import type { OidcUser } from "@repo/oidc-verifier-jose";
+import type { OidcUser } from "@orpc-ws/oidc-verifier-jose";
 
 // The demo uses the library's default `OidcUser` shape verbatim —
 // no custom `mapUser` is wired in `app.module.ts`. If the demo ever

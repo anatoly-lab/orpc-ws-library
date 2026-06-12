@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 
-import type { OidcAuth } from "@repo/oidc-pkce";
+import type { OidcAuth } from "@orpc-ws/oidc-pkce";
 
 import { useUser } from "../use-user.js";
 import { ANON, authed, makeFakeAuth } from "./fake-auth.js";

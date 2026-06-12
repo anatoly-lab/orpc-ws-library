@@ -12,7 +12,7 @@
 
 import type { ReactElement, ReactNode } from "react";
 
-import type { OidcAuth } from "@repo/oidc-pkce";
+import type { OidcAuth } from "@orpc-ws/oidc-pkce";
 
 import { useAuthState } from "./use-auth-state.js";
 

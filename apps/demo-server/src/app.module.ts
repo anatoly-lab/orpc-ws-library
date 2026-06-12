@@ -1,7 +1,7 @@
 // Demo `AppModule`. The whole point of the demo is to exercise
 // `OrpcWsModule.forRootAsync` against a real OIDC IdP — so the module
 // is almost entirely the library import, parameterized with a
-// `VerifyClient` built by `@repo/oidc-verifier-jose`.
+// `VerifyClient` built by `@orpc-ws/oidc-verifier-jose`.
 //
 // `forRootAsync` is here even though no DI is wired today, because the
 // future Playwright test will likely want to swap config without
@@ -9,8 +9,8 @@
 // makes that drop-in.
 
 import { Logger, Module } from "@nestjs/common";
-import { createOidcVerifyClient } from "@repo/oidc-verifier-jose";
-import { fromNestShape, OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
+import { createOidcVerifyClient } from "@orpc-ws/oidc-verifier-jose";
+import { fromNestShape, OrpcWsModule } from "@orpc-ws/server-nestjs";
 
 import { readEnvConfig } from "./config.js";
 import { HealthController } from "./health.controller.js";

@@ -24,7 +24,7 @@
 
 import { useSyncExternalStore } from "react";
 
-import type { AuthSnapshot, OidcAuth } from "@repo/oidc-pkce";
+import type { AuthSnapshot, OidcAuth } from "@orpc-ws/oidc-pkce";
 
 /**
  * Subscribe to an OIDC auth client's `{ status, user }` state in a component.

@@ -25,7 +25,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "http";
 import type { WebSocket } from "ws";
 
-import type { Clock, TimerHandle } from "@repo/orpc-ws-shared";
+import type { Clock, TimerHandle } from "@orpc-ws/shared";
 
 import { ConnectionHandler } from "../connection-handler.js";
 import {

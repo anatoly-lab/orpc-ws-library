@@ -9,7 +9,7 @@
 //     forever and the ws-client could never recover.
 //
 // The library's storm guard + onTerminalAuthFailure callback live in
-// `@repo/orpc-ws-client`, NOT here. If this test regresses, the bug
+// `@orpc-ws/client`, NOT here. If this test regresses, the bug
 // is that the oidc-pkce package has started doing the cleanup
 // itself, which would race the ws-client's own teardown and produce
 // the "double-clear" foot-gun the source app already suffers from.

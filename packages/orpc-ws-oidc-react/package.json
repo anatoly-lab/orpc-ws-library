@@ -1,5 +1,5 @@
 {
-  "name": "@repo/orpc-ws-oidc-react",
+  "name": "@orpc-ws/oidc-react",
   "version": "0.1.0",
   "description": "The library's React bindings: hooks (useConnectionState, useAuthState, useUser, useOidcCallback) and an optional react-router OidcCallback component on the ./react-router sub-path. Does not re-export the cores.",
   "license": "MIT",
@@ -44,8 +44,8 @@
   "dependencies": {
     "@orpc/client": "1.14.4",
     "@orpc/contract": "1.14.4",
-    "@repo/oidc-pkce": "0.1.0",
-    "@repo/orpc-ws-client": "0.1.0"
+    "@orpc-ws/oidc-pkce": "0.1.0",
+    "@orpc-ws/client": "0.1.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

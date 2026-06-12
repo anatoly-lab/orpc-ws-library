@@ -35,7 +35,7 @@ import {
 } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 
-import { OrpcWsServer } from "@repo/orpc-ws-server";
+import { OrpcWsServer } from "@orpc-ws/server";
 
 import { ORPC_WS_OPTIONS } from "./orpc-ws.module-builder.js";
 import type { OrpcWsModuleOptions } from "./orpc-ws.options.js";

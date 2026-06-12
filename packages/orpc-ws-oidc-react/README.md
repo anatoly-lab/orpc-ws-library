@@ -1,19 +1,19 @@
-# `@repo/orpc-ws-oidc-react`
+# `@orpc-ws/oidc-react`
 
 The library's **React bindings** — hooks and a provider that adapt the
 framework-free cores to React. This package contains *only* React glue.
 It does **not** re-export the cores; the client and auth factories (and
-their types) come straight from `@repo/orpc-ws-client` and
-`@repo/oidc-pkce`.
+their types) come straight from `@orpc-ws/client` and
+`@orpc-ws/oidc-pkce`.
 
 ```ts
-import { createOrpcWsClient, consoleLogger } from "@repo/orpc-ws-client";
-import { createOidcAuth } from "@repo/oidc-pkce";
+import { createOrpcWsClient, consoleLogger } from "@orpc-ws/client";
+import { createOidcAuth } from "@orpc-ws/oidc-pkce";
 import {
   useConnectionState,
   useAuthState,
   OrpcWsProvider,
-} from "@repo/orpc-ws-oidc-react";
+} from "@orpc-ws/oidc-react";
 
 // Construct the framework-free pieces from the cores:
 const client = createOrpcWsClient<MyContract>({
@@ -78,8 +78,8 @@ outcome as state. You own navigation and UI, so it works with any
 router — or none:
 
 ```tsx
-import { useOidcCallback } from "@repo/orpc-ws-oidc-react";
-import { formatCallbackError } from "@repo/oidc-pkce";
+import { useOidcCallback } from "@orpc-ws/oidc-react";
+import { formatCallbackError } from "@orpc-ws/oidc-pkce";
 import { useNavigate } from "react-router-dom";
 
 function CallbackPage() {
@@ -96,7 +96,7 @@ function CallbackPage() {
 ```
 
 The hook reports the failure as a structured `CallbackError`; `formatCallbackError`
-(from `@repo/oidc-pkce`) is the shipped way to turn it into neutral, human-readable
+(from `@orpc-ws/oidc-pkce`) is the shipped way to turn it into neutral, human-readable
 copy. Switch on `error.type` yourself if you'd rather render your own per-variant UI.
 
 **Empty-params guard.** If the callback route is hit without an IdP result
@@ -112,7 +112,7 @@ If you're already on React Router, the sub-path component wires the hook to
 `useNavigate` for you — one line in your route table:
 
 ```tsx
-import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
+import { OidcCallback } from "@orpc-ws/oidc-react/react-router";
 
 <Route
   path="/auth/callback"
@@ -122,13 +122,13 @@ import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
 
 With no `renderError`, the component renders the library default —
 `formatCallbackError(error)` (the neutral, app-neutral copy from
-`@repo/oidc-pkce`) inside a `<pre>`. `renderError` is **optional**; pass it
+`@orpc-ws/oidc-pkce`) inside a `<pre>`. `renderError` is **optional**; pass it
 only to localize or brand the failure UI. Reuse the library string but supply
 your own UI:
 
 ```tsx
-import { OidcCallback } from "@repo/orpc-ws-oidc-react/react-router";
-import { formatCallbackError } from "@repo/oidc-pkce";
+import { OidcCallback } from "@orpc-ws/oidc-react/react-router";
+import { formatCallbackError } from "@orpc-ws/oidc-pkce";
 
 <Route
   path="/auth/callback"
@@ -146,7 +146,7 @@ import { formatCallbackError } from "@repo/oidc-pkce";
 
 Importing this sub-path pulls in `react-router-dom`, which is an
 **optional** peer dependency — you only need it installed if you import
-`@repo/orpc-ws-oidc-react/react-router`. The main entry never touches it.
+`@orpc-ws/oidc-react/react-router`. The main entry never touches it.
 
 ## Gating protected UI — `RequireAuth` (main entry)
 
@@ -156,7 +156,7 @@ renders the children only when a token is present, otherwise a `fallback`
 sign-in screen.
 
 ```tsx
-import { RequireAuth } from "@repo/orpc-ws-oidc-react";
+import { RequireAuth } from "@orpc-ws/oidc-react";
 
 function AppLayout() {
   return (
@@ -195,7 +195,7 @@ that so a page never repeats it. Under the hood it wraps ORPC's first-class
 `consumeEventIterator` helper.
 
 ```tsx
-import { useWsSubscription } from "@repo/orpc-ws-oidc-react";
+import { useWsSubscription } from "@orpc-ws/oidc-react";
 
 function LiveTick() {
   const { data: lastTick } = useWsSubscription(
@@ -266,10 +266,10 @@ live in the hook — there is one implementation, exercised by both surfaces.
 The framework-free APIs are imported **directly from the cores** — this
 package does not wrap or re-export them:
 
-- **`@repo/orpc-ws-client`** — the WS client core: `createOrpcWsClient`,
+- **`@orpc-ws/client`** — the WS client core: `createOrpcWsClient`,
   `consoleLogger`, `ConnectionState`, `OrpcWsClient`, config, logger
   bridges, …
-- **`@repo/oidc-pkce`** — the browser OIDC + PKCE core: `createOidcAuth`,
+- **`@orpc-ws/oidc-pkce`** — the browser OIDC + PKCE core: `createOidcAuth`,
   `CallbackError`, `AuthSnapshot`, `OidcUser`, `AuthStatus`, …
 
 Keeping this package React-only keeps the layering honest: each core stays

@@ -45,8 +45,8 @@ const SERVER_CORE_FORBIDDEN_PACKAGES = [
 
 /**
  * Packages forbidden in the browser-only OIDC React adapter. It may use
- * react / react-dom plus the browser-safe libs (@repo/orpc-ws-client,
- * @repo/oidc-pkce, @orpc/contract, @orpc/client); everything below is
+ * react / react-dom plus the browser-safe libs (@orpc-ws/client,
+ * @orpc-ws/oidc-pkce, @orpc/contract, @orpc/client); everything below is
  * either a server core, a Node-only dep, or a different UI framework.
  */
 const REACT_ADAPTER_FORBIDDEN_PACKAGES = [
@@ -54,9 +54,9 @@ const REACT_ADAPTER_FORBIDDEN_PACKAGES = [
   "@nestjs/core",
   "@nestjs/platform-express",
   "reflect-metadata",
-  "@repo/orpc-ws-server",
-  "@repo/orpc-ws-server-nestjs",
-  "@repo/oidc-verifier-jose",
+  "@orpc-ws/server",
+  "@orpc-ws/server-nestjs",
+  "@orpc-ws/oidc-verifier-jose",
   "jose",
   "ws",
   "express",
@@ -155,7 +155,7 @@ export default tseslint.config(
 
   // ---- Client core: framework-free ----
   //
-  // The React bindings moved to `@repo/orpc-ws-oidc-react`, so there's no
+  // The React bindings moved to `@orpc-ws/oidc-react`, so there's no
   // longer a `src/react/` exemption — the WHOLE client core src must obey
   // this rule. React etc. are forbidden everywhere under the core.
   {

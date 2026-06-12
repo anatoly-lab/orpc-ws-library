@@ -51,7 +51,7 @@
 //   - design doc §"D3 — event-normalizer as anti-corruption layer"
 //   - partysocket commit 78ae224 (cloneEventBrowser introduced)
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 /** Normalized close-event shape used by the rest of the lifecycle module. */
 export type NormalizedCloseEvent = {

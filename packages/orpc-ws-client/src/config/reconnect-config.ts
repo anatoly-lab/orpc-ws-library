@@ -17,7 +17,7 @@
 // it INTO this config so the storm-guard tuning is overridable per-instance
 // — CLAUDE.md "Configurable, not hardcoded".
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 /**
  * Tunables for the reconnect path. Single source of truth across:

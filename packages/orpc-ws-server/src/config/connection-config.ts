@@ -55,7 +55,7 @@ export interface ConnectionConfig {
    * Default `false` for back-compat: a verify result without `expiresAt`
    * (every pre-existing consumer) sees zero behavior change either way.
    * Recommended `true` for new deployments using a verifier that
-   * populates `expiresAt` (e.g. `@repo/oidc-verifier-jose`).
+   * populates `expiresAt` (e.g. `@orpc-ws/oidc-verifier-jose`).
    */
   enforceTokenExpiry: boolean;
   /**

@@ -25,7 +25,7 @@
 // tagged-record states are shallow); we deliberately avoid importing the
 // core's private `connectionStatesEqual`.
 
-import type { OrpcWsClient, ConnectionState } from "@repo/orpc-ws-client";
+import type { OrpcWsClient, ConnectionState } from "@orpc-ws/client";
 
 /** Shallow structural equality for the flat `ConnectionState` records. */
 function statesEqual(a: ConnectionState, b: ConnectionState): boolean {

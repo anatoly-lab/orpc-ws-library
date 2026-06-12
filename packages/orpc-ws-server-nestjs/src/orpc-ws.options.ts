@@ -13,7 +13,7 @@
 // composition (`forRootAsync`'s `useFactory` return type rarely needs
 // the narrow `TUser`).
 
-import type { OrpcWsServerOptions } from "@repo/orpc-ws-server";
+import type { OrpcWsServerOptions } from "@orpc-ws/server";
 
 /**
  * Options accepted by `OrpcWsModule.forRoot` / `forRootAsync`. Mirrors

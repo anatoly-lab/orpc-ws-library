@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-import type { CallbackResult, OidcAuth } from "@repo/oidc-pkce";
+import type { CallbackResult, OidcAuth } from "@orpc-ws/oidc-pkce";
 
 import { OidcCallback } from "../oidc-callback.js";
 

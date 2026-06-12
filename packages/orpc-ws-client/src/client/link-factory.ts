@@ -37,7 +37,7 @@
 import type { RPCLink } from "@orpc/client/websocket";
 import { RPCLink as RPCLinkCtor } from "@orpc/client/websocket";
 import type ReconnectingWebSocket from "partysocket/ws";
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 /**
  * Manages lazy initialization of `RPCLink` with the current WebSocket

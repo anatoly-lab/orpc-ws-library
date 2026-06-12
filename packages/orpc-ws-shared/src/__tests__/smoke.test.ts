@@ -6,7 +6,7 @@ import {
   systemClock,
 } from "../index.js";
 
-describe("@repo/orpc-ws-shared smoke", () => {
+describe("@orpc-ws/shared smoke", () => {
   it("exports a noop logger that accepts the structured-args shape", () => {
     expect(() => {
       noopLogger.debug("d", { k: 1 });

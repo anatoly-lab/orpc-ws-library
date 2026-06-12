@@ -1,15 +1,15 @@
-// Public types for `@repo/oidc-pkce`.
+// Public types for `@orpc-ws/oidc-pkce`.
 //
 // One concept per file (CLAUDE.md "No god files"). This module owns ONLY
 // the type surface — no logic, no defaults, no factory. Everything else
 // (PKCE, fetch, storage wiring) is composed in `client.ts`.
 //
 // `TokenProvider` is **duplicated locally** rather than imported from
-// `@repo/orpc-ws-client`. Rationale:
+// `@orpc-ws/client`. Rationale:
 //   - Keeps this package's dependency graph empty at runtime (zero deps).
 //   - The two interfaces are structurally identical; TypeScript's
 //     structural typing means the returned `tokenProvider` is assignable
-//     to `@repo/orpc-ws-client`'s `TokenProvider` without any explicit
+//     to `@orpc-ws/client`'s `TokenProvider` without any explicit
 //     conversion.
 //   - If the upstream contract ever drifts, this package fails at the
 //     consumer's compile site (where they wire the two together) — that's
@@ -183,7 +183,7 @@ export interface Storage {
 
 /**
  * Consumer-facing token provider. Structurally compatible with
- * `@repo/orpc-ws-client`'s `TokenProvider` (the wire-up site type-checks
+ * `@orpc-ws/client`'s `TokenProvider` (the wire-up site type-checks
  * the match). Duplicated locally to keep this package dep-free.
  *
  * - `getToken()`: synchronous read. Returns the stored access token

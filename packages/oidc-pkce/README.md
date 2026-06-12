@@ -1,21 +1,21 @@
-# `@repo/oidc-pkce`
+# `@orpc-ws/oidc-pkce`
 
 Browser OIDC + PKCE auth helper. Vanilla TypeScript, zero runtime deps,
 no framework coupling. Uses OIDC Discovery so it works against any
 compliant IdP — Keycloak, Auth0, Okta, Cognito, Google. Produces a
-`TokenProvider` structurally compatible with `@repo/orpc-ws-client`.
+`TokenProvider` structurally compatible with `@orpc-ws/client`.
 
 ## Install
 
 ```bash
-npm install @repo/oidc-pkce
+npm install @orpc-ws/oidc-pkce
 ```
 
 ## Quickstart
 
 ```ts
 // src/lib/auth.ts
-import { createOidcAuth } from "@repo/oidc-pkce";
+import { createOidcAuth } from "@orpc-ws/oidc-pkce";
 
 export const auth = createOidcAuth({
   issuerUrl: import.meta.env.VITE_OIDC_ISSUER_URL,
@@ -31,7 +31,7 @@ void auth.prefetchMetadata();
 Wire into the ORPC client:
 
 ```ts
-import { createOrpcWsClient } from "@repo/orpc-ws-client";
+import { createOrpcWsClient } from "@orpc-ws/client";
 import { auth } from "./auth.js";
 
 export const wsClient = createOrpcWsClient<AppContract>({
@@ -92,7 +92,7 @@ interface OidcAuth {
 `formatCallbackError(err: CallbackError): string` — returns neutral,
 human-readable default copy for each `CallbackError` variant (the one
 `handleCallback` surfaces on failure). The string is brand-free and
-day-0-shippable; `@repo/orpc-ws-oidc-react`'s `<OidcCallback>` uses it as
+day-0-shippable; `@orpc-ws/oidc-react`'s `<OidcCallback>` uses it as
 its default `renderError`.
 
 Discovery is fetched on first auth-method call and cached for the page
@@ -107,7 +107,7 @@ anyway.
 (possibly expired) so the client's stale-token-then-1008-then-refresh
 flow works. `refresh()` is pure: returns the new token or `null` on
 failure. Consumer-side cleanup happens in `onTerminalAuthFailure` on
-the client side. See [`@repo/orpc-ws-client`](../orpc-ws-client/README.md)
+the client side. See [`@orpc-ws/client`](../orpc-ws-client/README.md)
 for the full `TokenProvider` contract.
 
 ## Storage
@@ -116,7 +116,7 @@ Tokens persist to `localStorage` under `oidc.tokens` by default. Plug
 in your own:
 
 ```ts
-import type { Storage } from "@repo/oidc-pkce";
+import type { Storage } from "@orpc-ws/oidc-pkce";
 
 const inMemory: Storage = (() => {
   let t: Tokens | null = null;
@@ -148,6 +148,6 @@ The one-tab, one-flow lifetime is a protocol security property.
 ## See also
 
 - Top-level [README](../../README.md)
-- [`@repo/orpc-ws-client`](../orpc-ws-client/README.md) — paired client (consumes `tokenProvider`)
-- [`@repo/oidc-verifier-jose`](../oidc-verifier-jose/README.md) — server-side counterpart
+- [`@orpc-ws/client`](../orpc-ws-client/README.md) — paired client (consumes `tokenProvider`)
+- [`@orpc-ws/oidc-verifier-jose`](../oidc-verifier-jose/README.md) — server-side counterpart
 - [src/index.ts](./src/index.ts) — full export surface

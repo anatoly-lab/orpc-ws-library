@@ -1,7 +1,7 @@
 {
-  "name": "@repo/orpc-ws-server-nestjs",
+  "name": "@orpc-ws/server-nestjs",
   "version": "0.1.0",
-  "description": "NestJS adapter for @repo/orpc-ws-server. The only package allowed to import @nestjs/* and reflect-metadata.",
+  "description": "NestJS adapter for @orpc-ws/server. The only package allowed to import @nestjs/* and reflect-metadata.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -41,8 +41,8 @@
     "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
   },
   "dependencies": {
-    "@repo/orpc-ws-server": "0.1.0",
-    "@repo/orpc-ws-shared": "0.1.0"
+    "@orpc-ws/server": "0.1.0",
+    "@orpc-ws/shared": "0.1.0"
   },
   "peerDependencies": {
     "@nestjs/common": ">=10.0.0",

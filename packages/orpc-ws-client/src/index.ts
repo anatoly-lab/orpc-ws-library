@@ -1,4 +1,4 @@
-// Public surface of @repo/orpc-ws-client — the composition root.
+// Public surface of @orpc-ws/client — the composition root.
 //
 // Phase 1.7 wires every class from sub-phases 1.1–1.6 into one factory
 // function. The factory shape mirrors the design-doc-locked API
@@ -29,17 +29,17 @@ import {
   noopLogger,
   systemClock,
   defaultRng,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 // Logger seam + bridges re-exported so consumers stay on one import surface.
 // `fromNestShape` deliberately omitted — Nest is a server-side concept; the
 // nestjs adapter package re-exports it instead.
-export type { Logger, PinoShape } from "@repo/orpc-ws-shared";
+export type { Logger, PinoShape } from "@orpc-ws/shared";
 export {
   noopLogger,
   consoleLogger,
   fromPinoShape,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import { ConnectionStateManager } from "./state/connection-state.js";
 import { disconnected, type ConnectionState } from "./state/types.js";

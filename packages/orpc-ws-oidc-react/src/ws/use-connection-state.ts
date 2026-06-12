@@ -30,7 +30,7 @@ import { useSyncExternalStore } from "react";
 
 import type { AnyContractRouter } from "@orpc/contract";
 
-import type { OrpcWsClient, ConnectionState } from "@repo/orpc-ws-client";
+import type { OrpcWsClient, ConnectionState } from "@orpc-ws/client";
 
 /**
  * Subscribe to a client's connection state in a React component.

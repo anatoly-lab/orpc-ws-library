@@ -8,13 +8,13 @@ import baseConfig from "../../vitest.config.base.ts";
 // happy-dom is lighter and faster than jsdom for these assertions.
 //
 // No `setupFiles` and no `.tsx` globs: the React adapter moved out to
-// `@repo/orpc-ws-oidc-react`, so this core no longer has JSX tests or
+// `@orpc-ws/oidc-react`, so this core no longer has JSX tests or
 // jest-dom matchers.
 export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      name: "@repo/orpc-ws-client",
+      name: "@orpc-ws/client",
       environment: "happy-dom",
     },
   }),

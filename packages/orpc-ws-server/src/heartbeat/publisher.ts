@@ -30,7 +30,7 @@ import {
   noopLogger,
   systemClock,
   type TimerHandle,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import type { HeartbeatConfig } from "../config/heartbeat-config.js";
 

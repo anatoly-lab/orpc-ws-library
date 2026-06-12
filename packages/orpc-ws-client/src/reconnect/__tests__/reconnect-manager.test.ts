@@ -29,7 +29,7 @@ import type {
   Logger,
   Rng,
   TimerHandle,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import { ReconnectManager } from "../reconnect-manager.js";
 import type { TokenRefreshHandler } from "../token-refresh-handler.js";

@@ -8,7 +8,7 @@
 // can never diverge.
 //
 // react-router-dom is an OPTIONAL peer of this package: it is dragged in only
-// when a consumer imports `@repo/orpc-ws-oidc-react/react-router`. The main
+// when a consumer imports `@orpc-ws/oidc-react/react-router`. The main
 // entry (the `useOidcCallback` hook) stays router-free. Keeping the binding
 // in a sub-path is what lets the core stay honestly framework-agnostic
 // (CLAUDE.md sub-path rule: same browser runtime + peer-only dependency).
@@ -16,7 +16,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { formatCallbackError, type CallbackError, type OidcAuth } from "@repo/oidc-pkce";
+import { formatCallbackError, type CallbackError, type OidcAuth } from "@orpc-ws/oidc-pkce";
 
 import { useOidcCallback } from "../oidc/use-oidc-callback.js";
 
@@ -34,7 +34,7 @@ export interface OidcCallbackProps {
   /**
    * Render the error UI from the failure variant. Defaults to rendering
    * `formatCallbackError(error)` (the neutral, framework-free default copy
-   * from `@repo/oidc-pkce`) inside a `<pre>`. Pass `renderError` to
+   * from `@orpc-ws/oidc-pkce`) inside a `<pre>`. Pass `renderError` to
    * localize/style/brand it — e.g. reuse the library string but supply your
    * own UI: `renderError={(e) => <Box>{formatCallbackError(e)}</Box>}`.
    */

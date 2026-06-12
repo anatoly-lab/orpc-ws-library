@@ -22,7 +22,7 @@ import { os } from "@orpc/server";
 import {
   HEARTBEAT_NAMESPACE,
   type HeartbeatEvent,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import type { HeartbeatPublisher } from "./publisher.js";
 
@@ -34,7 +34,7 @@ import type { HeartbeatPublisher } from "./publisher.js";
  * library's procedure type through `composeRouter`'s generic — and
  * that fights the consumer's `TContract` typing for no benefit. The
  * fragment is opaque from the consumer's perspective; the wire address
- * is the constants in `@repo/orpc-ws-shared/heartbeat`.
+ * is the constants in `@orpc-ws/shared/heartbeat`.
  *
  * Why output() not specified: the `.handler(async ...)` form returns an
  * inferred output type. The handler returns `AsyncIterable<HeartbeatEvent>`,

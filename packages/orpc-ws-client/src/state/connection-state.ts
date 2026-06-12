@@ -10,7 +10,7 @@
 //      injected `Logger` (default: noop). The library never writes to the
 //      console — CLAUDE.md "Zero `console.log`".
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 import { connectionStatesEqual, type ConnectionState } from "./types.js";
 

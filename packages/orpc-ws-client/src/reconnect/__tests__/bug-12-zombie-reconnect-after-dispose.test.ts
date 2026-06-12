@@ -23,7 +23,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Clock, Logger, Rng, TimerHandle } from "@repo/orpc-ws-shared";
+import type { Clock, Logger, Rng, TimerHandle } from "@orpc-ws/shared";
 
 import { ReconnectManager } from "../reconnect-manager.js";
 import { TokenRefreshHandler } from "../token-refresh-handler.js";

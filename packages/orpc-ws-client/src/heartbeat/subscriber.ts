@@ -59,7 +59,7 @@ import {
   type TimerHandle,
   noopLogger,
   systemClock,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import type { LinkFactory } from "../client/link-factory.js";
 

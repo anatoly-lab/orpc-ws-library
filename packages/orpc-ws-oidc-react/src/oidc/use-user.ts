@@ -17,7 +17,7 @@
 // reading one field off it is free of the "selector returns fresh value"
 // foot-gun.
 
-import type { OidcAuth, OidcUser } from "@repo/oidc-pkce";
+import type { OidcAuth, OidcUser } from "@orpc-ws/oidc-pkce";
 
 import { useAuthState } from "./use-auth-state.js";
 

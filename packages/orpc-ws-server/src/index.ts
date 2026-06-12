@@ -1,4 +1,4 @@
-// Public surface of @repo/orpc-ws-server.
+// Public surface of @orpc-ws/server.
 //
 // Phase 3 composition root. Wires every internal class to its
 // collaborators and exposes the `OrpcWsServer` class.
@@ -32,7 +32,7 @@ import {
   type Logger,
   noopLogger,
   systemClock,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import {
   type ConnectionConfig,
@@ -88,17 +88,17 @@ export type {
   VerifyClientResult,
 } from "./lifecycle/verify-client-orchestrator.js";
 
-export type { HeartbeatEvent } from "@repo/orpc-ws-shared";
+export type { HeartbeatEvent } from "@orpc-ws/shared";
 
 // Logger seam + universal/Node-friendly bridges, re-exported so consumers
 // stay on one import surface. `fromNestShape` lives only in the nestjs
 // adapter package — server core is framework-free.
-export type { Logger, PinoShape } from "@repo/orpc-ws-shared";
+export type { Logger, PinoShape } from "@orpc-ws/shared";
 export {
   noopLogger,
   consoleLogger,
   fromPinoShape,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 export type {
   UploadHttpConfig,

@@ -24,7 +24,7 @@
 // discovery `issuer` = the PUBLIC url regardless of whether reached via
 // host `localhost:18080` or internal `keycloak:8080`. Validated from both
 // paths in Phase-2/Step-B.0: both report the public issuer. The verifier
-// (@repo/oidc-verifier-jose) fetches discovery from OIDC_DISCOVERY_URL
+// (@orpc-ws/oidc-verifier-jose) fetches discovery from OIDC_DISCOVERY_URL
 // (the internal host), validates the advertised `issuer` against the public
 // OIDC_ISSUER_URL, and rewrites the advertised jwks_uri prefix to the
 // internal host so the JWKS fetch also goes over the docker net.

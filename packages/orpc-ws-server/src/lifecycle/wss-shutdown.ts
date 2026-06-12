@@ -31,7 +31,7 @@ import {
   type Logger,
   type TimerHandle,
   noopLogger,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 /**
  * The slice of `ws.WebSocketServer` the bounded close needs: the

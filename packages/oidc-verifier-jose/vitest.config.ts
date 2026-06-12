@@ -8,7 +8,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      name: "@repo/oidc-verifier-jose",
+      name: "@orpc-ws/oidc-verifier-jose",
     },
   }),
 );

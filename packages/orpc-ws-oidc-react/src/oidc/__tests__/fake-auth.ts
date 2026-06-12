@@ -13,7 +13,7 @@
 
 import { vi, type Mock } from "vitest";
 
-import type { AuthSnapshot, OidcAuth, OidcUser } from "@repo/oidc-pkce";
+import type { AuthSnapshot, OidcAuth, OidcUser } from "@orpc-ws/oidc-pkce";
 
 export interface FakeAuth {
   /**

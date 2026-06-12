@@ -3,7 +3,7 @@
 // Thin barrel — keeps the two hook/provider modules grouped under `ws/` so
 // the `oidc/` react hooks can sit alongside without churn. Only the
 // React-specific hooks/provider live here; the framework-free transport core
-// is imported directly from `@repo/orpc-ws-client`.
+// is imported directly from `@orpc-ws/client`.
 
 export { useConnectionState } from "./use-connection-state.js";
 export { OrpcWsProvider, useOrpcWs } from "./provider.js";

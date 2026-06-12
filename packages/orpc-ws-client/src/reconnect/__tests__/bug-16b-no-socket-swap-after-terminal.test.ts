@@ -19,7 +19,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type ReconnectingWebSocket from "partysocket/ws";
-import type { Logger } from "@repo/orpc-ws-shared";
+import type { Logger } from "@orpc-ws/shared";
 
 import { WebSocketHolder } from "../../state/websocket-holder.js";
 import type { WebSocketFactory } from "../../lifecycle/websocket-factory.js";

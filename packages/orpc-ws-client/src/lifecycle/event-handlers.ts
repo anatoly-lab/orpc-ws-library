@@ -41,7 +41,7 @@
 //   - Bug 4 (pre-open 1000 masked handshake failure): decideClose returns
 //     `auth-recovery` for this shape; we forward to onAuthRecoveryNeeded.
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 import type ReconnectingWebSocket from "partysocket/ws";
 

@@ -12,7 +12,7 @@ import { StrictMode, type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, renderHook, screen } from "@testing-library/react";
 
-import type { CallbackResult, OidcAuth } from "@repo/oidc-pkce";
+import type { CallbackResult, OidcAuth } from "@orpc-ws/oidc-pkce";
 
 import { useOidcCallback } from "../use-oidc-callback.js";
 

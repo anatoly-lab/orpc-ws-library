@@ -43,7 +43,7 @@ import {
   type TimerHandle,
   noopLogger,
   systemClock,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import type { ConnectionConfig } from "../config/connection-config.js";
 import type { ConnectionRegistry } from "../state/connection-registry.js";

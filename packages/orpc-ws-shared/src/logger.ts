@@ -30,7 +30,7 @@ export const noopLogger: Logger = {
 // Tiny adapter factories that let consumers plug common logger shapes into
 // the `Logger` seam without writing a 4-line object literal at every call
 // site. They are intentionally consumer-facing helpers — they live in
-// `@repo/orpc-ws-shared` so both the client core and the server core can
+// `@orpc-ws/shared` so both the client core and the server core can
 // re-export them, but the library's own internals still depend on the
 // `Logger` interface, never on these concretions.
 

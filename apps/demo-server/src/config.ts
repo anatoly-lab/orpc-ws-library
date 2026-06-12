@@ -8,7 +8,7 @@
 // code changes.
 
 export interface OidcAuthConfig {
-  /** OIDC issuer URL — the same one the SPA's `@repo/oidc-pkce` uses. */
+  /** OIDC issuer URL — the same one the SPA's `@orpc-ws/oidc-pkce` uses. */
   issuerUrl: string;
   /**
    * OPTIONAL internal base URL the SERVER fetches discovery + JWKS from,

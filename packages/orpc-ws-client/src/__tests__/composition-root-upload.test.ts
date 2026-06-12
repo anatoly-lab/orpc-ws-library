@@ -15,7 +15,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Logger } from "@repo/orpc-ws-shared";
+import type { Logger } from "@orpc-ws/shared";
 
 import { createOrpcWsClient } from "../index.js";
 import type { TokenProvider } from "../auth/token-provider.js";

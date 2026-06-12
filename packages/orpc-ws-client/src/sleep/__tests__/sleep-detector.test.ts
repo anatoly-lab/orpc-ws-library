@@ -30,7 +30,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Clock, Logger, TimerHandle } from "@repo/orpc-ws-shared";
+import type { Clock, Logger, TimerHandle } from "@orpc-ws/shared";
 
 import { SleepDetector, type SleepWorker } from "../sleep-detector.js";
 

@@ -15,8 +15,8 @@ import {
   connected,
   disconnected,
   type ConnectionState,
-} from "@repo/orpc-ws-client";
-import type { OrpcWsClient } from "@repo/orpc-ws-client";
+} from "@orpc-ws/client";
+import type { OrpcWsClient } from "@orpc-ws/client";
 
 import {
   useWsSubscription,

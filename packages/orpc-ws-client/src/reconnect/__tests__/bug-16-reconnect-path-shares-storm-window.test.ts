@@ -29,7 +29,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type ReconnectingWebSocket from "partysocket/ws";
-import type { Clock, Logger, Rng, TimerHandle } from "@repo/orpc-ws-shared";
+import type { Clock, Logger, Rng, TimerHandle } from "@orpc-ws/shared";
 
 import { WebSocketHolder } from "../../state/websocket-holder.js";
 import type { WebSocketFactory } from "../../lifecycle/websocket-factory.js";

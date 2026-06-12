@@ -1,4 +1,4 @@
-// Public surface of `@repo/oidc-verifier-jose`.
+// Public surface of `@orpc-ws/oidc-verifier-jose`.
 //
 // Single composition root + named types. No re-exports from internal
 // modules; consumers depend on the entry point only.

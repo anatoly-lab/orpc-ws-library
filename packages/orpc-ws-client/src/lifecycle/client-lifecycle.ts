@@ -22,7 +22,7 @@
 // fields so they can be handed to collaborators as plain callbacks
 // (`onTerminalAuthFailure`, `onKicked`, `isDead`) without `this`-binding care.
 
-import type { Logger } from "@repo/orpc-ws-shared";
+import type { Logger } from "@orpc-ws/shared";
 
 import type { ConnectionStateManager } from "../state/connection-state.js";
 import { connecting, disconnected } from "../state/types.js";

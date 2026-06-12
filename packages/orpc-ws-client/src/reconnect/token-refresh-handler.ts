@@ -29,7 +29,7 @@
 // holder.set() / linkClearer / handler attachment; the mutex bails on the
 // second caller with a warn log.
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 import type { WebSocketFactory } from "../lifecycle/websocket-factory.js";
 import type {

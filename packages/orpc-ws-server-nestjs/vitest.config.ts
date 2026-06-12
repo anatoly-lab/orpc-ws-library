@@ -6,7 +6,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      name: "@repo/orpc-ws-server-nestjs",
+      name: "@orpc-ws/server-nestjs",
     },
   }),
 );

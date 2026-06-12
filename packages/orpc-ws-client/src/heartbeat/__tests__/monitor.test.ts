@@ -23,7 +23,7 @@ import type {
   Clock,
   Logger,
   TimerHandle,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import { HeartbeatMonitor } from "../monitor.js";
 

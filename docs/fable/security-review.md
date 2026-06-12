@@ -26,7 +26,7 @@ The library's connection-time auth path is solid: auth runs **pre-101** in `ws`'
 ### API-4 — No token-expiry enforcement on a live WS connection
 
 > **✅ RESOLVED** (verified + fixed, opt-in/non-breaking). Added optional
-> `expiresAt?` (epoch ms) to `VerifyClientResult`; `@repo/oidc-verifier-jose`
+> `expiresAt?` (epoch ms) to `VerifyClientResult`; `@orpc-ws/oidc-verifier-jose`
 > populates it from `exp`. New `enforceTokenExpiry` server config (default
 > **false**) schedules a `4001` close at `expiresAt` via the injected `Clock`,
 > cleared on connection close. `closeUser()` documented as the

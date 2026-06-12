@@ -1,15 +1,15 @@
-# `@repo/orpc-ws-server`
+# `@orpc-ws/server`
 
 Framework-free ORPC-over-WebSocket server core. Vanilla Node + [`ws`] +
 [`@orpc/server`]. The composition root (`OrpcWsServer`) attaches to a
 plain `http.Server`; no `@nestjs/*`, no `express`, no `fastify`. On
-NestJS, use [`@repo/orpc-ws-server-nestjs`](../orpc-ws-server-nestjs)
+NestJS, use [`@orpc-ws/server-nestjs`](../orpc-ws-server-nestjs)
 instead — it wraps this core in Nest's lifecycle.
 
 ## Install
 
 ```bash
-npm install @repo/orpc-ws-server
+npm install @orpc-ws/server
 ```
 
 `ws` and `@orpc/server` are direct dependencies. You bring your own
@@ -19,8 +19,8 @@ npm install @repo/orpc-ws-server
 
 ```ts
 import { createServer } from "http";
-import { OrpcWsServer } from "@repo/orpc-ws-server";
-import type { VerifyClientContext } from "@repo/orpc-ws-server";
+import { OrpcWsServer } from "@orpc-ws/server";
+import type { VerifyClientContext } from "@orpc-ws/server";
 import { os } from "@orpc/server";
 
 // 1. Your ORPC router. Whatever shape you already have.
@@ -85,7 +85,7 @@ keeps it alive. Two opt-in levers close that gap:
    socket with `authFailedCloseCode` (default `4001`, `"Token expired"`)
    when the instant passes; the library client treats 4001 as
    refresh-and-reconnect, so a healthy session rolls over seamlessly.
-   `@repo/oidc-verifier-jose` populates `expiresAt` automatically.
+   `@orpc-ws/oidc-verifier-jose` populates `expiresAt` automatically.
 2. **External invalidation** (logout-everywhere, admin revocation) —
    subscribe to your own invalidation stream and call
    `server.closeUser(sub, 4001, "session invalidated")`. The library
@@ -112,10 +112,10 @@ to. If you terminate `/ws` behind nginx, an ALB, Cloudflare, etc.:
 
 For OIDC against any spec-compliant IdP (Keycloak, Auth0, Okta,
 Cognito, Google), drop in
-[`@repo/oidc-verifier-jose`](../oidc-verifier-jose/README.md):
+[`@orpc-ws/oidc-verifier-jose`](../oidc-verifier-jose/README.md):
 
 ```ts
-import { createOidcVerifyClient } from "@repo/oidc-verifier-jose";
+import { createOidcVerifyClient } from "@orpc-ws/oidc-verifier-jose";
 
 const verifyClient = createOidcVerifyClient({
   issuerUrl: process.env.OIDC_ISSUER_URL!,
@@ -225,8 +225,8 @@ Threads through the NestJS adapter unchanged — it's part of `uploads`.
 ## See also
 
 - Top-level [README](../../README.md)
-- [`@repo/orpc-ws-server-nestjs`](../orpc-ws-server-nestjs) — NestJS adapter
-- [`@repo/orpc-ws-client`](../orpc-ws-client) — paired client
+- [`@orpc-ws/server-nestjs`](../orpc-ws-server-nestjs) — NestJS adapter
+- [`@orpc-ws/client`](../orpc-ws-client) — paired client
 - [Sequence diagrams](../../docs/diagrams/)
 - [src/index.ts](./src/index.ts) — full export surface
 

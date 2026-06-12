@@ -1,4 +1,4 @@
-// Public surface of `@repo/orpc-ws-server-nestjs`.
+// Public surface of `@orpc-ws/server-nestjs`.
 //
 // Two consumer-facing concepts:
 //   1. `OrpcWsModule` — the dynamic module (`forRoot` / `forRootAsync`).
@@ -11,7 +11,7 @@
 // writing custom providers that need to read the resolved options).
 //
 // Core-side types are re-exported to keep consumers on a single import
-// surface. They don't need to know `@repo/orpc-ws-server` exists as a
+// surface. They don't need to know `@orpc-ws/server` exists as a
 // separate package unless they want the framework-free server directly.
 
 export { OrpcWsModule } from "./orpc-ws.module.js";
@@ -34,21 +34,21 @@ export type {
   BeforeUploadHook,
   BeforeUploadResult,
   HttpUploadHandler,
-} from "@repo/orpc-ws-server";
+} from "@orpc-ws/server";
 export {
   DEFAULT_UPLOAD_HTTP_CONFIG,
   DEFAULT_BEFORE_UPLOAD_REJECT_CODE,
   DEFAULT_BEFORE_UPLOAD_REJECT_REASON,
   extractBearerToken,
-} from "@repo/orpc-ws-server";
+} from "@orpc-ws/server";
 
 // Logger seam + bridges. `fromNestShape` is the nestjs-adapter-only bridge;
 // universal `consoleLogger` and Node `fromPinoShape` come along too so the
 // adapter exposes the full logger surface to consumers.
-export type { Logger, NestShape, PinoShape } from "@repo/orpc-ws-shared";
+export type { Logger, NestShape, PinoShape } from "@orpc-ws/shared";
 export {
   noopLogger,
   consoleLogger,
   fromNestShape,
   fromPinoShape,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";

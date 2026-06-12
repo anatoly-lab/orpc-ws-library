@@ -15,7 +15,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      name: "@repo/orpc-ws-oidc-react",
+      name: "@orpc-ws/oidc-react",
       environment: "happy-dom",
       include: [
         "src/**/*.test.ts",

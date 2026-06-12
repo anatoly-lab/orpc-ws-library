@@ -13,7 +13,7 @@ import type { WebSocket } from "ws";
 import {
   type Clock,
   type TimerHandle,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import { WsPingPong } from "../ws-ping-pong.js";
 import { DEFAULT_HEARTBEAT_CONFIG } from "../../config/heartbeat-config.js";

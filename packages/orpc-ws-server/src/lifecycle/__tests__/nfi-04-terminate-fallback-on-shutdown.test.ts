@@ -21,7 +21,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 
-import { type Clock, type TimerHandle } from "@repo/orpc-ws-shared";
+import { type Clock, type TimerHandle } from "@orpc-ws/shared";
 
 import { closeWssWithGrace, type ClosableWss } from "../wss-shutdown.js";
 

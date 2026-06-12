@@ -1,4 +1,4 @@
-// Public surface of @repo/orpc-ws-shared.
+// Public surface of @orpc-ws/shared.
 //
 // Workspace-internal package: defines the seam interfaces every other
 // package depends on (Logger, Clock, Rng) plus their default impls.

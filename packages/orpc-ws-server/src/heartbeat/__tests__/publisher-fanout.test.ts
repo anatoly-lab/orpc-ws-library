@@ -17,7 +17,7 @@ import {
   type Clock,
   type HeartbeatEvent,
   type TimerHandle,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import { HeartbeatPublisher } from "../publisher.js";
 

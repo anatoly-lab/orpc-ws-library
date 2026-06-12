@@ -16,7 +16,7 @@ import { createContext, useContext, type ReactNode } from "react";
 
 import type { AnyContractRouter } from "@orpc/contract";
 
-import type { OrpcWsClient } from "@repo/orpc-ws-client";
+import type { OrpcWsClient } from "@orpc-ws/client";
 
 // Context value is typed as `OrpcWsClient<AnyContractRouter> | null`. The
 // `AnyContractRouter` upper bound keeps the context usable for any

@@ -25,7 +25,7 @@
 
 import ReconnectingWebSocket from "partysocket/ws";
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 import type {
   ReconnectConfig,

@@ -96,7 +96,7 @@ packages/
 
 ## Phase 1 — Client core: per-module test-gated lift (several PRs, ~9 days)
 
-**Goal:** existing 17-file client tree lives in `@repo/orpc-ws-client` with no app-specific imports, no module-level singletons, and **every behavioral change covered by a regression test in the same PR** that introduces it.
+**Goal:** existing 17-file client tree lives in `@orpc-ws/client` with no app-specific imports, no module-level singletons, and **every behavioral change covered by a regression test in the same PR** that introduces it.
 
 ### Discipline (non-negotiable)
 - **Each file is lifted only when its regression test is green** in the same PR (or stacked PR pair).
@@ -185,7 +185,7 @@ function toSvelteStore(state) {
 ```
 
 ### Definition of done
-- `import { useConnectionState } from "@repo/orpc-ws-client/react"` works in a consumer app
+- `import { useConnectionState } from "@orpc-ws/client/react"` works in a consumer app
 - Bug 7 (StrictMode double-mount) regression passes
 - `.d.ts` correctly typed for the sub-path
 
@@ -391,7 +391,7 @@ Per design doc §8:
 - No `any`; if a third-party type forces it, isolated in a named adapter file
 
 ### Logging
-- Each package accepts a `logger: Logger` option (interface in `@repo/orpc-ws-shared`)
+- Each package accepts a `logger: Logger` option (interface in `@orpc-ws/shared`)
 - Default: `noopLogger`
 - Library code uses `logger.debug|info|warn|error`. Never `console.*`.
 

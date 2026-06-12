@@ -7,8 +7,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { disconnected, type ConnectionState } from "@repo/orpc-ws-client";
-import type { OrpcWsClient } from "@repo/orpc-ws-client";
+import { disconnected, type ConnectionState } from "@orpc-ws/client";
+import type { OrpcWsClient } from "@orpc-ws/client";
 
 import { OrpcWsProvider, useOrpcWs } from "../provider.js";
 import { makeFakeClient } from "./fake-client.js";

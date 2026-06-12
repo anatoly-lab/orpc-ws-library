@@ -10,7 +10,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      name: "@repo/oidc-pkce",
+      name: "@orpc-ws/oidc-pkce",
       environment: "happy-dom",
       include: [
         "src/**/*.test.ts",

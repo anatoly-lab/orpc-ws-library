@@ -1,4 +1,4 @@
-# `@repo/orpc-ws-client`
+# `@orpc-ws/client`
 
 Framework-free ORPC-over-WebSocket client core. Plain TypeScript — no
 React, no Vue, no framework runtime. UI adapters live behind sub-path
@@ -8,7 +8,7 @@ generic state contract.
 ## Install
 
 ```bash
-npm install @repo/orpc-ws-client
+npm install @orpc-ws/client
 ```
 
 `react` is an optional peer — only required for the `./react` sub-path.
@@ -16,7 +16,7 @@ npm install @repo/orpc-ws-client
 ## Quickstart
 
 ```ts
-import { createOrpcWsClient } from "@repo/orpc-ws-client";
+import { createOrpcWsClient } from "@orpc-ws/client";
 import type { contract } from "./contract.js";
 
 const client = createOrpcWsClient<typeof contract>({
@@ -134,7 +134,7 @@ union and throws at runtime.
 ## React adapter
 
 ```tsx
-import { useConnectionState } from "@repo/orpc-ws-client/react";
+import { useConnectionState } from "@orpc-ws/client/react";
 
 function ConnectionBadge({ client }) {
   const conn = useConnectionState(client);
@@ -159,7 +159,7 @@ one-line bridge — `subscribe` doesn't fire immediately), Vue
 ## Auth helper
 
 For OIDC + PKCE against any spec-compliant IdP (Keycloak, Auth0, Okta,
-Cognito, Google), use [`@repo/oidc-pkce`](../oidc-pkce/README.md) — its
+Cognito, Google), use [`@orpc-ws/oidc-pkce`](../oidc-pkce/README.md) — its
 `createOidcAuth().tokenProvider` is structurally compatible with the
 `TokenProvider` interface and handles PKCE crypto, token storage,
 refresh purity, OIDC discovery, and the callback dance.
@@ -175,6 +175,6 @@ refresh purity, OIDC discovery, and the callback dance.
 ## See also
 
 - Top-level [README](../../README.md)
-- [`@repo/orpc-ws-server`](../orpc-ws-server) / [`@repo/orpc-ws-server-nestjs`](../orpc-ws-server-nestjs) — paired servers
+- [`@orpc-ws/server`](../orpc-ws-server) / [`@orpc-ws/server-nestjs`](../orpc-ws-server-nestjs) — paired servers
 - [Sequence diagrams](../../docs/diagrams/)
 - [src/index.ts](./src/index.ts) — full export surface

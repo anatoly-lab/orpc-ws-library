@@ -1,5 +1,5 @@
 // Composition root: `createOidcVerifyClient` — the factory that
-// produces a `VerifyClient` compatible with `@repo/orpc-ws-server`.
+// produces a `VerifyClient` compatible with `@orpc-ws/server`.
 //
 // Pipeline (per verify):
 //   1. Reject when `ctx.token` is null (consumer's verify decides what
@@ -40,7 +40,7 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 
-import type { VerifyClient } from "@repo/orpc-ws-server";
+import type { VerifyClient } from "@orpc-ws/server";
 
 import { fetchMetadata, rewriteJwksUri } from "./discovery.js";
 import { type OidcUser, type OidcVerifierConfig } from "./types.js";

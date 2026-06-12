@@ -24,7 +24,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Clock } from "@repo/orpc-ws-shared";
+import type { Clock } from "@orpc-ws/shared";
 
 import { SleepDetector } from "../sleep-detector.js";
 import { defaultWorkerFactory } from "../worker-source.js";

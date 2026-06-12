@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { consumeEventIterator } from "@orpc/client";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 
-import type { OrpcWsClient } from "@repo/orpc-ws-client";
+import type { OrpcWsClient } from "@orpc-ws/client";
 
 import { useConnectionState } from "./use-connection-state.js";
 

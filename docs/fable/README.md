@@ -46,7 +46,7 @@ together at the top.
 **API-4 — no token-expiry enforcement on the dashboard WebSocket** (carried
 over from the source app `anki-mcp-saas`). The library is the extraction of
 that exact gateway, so the security report validates whether
-`@repo/orpc-ws-server` reproduces it: token validated once at connect
+`@orpc-ws/server` reproduces it: token validated once at connect
 (`lifecycle/verify-client-orchestrator.ts`), never re-checked; no scheduled
 close at `exp`; no `session.invalidated` force-disconnect. See
 [security-review.md](./security-review.md).

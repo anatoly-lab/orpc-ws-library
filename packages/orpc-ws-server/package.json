@@ -1,5 +1,5 @@
 {
-  "name": "@repo/orpc-ws-server",
+  "name": "@orpc-ws/server",
   "version": "0.1.0",
   "description": "Framework-free ORPC-over-WebSocket server core. Node + ws + @orpc/server. Framework adapters live in sibling packages.",
   "license": "MIT",
@@ -43,7 +43,7 @@
   "dependencies": {
     "@orpc/contract": "1.14.4",
     "@orpc/server": "1.14.4",
-    "@repo/orpc-ws-shared": "0.1.0",
+    "@orpc-ws/shared": "0.1.0",
     "ws": "8.21.0"
   },
   "devDependencies": {

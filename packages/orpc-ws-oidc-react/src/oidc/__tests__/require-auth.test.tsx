@@ -6,7 +6,7 @@
 // (token present), proving the gate is `!== "anonymous"`, not
 // `=== "authenticated"`.
 
-import type { AuthSnapshot, OidcAuth } from "@repo/oidc-pkce";
+import type { AuthSnapshot, OidcAuth } from "@orpc-ws/oidc-pkce";
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 

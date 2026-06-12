@@ -1,10 +1,10 @@
 // Singleton orpc-ws client. Created once at module load; React
 // components share it via direct import. The `tokenProvider` is the
-// one exposed by `@repo/oidc-pkce` — structurally compatible
-// with `@repo/orpc-ws-client`'s seam (CLAUDE.md "Auth flow contract").
+// one exposed by `@orpc-ws/oidc-pkce` — structurally compatible
+// with `@orpc-ws/client`'s seam (CLAUDE.md "Auth flow contract").
 
-import { consoleLogger, createOrpcWsClient } from "@repo/orpc-ws-client";
-import { createOidcAuth } from "@repo/oidc-pkce";
+import { consoleLogger, createOrpcWsClient } from "@orpc-ws/client";
+import { createOidcAuth } from "@orpc-ws/oidc-pkce";
 
 import type { AppContract } from "@demo/contract";
 import { config } from "./config.js";
@@ -12,7 +12,7 @@ import { config } from "./config.js";
 // Composition root for the demo SPA's OIDC auth.
 //
 // The entire PKCE / discovery / storage / refresh dance lives in
-// `@repo/oidc-pkce`; this file is just the binding of runtime config
+// `@orpc-ws/oidc-pkce`; this file is just the binding of runtime config
 // to the library. Single module-level instance — every page imports
 // the same `authClient`.
 export const authClient = createOidcAuth({

@@ -6,8 +6,8 @@ refresh, single-session-per-user, opt-in HTTP uploads — all extracted
 from one production app into reusable packages, with ~340 unit tests
 across 6 packages and a real-Keycloak Playwright e2e on every push.
 
-Optional OIDC / PKCE auth helpers (`@repo/oidc-pkce` for the browser,
-`@repo/oidc-verifier-jose` for the server) cover any OIDC-compliant IdP
+Optional OIDC / PKCE auth helpers (`@orpc-ws/oidc-pkce` for the browser,
+`@orpc-ws/oidc-verifier-jose` for the server) cover any OIDC-compliant IdP
 — Keycloak, Auth0, Okta, Cognito, Google.
 
 ## Architecture
@@ -15,23 +15,23 @@ Optional OIDC / PKCE auth helpers (`@repo/oidc-pkce` for the browser,
 ```mermaid
 graph LR
     subgraph Browser
-      Core["@repo/orpc-ws-client<br/>(framework-free core)"]
-      React["@repo/orpc-ws-oidc-react<br/>(React adapter — both cores)"]
-      OidcPkce["@repo/oidc-pkce<br/>(OIDC + PKCE, optional)"]
+      Core["@orpc-ws/client<br/>(framework-free core)"]
+      React["@orpc-ws/oidc-react<br/>(React adapter — both cores)"]
+      OidcPkce["@orpc-ws/oidc-pkce<br/>(OIDC + PKCE, optional)"]
       React --> Core
       React --> OidcPkce
       OidcPkce -.tokenProvider.-> Core
     end
 
     subgraph Server
-      ServerCore["@repo/orpc-ws-server<br/>(Node + ws + @orpc/server)"]
-      Nest["@repo/orpc-ws-server-nestjs<br/>(NestJS adapter)"]
-      OidcVerifier["@repo/oidc-verifier-jose<br/>(OIDC verifier, optional)"]
+      ServerCore["@orpc-ws/server<br/>(Node + ws + @orpc/server)"]
+      Nest["@orpc-ws/server-nestjs<br/>(NestJS adapter)"]
+      OidcVerifier["@orpc-ws/oidc-verifier-jose<br/>(OIDC verifier, optional)"]
       Nest --> ServerCore
       OidcVerifier -.verifyClient.-> ServerCore
     end
 
-    Shared["@repo/orpc-ws-shared<br/>(workspace-internal:<br/>Logger / Clock / Rng /<br/>HeartbeatEvent)"]
+    Shared["@orpc-ws/shared<br/>(workspace-internal:<br/>Logger / Clock / Rng /<br/>HeartbeatEvent)"]
 
     Core -.->|"ORPC over WS<br/>(your typed contract)"| ServerCore
     Core -.->|"HTTP multipart<br/>(opt-in uploads)"| ServerCore
@@ -49,24 +49,24 @@ shape. Both parameterize on `<TContract>` and pass it through end-to-end.
 
 | Package | One-liner | Framework deps |
 |---|---|---|
-| [`@repo/orpc-ws-client`](./packages/orpc-ws-client) | Browser core. Connect, reconnect, heartbeat, sleep detection, typed RPC. | none |
-| [`@repo/orpc-ws-oidc-react`](./packages/orpc-ws-oidc-react) | React adapter (separate sibling, depends on both cores). WS hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) + OIDC hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`). Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router-dom`) |
-| [`@repo/orpc-ws-server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
-| [`@repo/orpc-ws-server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
-| [`@repo/orpc-ws-shared`](./packages/orpc-ws-shared) | Shared seam types (Logger / Clock / Rng / heartbeat wire shape). Published — it's a runtime dependency of the cores. | none |
+| [`@orpc-ws/client`](./packages/orpc-ws-client) | Browser core. Connect, reconnect, heartbeat, sleep detection, typed RPC. | none |
+| [`@orpc-ws/oidc-react`](./packages/orpc-ws-oidc-react) | React adapter (separate sibling, depends on both cores). WS hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) + OIDC hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`). Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router-dom`) |
+| [`@orpc-ws/server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
+| [`@orpc-ws/server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
+| [`@orpc-ws/shared`](./packages/orpc-ws-shared) | Shared seam types (Logger / Clock / Rng / heartbeat wire shape). Published — it's a runtime dependency of the cores. | none |
 
 ### Auth (optional, OIDC-generic)
 
 | Package | One-liner | Runtime |
 |---|---|---|
-| [`@repo/oidc-pkce`](./packages/oidc-pkce) | Browser OIDC + PKCE flow. Discovery, PKCE crypto, token storage, refresh purity, callback handling. | browser, zero deps |
-| [`@repo/oidc-verifier-jose`](./packages/oidc-verifier-jose) | Server JWT verifier. Discovery-driven JWKS, configurable `boundClaim` (`azp`/`aud`/`false`). | Node, depends on `jose` |
+| [`@orpc-ws/oidc-pkce`](./packages/oidc-pkce) | Browser OIDC + PKCE flow. Discovery, PKCE crypto, token storage, refresh purity, callback handling. | browser, zero deps |
+| [`@orpc-ws/oidc-verifier-jose`](./packages/oidc-verifier-jose) | Server JWT verifier. Discovery-driven JWKS, configurable `boundClaim` (`azp`/`aud`/`false`). | Node, depends on `jose` |
 
 ## Quickstart
 
 ```ts
-import { createOrpcWsClient } from "@repo/orpc-ws-client";
-import { createOidcAuth } from "@repo/oidc-pkce";
+import { createOrpcWsClient } from "@orpc-ws/client";
+import { createOidcAuth } from "@orpc-ws/oidc-pkce";
 import type { AppContract } from "@your-monorepo/contract";
 
 const auth = createOidcAuth({
@@ -127,10 +127,10 @@ one up in a Testcontainer.
 
 ## Module formats
 
-Every published package except `@repo/orpc-ws-oidc-react` ships **dual
+Every published package except `@orpc-ws/oidc-react` ships **dual
 ESM + CommonJS** (built with [tshy](https://github.com/isaacs/tshy)) —
 `import` resolves to ESM, `require` to CommonJS, each with its own types.
-`@repo/orpc-ws-oidc-react` is **ESM-only** (a module-level React
+`@orpc-ws/oidc-react` is **ESM-only** (a module-level React
 `createContext` makes a dual build a dual-package-identity hazard).
 
 **CommonJS consumers need Node ≥ 20.19 or ≥ 22.12.** The CJS builds keep

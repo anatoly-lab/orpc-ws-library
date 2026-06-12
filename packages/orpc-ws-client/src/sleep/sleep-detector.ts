@@ -42,7 +42,7 @@ import {
   type Logger,
   noopLogger,
   systemClock,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 import { defaultWorkerFactory } from "./worker-source.js";
 

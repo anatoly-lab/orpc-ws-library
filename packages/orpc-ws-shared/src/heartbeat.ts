@@ -1,6 +1,6 @@
 // Heartbeat wire types + library-reserved procedure path.
 //
-// Lives in @repo/orpc-ws-shared so the server core and the client core can
+// Lives in @orpc-ws/shared so the server core and the client core can
 // import the same literal without taking a dependency on each other. CLAUDE.md
 // "Heartbeat ownership — stealth procedure pattern" makes this one source of
 // truth load-bearing: any drift between server-side router-composer and

@@ -31,7 +31,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 
 import { BodyLimitPlugin, RPCHandler } from "@orpc/server/node";
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 import type {
   VerifyClient,

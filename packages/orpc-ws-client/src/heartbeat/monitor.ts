@@ -43,7 +43,7 @@ import {
   type TimerHandle,
   noopLogger,
   systemClock,
-} from "@repo/orpc-ws-shared";
+} from "@orpc-ws/shared";
 
 /**
  * Source-default poll cadence. Re-checked on every interval tick; the

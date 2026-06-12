@@ -22,7 +22,7 @@ import { useEffect, type ReactElement } from "react";
 
 import { Outlet } from "react-router-dom";
 
-import { RequireAuth, useAuthState } from "@repo/orpc-ws-oidc-react";
+import { RequireAuth, useAuthState } from "@orpc-ws/oidc-react";
 
 import { SignIn } from "./pages/SignIn.js";
 import { authClient, wsClient } from "./lib/ws-client.js";

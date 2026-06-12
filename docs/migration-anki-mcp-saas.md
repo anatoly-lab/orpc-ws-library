@@ -32,11 +32,11 @@ don't move. Everything backs onto a single `createOrpcWsClient` call.
 
 ```ts
 // apps/web/src/lib/websocket/index.ts
-import { createOrpcWsClient } from "@repo/orpc-ws-client";
+import { createOrpcWsClient } from "@orpc-ws/client";
 import type { appContract } from "@repo/orpc-contract";
 import type {
   ConnectionState as LibConnectionState,
-} from "@repo/orpc-ws-client";
+} from "@orpc-ws/client";
 import { authStorage } from "../auth";
 import { handleAuthFailure } from "../auth-failure";
 import { buildWebSocketUrl } from "./url"; // wraps the existing builder; see step 2
@@ -131,7 +131,7 @@ Was 30 lines, becomes one import:
 
 ```ts
 // apps/web/src/hooks/useConnectionState.ts
-export { useConnectionState } from "@repo/orpc-ws-client/react";
+export { useConnectionState } from "@orpc-ws/client/react";
 ```
 
 If you kept the legacy string-union shape (Step 1 above), you'll want
@@ -208,7 +208,7 @@ export class WebSocketModule {}
 ```ts
 // apps/api/src/api-gateway/websocket/websocket.module.ts
 import { Module } from "@nestjs/common";
-import { OrpcWsModule } from "@repo/orpc-ws-server-nestjs";
+import { OrpcWsModule } from "@orpc-ws/server-nestjs";
 
 import { AuthModule } from "../auth/auth.module";
 import { TunnelStatusModule } from "@/tunnel-status";
@@ -259,7 +259,7 @@ to `AuthService.verifyWsToken(ctx)` so it's injectable into
 
 ```ts
 // apps/api/src/api-gateway/auth/auth.service.ts (additions)
-import type { VerifyClient } from "@repo/orpc-ws-server-nestjs";
+import type { VerifyClient } from "@orpc-ws/server-nestjs";
 import type { WebSocketUser } from "../websocket/types";
 
 async verifyWsToken(
@@ -407,8 +407,8 @@ The same `verifyClient` is reused for HTTP uploads — token comes from
 ## See also
 
 - [Top-level README](../README.md)
-- [`@repo/orpc-ws-client` README](../packages/orpc-ws-client/README.md)
-- [`@repo/orpc-ws-server-nestjs` README](../packages/orpc-ws-server-nestjs/README.md)
+- [`@orpc-ws/client` README](../packages/orpc-ws-client/README.md)
+- [`@orpc-ws/server-nestjs` README](../packages/orpc-ws-server-nestjs/README.md)
 - [Sequence diagrams](./diagrams/) — the flows the library now owns
 - [Implementation plan](./implementation-plan.md) §"Migration into
   source app"

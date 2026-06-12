@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { CallbackError, OidcAuth } from "@repo/oidc-pkce";
+import type { CallbackError, OidcAuth } from "@orpc-ws/oidc-pkce";
 
 /** Optional imperative side-effect callbacks for the callback exchange. */
 export interface UseOidcCallbackOptions {

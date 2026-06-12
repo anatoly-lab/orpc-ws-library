@@ -28,7 +28,7 @@
 
 import { RPCLink } from "@orpc/client/fetch";
 
-import { type Logger, noopLogger } from "@repo/orpc-ws-shared";
+import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 import type { TokenProvider } from "../auth/token-provider.js";
 

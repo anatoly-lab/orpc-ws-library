@@ -1,7 +1,7 @@
 {
-  "name": "@repo/oidc-pkce",
+  "name": "@orpc-ws/oidc-pkce",
   "version": "0.1.0",
-  "description": "Browser-side OIDC + PKCE auth helper. Vanilla TS, framework-free. Uses OIDC Discovery (RFC 8414) — works against any compliant provider (Keycloak, Auth0, Okta, Cognito, ...). Produces a TokenProvider structurally compatible with @repo/orpc-ws-client.",
+  "description": "Browser-side OIDC + PKCE auth helper. Vanilla TS, framework-free. Uses OIDC Discovery (RFC 8414) — works against any compliant provider (Keycloak, Auth0, Okta, Cognito, ...). Produces a TokenProvider structurally compatible with @orpc-ws/client.",
   "license": "MIT",
   "repository": {
     "type": "git",

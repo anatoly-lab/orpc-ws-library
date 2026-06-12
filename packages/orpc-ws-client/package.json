@@ -1,7 +1,7 @@
 {
-  "name": "@repo/orpc-ws-client",
+  "name": "@orpc-ws/client",
   "version": "0.1.0",
-  "description": "Framework-free ORPC-over-WebSocket client core. Vanilla TS — reconnect, heartbeat, sleep detection, uploads. React bindings live in @repo/orpc-ws-oidc-react.",
+  "description": "Framework-free ORPC-over-WebSocket client core. Vanilla TS — reconnect, heartbeat, sleep detection, uploads. React bindings live in @orpc-ws/oidc-react.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -43,7 +43,7 @@
   "dependencies": {
     "@orpc/client": "1.14.4",
     "@orpc/contract": "1.14.4",
-    "@repo/orpc-ws-shared": "0.1.0",
+    "@orpc-ws/shared": "0.1.0",
     "partysocket": "1.1.19"
   },
   "devDependencies": {

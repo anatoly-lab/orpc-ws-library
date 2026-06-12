@@ -1,6 +1,6 @@
-// Public types for `@repo/oidc-verifier-jose`.
+// Public types for `@orpc-ws/oidc-verifier-jose`.
 //
-// Symmetric to `@repo/oidc-pkce` (browser side): both packages share
+// Symmetric to `@orpc-ws/oidc-pkce` (browser side): both packages share
 // the same OIDC Discovery primitive shape and `OidcUser` field set, but
 // the verifier lives in Node-only territory because `jose`'s
 // `createRemoteJWKSet` + `jwtVerify` are heavy enough that pulling them
@@ -59,7 +59,7 @@ export interface OidcVerifierConfig {
    * OIDC issuer URL — the server fetches
    * `${issuerUrl}/.well-known/openid-configuration` once on first
    * verify, caches the result, and reads `issuer` + `jwks_uri` from
-   * there. Same value the SPA's `@repo/oidc-pkce` uses.
+   * there. Same value the SPA's `@orpc-ws/oidc-pkce` uses.
    *
    * A single trailing slash is tolerated; the library normalizes it
    * before joining the discovery path AND before comparing the
@@ -128,7 +128,7 @@ export interface OidcVerifierConfig {
  * custom `mapUser` to `createOidcVerifyClient` and pick out what they
  * want from the raw `JWTPayload`.
  *
- * Field set matches `@repo/oidc-pkce`'s `OidcUser` shape so consumers
+ * Field set matches `@orpc-ws/oidc-pkce`'s `OidcUser` shape so consumers
  * can keep one `User`-flavored type across the SPA and the API.
  */
 export interface OidcUser {
