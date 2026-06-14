@@ -1,6 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // Explicit `types` — Node-only package. TS 6.0 defaults `types` to "all
+    // visible @types/*"; pinning it to ["node"] keeps the global type surface
+    // deterministic (and documents that `fetch`/`Response`/`URL` come from
+    // @types/node, see the no-DOM note below). Mirrors @orpc-ws/shared.
+    "types": ["node"],
     "rootDir": "./src",
     "outDir": "./dist",
     // Buildinfo at the package root, NOT inside `dist`: the typecheck pass

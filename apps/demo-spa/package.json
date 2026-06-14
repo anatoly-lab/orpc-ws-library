@@ -13,20 +13,20 @@
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
-    "@demo/contract": "0.1.0",
-    "@orpc-ws/oidc-pkce": "0.1.0",
-    "@orpc-ws/client": "0.1.0",
-    "@orpc-ws/oidc-react": "0.1.0",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "react-router-dom": "7.16.0"
+    "@demo/contract": "workspace:*",
+    "@orpc-ws/client": "workspace:*",
+    "@orpc-ws/oidc-pkce": "workspace:*",
+    "@orpc-ws/oidc-react": "workspace:*",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "7.17.0"
   },
   "devDependencies": {
-    "@types/react": "19.2.15",
+    "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
-    "rimraf": "6.0.1",
-    "typescript": "5.9.3",
-    "vite": "8.0.14"
+    "rimraf": "6.1.3",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
   }
 }

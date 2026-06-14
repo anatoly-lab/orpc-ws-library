@@ -23,11 +23,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
+          cache: pnpm
 
       - name: Cache Turborepo
         uses: actions/cache@v5
@@ -40,10 +43,10 @@ jobs:
       - name: Install dependencies
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint + typecheck + test + build
-        run: npx turbo run lint typecheck test build
+        run: pnpm exec turbo run lint typecheck test build
 
   e2e:
     name: Playwright E2E (Keycloak + demo app)
@@ -60,29 +63,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js 22
         uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies (with Playwright browser)
         # Allow the @repo/tests-e2e postinstall to download Chromium normally.
         # The `--with-deps` flag installs OS-level browser dependencies via apt.
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Ensure Playwright Chromium + OS deps
         # Belt-and-suspenders: postinstall in tests-e2e tries `--with-deps`
         # then falls back; we explicitly call here so OS deps land.
         working-directory: tests-e2e
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright E2E
         # globalSetup docker-builds the app images (Docker layer cache makes
         # warm runs fast) and starts the containerized stack. CI=true gives the
         # Playwright config its retry budget.
         working-directory: tests-e2e
-        run: npm run test:e2e
+        run: pnpm run test:e2e
         env:
           CI: "true"
 

@@ -320,6 +320,10 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     // The pre-config retry timer (NFI-1) goes through the Clock seam so
     // composition-level tests stay deterministic.
     clock,
+    // Option B: the subscriber has no socket-state knowledge. The
+    // open-vs-closed teardown decision (`abort()` vs `drop()`) lives in
+    // the lifecycle orchestrator, which already owns teardown sequencing.
+    // See HeartbeatSubscriber.abort()/drop() for the orpc abort-send race.
   });
 
   // ----- 6. WebSocket factory -----
@@ -483,10 +487,17 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     },
     onClose: () => {
       // Per-close teardown: stop the heartbeat watchdog and subscriber.
-      // The next successful open will re-subscribe via the onOpen hook
-      // above (subscribe() is idempotent w.r.t. prior aborted loops; see
-      // Phase 1.5 docs).
-      heartbeatSubscriber.unsubscribe();
+      // This hook runs FROM the socket's `close` event (partysocket 1.2.0
+      // dispatches it synchronously from `close()`), so the socket is
+      // already CLOSED/CLOSING — use `drop()`, not `abort()`. orpc's own
+      // wrapper close-listener (`peer.close()`) tears the heartbeat stream
+      // down WITHOUT sending a frame; firing our abort here would instead
+      // make orpc fire-and-forget an ABORT_SIGNAL send onto the closed
+      // socket (an unhandled DOM InvalidStateError). See
+      // HeartbeatSubscriber.drop() for the full mechanism. The next
+      // successful open re-subscribes via the onOpen hook above
+      // (subscribe() is idempotent w.r.t. prior aborted loops).
+      heartbeatSubscriber.drop();
       heartbeatMonitor.stop();
     },
     // Kick-specific teardown (F1/F3) — runs AFTER the onClose hook above

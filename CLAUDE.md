@@ -1,4 +1,4 @@
-# `@repo/orpc-ws-*` Library Project
+# `@orpc-ws/*` Library Project
 
 Monorepo for extracting the ORPC-over-WebSocket transport from the
 `anki-mcp-saas` app into reusable, framework-agnostic packages.
@@ -14,22 +14,24 @@ Origin code being extracted:
 
 ## Commands
 
-All tasks run through Turborepo from the repo root (`npm install` first).
+All tasks run through Turborepo from the repo root. First-time setup:
+`corepack enable` (provisions the `pnpm` version pinned in the root
+`package.json` `packageManager` field), then `pnpm install`.
 
 | Task | Command | Notes |
 |---|---|---|
-| Build all | `npm run build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for `@orpc-ws/oidc-react` (ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps. Topo-ordered via `^build`. |
-| Typecheck all | `npm run typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
-| Lint all | `npm run lint` | ESLint flat config; enforces framework-free cores. Note: `lint` `dependsOn: ["build"]` in `turbo.json` — tshy writes a temporary `package.json` mid-build that the ESLint import resolver would otherwise race (commit `edec802`). |
-| Unit tests all | `npm run test` | Vitest, per package. **User runs tests — assistant does not.** |
-| Full CI gate | `npm run ci` | lint → typecheck → test → build. |
-| Clean | `npm run clean` | wipes `dist`, `.turbo`, root `node_modules`. |
+| Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for `@orpc-ws/oidc-react` (ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps. Topo-ordered via `^build`. |
+| Typecheck all | `pnpm typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
+| Lint all | `pnpm lint` | ESLint flat config; enforces framework-free cores. Note: `lint` `dependsOn: ["build"]` in `turbo.json` — tshy writes a temporary `package.json` mid-build that the ESLint import resolver would otherwise race (commit `edec802`). |
+| Unit tests all | `pnpm test` | Vitest, per package. **User runs tests — assistant does not.** |
+| Full CI gate | `pnpm ci` | lint → typecheck → test → build. |
+| Clean | `pnpm clean` | wipes `dist`, `.turbo`, root `node_modules`. |
 
 Scope to one package:
-- `npm run test -w @orpc-ws/client` (or any script: `build`, `lint`, `typecheck`)
+- `pnpm --filter @orpc-ws/client test` (or any script: `build`, `lint`, `typecheck`)
 - `turbo run test --filter=@orpc-ws/client` (turbo, dependency-aware)
 
-Run a single test file / case (from inside the package dir, or via `-w`):
+Run a single test file / case (from inside the package dir, or via `pnpm --filter`):
 - `vitest run src/reconnect/__tests__/bug-01-stale-token-after-sleep.test.ts`
 - `vitest run -t "storm guard"` (filter by test name)
 
@@ -38,7 +40,7 @@ Regression tests for the design-doc bugs are greppable by filename
 (see "Tests from day 0").
 
 Demo (two separate processes — Vite SPA + NestJS server; **user runs these**):
-- `npm run dev:demo` (both), or `npm run dev:server` / `npm run dev:spa`
+- `pnpm dev:demo` (both), or `pnpm dev:server` / `pnpm dev:spa`
 - needs **both** `apps/demo-spa/.env` (SPA build-time `VITE_*` vars) and
   `apps/demo-server/.env` (server `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` /
   `PORT`, loaded via Node `--env-file-if-exists`) — each copied from its
@@ -46,7 +48,7 @@ Demo (two separate processes — Vite SPA + NestJS server; **user runs these**):
   Keycloak at `keycloak.anatoly.dev` (`orpc-ws-demo` realm).
 
 e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
-- `npm run test:e2e -w @repo/tests-e2e` (root `npm test` skips it).
+- `pnpm --filter @repo/tests-e2e test:e2e` (root `pnpm test` skips it).
 
 ## Codebase map (as built)
 
@@ -83,7 +85,8 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 Apps (under `apps/`): `@demo/contract` (shared ORPC contract),
 `@demo/server` (NestJS, port 18081), `@demo/spa` (React + Vite, dev 5173 /
 e2e preview 4173). `@repo/tests-e2e` is **not** under `apps/` — it is a
-top-level workspace dir (`workspaces: ["packages/*", "apps/*", "tests-e2e"]`).
+top-level workspace dir (`pnpm-workspace.yaml` globs: `packages/*`,
+`apps/*`, `tests-e2e`).
 
 Two cross-package mechanisms to know before editing:
 - **Heartbeat is a "stealth procedure"**, not in the consumer's contract. The
@@ -94,9 +97,9 @@ Two cross-package mechanisms to know before editing:
   `ConnectionState`, for reactive UI) vs `client.onEvent` (notifications:
   `auth_failure` / `heartbeat_timeout` / `woke_from_sleep`).
 
-Note: `README.md` still mentions a `@orpc-ws/client/react` sub-path — that
-is stale. React bindings live in `@orpc-ws/oidc-react` (lint config no
-longer exempts a `src/react/` path in the client core).
+Note: there is no `@orpc-ws/client/react` sub-path. React bindings live
+in `@orpc-ws/oidc-react` (lint config no longer exempts a `src/react/`
+path in the client core).
 
 ## Non-negotiable principles
 
@@ -548,26 +551,92 @@ choice mechanical: subscribe for UI, callback for side effects.
   so no library change required. Treated as future app work, not
   library work.
 
-### Monorepo tooling: npm workspaces + Turborepo
+### Monorepo tooling: pnpm workspaces + Turborepo
 
-- **Package manager: npm workspaces** (built-in since npm v7). Root
-  `package.json` declares `"workspaces": ["packages/*"]`. No pnpm,
-  no yarn. Anyone with a recent Node + npm can clone and `npm install`.
-- **Task orchestration: Turborepo.** Provides dep-aware task graph,
-  parallel execution, local cache, and `--filter` for affected-package
-  builds. `turbo.json` lives at the repo root.
+**This REVERSES the earlier "npm workspaces + Turborepo" decision.** We
+migrated from npm workspaces to **pnpm workspaces** (Turborepo unchanged).
+Why pnpm:
+
+- **Native recursive dependency updates** — `pnpm update -r -i -L`
+  (recursive, interactive, latest) across every workspace in one pass,
+  which npm has no first-class equivalent for.
+- **Cross-platform lockfile** — `pnpm-lock.yaml` records every platform's
+  optional deps, eliminating the npm `@esbuild/*` "missing optional
+  dependency" hazard (older npm omitted those entries and `npm ci` then
+  rejected the lockfile).
+- **Stricter dependency isolation** — pnpm's isolated (symlinked)
+  `node_modules` prevents phantom-dependency access by construction.
+
+Details of the setup:
+
+- **Package manager: pnpm workspaces.** Workspace globs live in
+  `pnpm-workspace.yaml` (`packages/*`, `apps/*`, `tests-e2e`), NOT in a
+  root-`package.json` `"workspaces"` array (that field is removed). pnpm
+  is provisioned via Corepack — `corepack enable`, version pinned by the
+  root `package.json` `packageManager` field (`pnpm@11.6.0`). No yarn.
+- **pnpm-11 config split.** As of pnpm 10→11, `.npmrc` carries **only**
+  registry/auth config; all other settings move to `pnpm-workspace.yaml`
+  as camelCase keys. We deleted `.npmrc` (we had no auth/registry
+  overrides) and put `linkWorkspacePackages: true`, `saveExact: true`,
+  `engineStrict: true` in `pnpm-workspace.yaml`.
+- **Cross-dependency convention:** **all** internal `@orpc-ws/*` deps
+  (and the private `@demo/contract` dep) use the **`workspace:*`**
+  protocol. `pnpm publish` (invoked by `changeset publish`) rewrites
+  `workspace:*` → the exact just-published version, so registry metadata
+  is always correct. `linkWorkspacePackages: true` is now
+  belt-and-suspenders — `workspace:*` links locally regardless.
+  - This **supersedes** the earlier decision to keep published cores
+    exact-pinned (`"0.1.1"`) to avoid a `pnpm publish` rewrite. We moved
+    to Changesets (below), which uses `pnpm publish` and rewrites
+    `workspace:*` as a matter of course; the rewrite is verified-standard,
+    not a risk.
+- **Publishing is via Changesets `changeset publish`** (which delegates
+  to `pnpm publish`), authenticated by npm OIDC trusted publishing with
+  automatic provenance. See RELEASING.md.
+- **Task orchestration: Turborepo** (unchanged). Dep-aware task graph,
+  parallel execution, local cache, `--filter` for affected-package
+  builds. `turbo.json` at the repo root.
 - **Remote cache: not configured initially.** Local cache only. Add
   remote cache later if CI gets slow and the team is OK with a Vercel
   dependency (or self-host).
-- **Lint compensation for npm-workspaces' looser strictness:**
-  `eslint-plugin-import` with `no-extraneous-dependencies` to catch
-  accidental phantom imports (pnpm would have prevented these natively;
-  with npm we enforce via lint).
+- **Lint still enforces no-phantom-imports:** `eslint-plugin-import` with
+  `no-extraneous-dependencies`. pnpm's isolated `node_modules` already
+  prevents most phantom-dep *access* at runtime, so the old "npm is
+  looser, lint compensates" framing no longer applies — but the lint rule
+  stays valuable: it catches a missing `package.json` declaration at lint
+  time (a clearer failure than a runtime/resolution error) and keeps each
+  package's declared deps honest.
 
 Rationale: a 4-package library that may grow to 8+ as framework
 adapters land. Turborepo's filter and caching pay off as soon as the
-adapter count grows; npm workspaces keeps the entry barrier zero
-("anyone with Node can clone and run").
+adapter count grows; pnpm's recursive update + cross-platform lockfile
+pay off as the dependency surface and CI matrix grow. Corepack keeps the
+entry barrier near-zero ("anyone with a recent Node can `corepack enable`
+and `pnpm install`").
+
+### Versioning & release: Changesets (lockstep)
+
+**This supersedes the earlier custom-script release decision**
+(`scripts/sync-version.mjs` + `scripts/publish-all.sh` + a tag-push
+`npm-publish.yml` / GH-release `release.yml`, all now removed, along with
+the `release:version` root script).
+
+- **Tool: [Changesets](https://github.com/changesets/changesets)**
+  (`@changesets/cli`, root devDep; config in `.changeset/config.json`).
+- **Lockstep via the `fixed` group** — all seven published packages are
+  listed in one `fixed` array, so any release bumps them all to the same
+  version (`fixed` does **not** support globs; list each package).
+- **Internal deps are `workspace:*`** — `pnpm publish` (driven by
+  `changeset publish`) rewrites them to the exact published version.
+- **Changelog:** the bundled `@changesets/cli/changelog` (no extra dep).
+- **CI flow:** one `changesets/action@v1` workflow on `push: main`
+  (`.github/workflows/npm-publish.yml` — name fixed by the npm
+  trusted-publisher binding). Push to main with pending changesets → a
+  "Version Packages" PR; merge it → publish via OIDC + provenance + GH
+  releases. No npm token in steady state.
+- **Day-to-day:** `pnpm changeset` per behavior-changing PR. Root
+  scripts: `changeset` / `version-packages` (`changeset version`) / `release`
+  (`changeset publish`). Full runbook in RELEASING.md.
 
 ### Test runner: vitest
 

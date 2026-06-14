@@ -14,7 +14,7 @@ Testcontainers).
 ## Requirements
 
 - **Docker** running locally (Keycloak runs as a container).
-- Node 22+, npm 10+ (same as the rest of the monorepo).
+- Node 22+, pnpm via Corepack (same as the rest of the monorepo).
 - The first run pulls `quay.io/keycloak/keycloak:26.5.5` (~600 MB).
   Allow ~3–5 min on first run, ~1–2 min on subsequent runs.
 
@@ -23,23 +23,23 @@ Testcontainers).
 From the repo root:
 
 ```bash
-npm install                          # once
-npm run test:e2e --workspace=@repo/tests-e2e
+pnpm install                                 # once
+pnpm --filter @repo/tests-e2e test:e2e
 ```
 
 Useful variants:
 
 ```bash
 # headed (watch browser)
-npm test --workspace=@repo/tests-e2e -- --headed
+pnpm --filter @repo/tests-e2e test:e2e:headed
 
 # list tests without running
-npm test --workspace=@repo/tests-e2e -- --list
+pnpm --filter @repo/tests-e2e test:e2e:list
 ```
 
-## Default `npm test` is a no-op here
+## Default `pnpm test` is a no-op here
 
-The root `npm test` (and `npx turbo run test`) deliberately do **not**
+The root `pnpm test` (and `pnpm exec turbo run test`) deliberately do **not**
 run Playwright in this workspace. Playwright requires Docker + multi-
 minute setup; running it on every commit in unit-test mode would be
 wrong. The default `test` script in `tests-e2e/package.json` prints a

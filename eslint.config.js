@@ -132,8 +132,11 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
 
-      // Catches phantom imports (CLAUDE.md "Lint compensation for
-      // npm-workspaces' looser strictness").
+      // Catches phantom imports — keeps each package's declared deps honest
+      // (CLAUDE.md "Monorepo tooling: pnpm workspaces + Turborepo", the
+      // no-phantom-imports note). pnpm's isolated node_modules already blocks
+      // most phantom-dep access at runtime; this surfaces a missing
+      // package.json declaration at lint time, a clearer failure.
       "import/no-extraneous-dependencies": [
         "error",
         {

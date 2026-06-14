@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/oidc-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The library's React bindings: hooks (useConnectionState, useAuthState, useUser, useOidcCallback) and an optional react-router OidcCallback component on the ./react-router sub-path. Does not re-export the cores.",
   "license": "MIT",
   "repository": {
@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
@@ -42,10 +42,10 @@
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
-    "@orpc/client": "1.14.4",
-    "@orpc/contract": "1.14.4",
-    "@orpc-ws/oidc-pkce": "0.1.0",
-    "@orpc-ws/client": "0.1.0"
+    "@orpc-ws/client": "workspace:*",
+    "@orpc-ws/oidc-pkce": "workspace:*",
+    "@orpc/client": "1.14.6",
+    "@orpc/contract": "1.14.6"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
@@ -59,14 +59,14 @@
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
-    "@types/react": "19.2.15",
+    "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "happy-dom": "20.9.0",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "react-router-dom": "7.16.0",
-    "rimraf": "6.0.1",
-    "typescript": "5.9.3",
-    "vitest": "4.1.7"
+    "happy-dom": "20.10.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "^7.17.0",
+    "rimraf": "6.1.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
   }
 }

@@ -35,7 +35,7 @@
 //      them to construction lets `subscribe()` be argument-free, which
 //      matches the lifecycle ("start consuming the stream the controller
 //      knows how to make").
-//   4. `stop()` aliases `unsubscribe()` so the subscriber conforms to
+//   4. `stop()` aliases `abort()` so the subscriber conforms to
 //      the `{ stop(): void }` shape `ReconnectManager` expects from a
 //      heartbeat collaborator (Phase 1.3 cross-phase note).
 //
@@ -79,6 +79,11 @@ const DEFAULT_PRE_CONFIG_RETRY_DELAY_MS = 1_000;
  * Dependencies for HeartbeatSubscriber. `logger` defaults to noop; the
  * composition root wires the real one. `clock` defaults to the system
  * clock — only the pre-config retry timer goes through it.
+ *
+ * NOTE (Option B): the subscriber has ZERO knowledge of socket
+ * `readyState`. The open/closed teardown decision lives in the lifecycle
+ * orchestrator, which picks `abort()` vs `drop()` — see the two methods'
+ * doc comments. There is deliberately no `isSocketOpen` predicate here.
  */
 export interface HeartbeatSubscriberDeps {
   linkFactory: LinkFactory;
@@ -99,19 +104,40 @@ export interface HeartbeatSubscriberDeps {
  * Consumes the `__orpc_ws_lib__.heartbeat` AsyncIterable and drives the
  * monitor.
  *
- * Lifecycle:
+ * Lifecycle — TWO distinct ways to stop, chosen by the lifecycle
+ * orchestrator based on socket state (Option B; the subscriber itself
+ * never inspects `readyState`):
  *   - `subscribe()` — kick off the consumption loop. Idempotent in the
- *     sense that calling it while a subscription is live first awaits
- *     the prior teardown, then re-starts. This matters during a
- *     reconnect race where the composition root may re-subscribe before
- *     the previous AsyncIterable has finished draining.
- *   - `unsubscribe()` — abort the controller. The AsyncIterable's `next()`
- *     throws on abort, breaking the `for await` loop. After unsubscribe,
- *     no further `monitor.recordPing()` or `monitor.configure()` calls
- *     can land (the loop is the only call site).
- *   - `stop()` — alias for `unsubscribe()`. Conforms to the
+ *     sense that calling it while a subscription is live first stops
+ *     the prior loop (via `abort()`) and awaits its teardown, then
+ *     re-starts. This matters during a reconnect race where the
+ *     composition root may re-subscribe before the previous
+ *     AsyncIterable has finished draining.
+ *   - `abort()` — fire the AbortController. The AsyncIterable's `next()`
+ *     throws on abort, breaking the `for await` loop. orpc's peer
+ *     fire-and-forgets an `ABORT_SIGNAL` frame on that abort, so this is
+ *     only correct while the socket is still OPEN (the frame lands on a
+ *     live socket). After abort, no further `monitor.recordPing()` /
+ *     `monitor.configure()` calls can land (the loop is the only call
+ *     site). Used by the token-refresh socket swap (socket open, swapped
+ *     out from under us) and internally by `subscribe()`'s re-subscribe
+ *     barrier.
+ *   - `drop()` — release references / stop the local read loop WITHOUT
+ *     firing the abort. For when the socket is already CLOSED/CLOSING:
+ *     orpc registers its OWN `addEventListener("close", () =>
+ *     peer.close())` on the partysocket wrapper (independent of our
+ *     holder), and that listener tears the subscription down WITHOUT
+ *     sending a frame. Firing our abort in that window would make orpc
+ *     fire-and-forget an `ABORT_SIGNAL` send onto an already-closed
+ *     socket (see `drop()` for the exact mechanism/throw). So on the
+ *     close paths the orchestrator calls `drop()` and lets orpc's
+ *     wrapper close-listener do the frameless cleanup.
+ *   - `stop()` — alias for `abort()`. Conforms to the
  *     `{ stop(): void }` shape ReconnectManager expects from a
- *     heartbeat collaborator (Phase 1.3 cross-phase note).
+ *     heartbeat collaborator (Phase 1.3 cross-phase note). The only
+ *     ReconnectManager-side caller is the token-refresh swap, which
+ *     stops the subscription while the old socket is still OPEN — so
+ *     the abort semantics are the correct ones there.
  */
 export class HeartbeatSubscriber {
   private readonly linkFactory: LinkFactory;
@@ -141,7 +167,7 @@ export class HeartbeatSubscriber {
    * concurrent `subscribe()` calls could interleave: caller A nulls the
    * fields and awaits; caller B sees a clean slate, starts its loop and
    * installs its controller; A resumes and OVERWRITES the fields —
-   * leaving B's loop live but unreachable by `unsubscribe()`. The
+   * leaving B's loop live but unreachable by `abort()`/`drop()`. The
    * generation counter makes "a newer subscribe superseded me" detectable:
    * each call captures `++generation` up front and bails after the await
    * if the global counter moved on.
@@ -150,12 +176,34 @@ export class HeartbeatSubscriber {
   /**
    * Pending pre-config retry timer (NFI-1). Armed ONLY by `runLoop`'s
    * catch path when the stream failed before the `config` event. Any
-   * explicit `subscribe()` / `unsubscribe()` cancels it — only the
+   * explicit `subscribe()` / `abort()` / `drop()` cancels it — only the
    * retry chain itself re-arms — so a teardown (dispose / kick /
-   * terminal, all of which route through `unsubscribe()`) or a fresh
-   * per-open subscription can never race a stale retry.
+   * terminal / swap, all of which route through `abort()` or `drop()`)
+   * or a fresh per-open subscription can never race a stale retry.
    */
   private retryTimer: TimerHandle | null = null;
+  /**
+   * Set by `drop()`, reset at the start of every `subscribe()`. Classifies
+   * the `runLoop` catch as the EXPECTED close-path exit.
+   *
+   * Why this is needed: `drop()` deliberately does NOT abort the controller
+   * (firing the abort would make orpc fire-and-forget an `ABORT_SIGNAL`
+   * send onto an already-closed socket — see `drop()`). It relies on orpc's
+   * own wrapper `close`-listener (`addEventListener("close", () =>
+   * peer.close())`) to tear the stream down. But orpc ends the stream by
+   * REJECTING the in-flight `pull()` (`AsyncIdQueue.close()` → `peer.close()`
+   * rejects the pending pull with a non-abort error), NOT by a clean
+   * `done: true` completion. So `drop()`'s exit comes through `runLoop`'s
+   * catch with `signal.aborted === false` — indistinguishable, by signal
+   * alone, from a genuine mid-stream error. This flag is what tells them
+   * apart: `drop()` ⇒ expected/quiet; not-dropped + not-aborted ⇒ real error.
+   *
+   * Correctness on a LIVE subscription: the flag is only ever true after a
+   * `drop()`, and the next `subscribe()` resets it to `false` before any new
+   * loop runs — so a real mid-stream error on an active (never-dropped,
+   * never-aborted) subscription is NOT suppressed and still logs at error.
+   */
+  private dropped = false;
 
   constructor(deps: HeartbeatSubscriberDeps) {
     this.linkFactory = deps.linkFactory;
@@ -170,7 +218,7 @@ export class HeartbeatSubscriber {
 
   /**
    * Subscribe to the heartbeat stream and drive the monitor until the
-   * stream ends or `unsubscribe()` is called.
+   * stream ends or the subscription is stopped (`abort()`/`drop()`).
    *
    * If a previous subscription is still draining, this method first
    * aborts it and awaits its loop body — guarantees a single live
@@ -182,6 +230,13 @@ export class HeartbeatSubscriber {
     // An explicit subscribe supersedes any pending pre-config retry
     // (NFI-1) — the new subscription gets the full retry budget.
     this.clearRetryTimer();
+    // Every fresh subscription begins not-dropped: a prior `drop()` must
+    // not classify THIS loop's eventual exit as expected. (Reset here, in
+    // the public entry, so the internal retry chain — which calls
+    // `subscribeWithRetryBudget` directly — does NOT reset it; a retry of a
+    // dropped subscription should never re-arm anyway, but the explicit
+    // public re-subscribe is the only legitimate "start consuming again".)
+    this.dropped = false;
     return this.subscribeWithRetryBudget(this.preConfigMaxRetries);
   }
 
@@ -202,8 +257,15 @@ export class HeartbeatSubscriber {
     // composition root's reconnect path could start a second loop
     // alongside the first — both calling `monitor.recordPing()`, both
     // racing on `monitor.configure()`.
+    //
+    // We `abort()` (not `drop()`) here: a re-subscribe happens on a LIVE
+    // connection (the onOpen hook fires it when a fresh socket is OPEN),
+    // so the prior loop's signal-abort lands on a live socket and orpc's
+    // ABORT_SIGNAL frame sends cleanly. drop() would leave the prior
+    // loop's `for await` pumping until the next event instead of breaking
+    // it promptly.
     if (this.abortController || this.activeLoop) {
-      this.unsubscribe();
+      this.abort();
       const prior = this.activeLoop;
       this.activeLoop = null;
       if (prior) {
@@ -217,7 +279,7 @@ export class HeartbeatSubscriber {
     // suspended on the barrier. It saw the fields we nulled, started a
     // fresh loop, and installed its controller. If we proceeded now we
     // would overwrite `abortController`/`activeLoop` and orphan that
-    // loop — alive, consuming pings, but unreachable by `unsubscribe()`.
+    // loop — alive, consuming pings, but unreachable by `abort()`/`drop()`.
     // The newer caller owns the subscription; this one yields.
     if (this.generation !== gen) {
       return;
@@ -235,40 +297,122 @@ export class HeartbeatSubscriber {
     // lifetime, only on the initial handoff.
     //
     // We don't return a reference to `loop` because the only legitimate
-    // way to interrupt it is `unsubscribe()`/`stop()`; callers don't
+    // way to interrupt it is `abort()`/`drop()`/`stop()`; callers don't
     // need the promise.
     void loop;
   }
 
   /**
-   * Abort the current consumption loop. Idempotent. After this call,
-   * the AsyncIterable's next `next()` rejects with an AbortError, the
-   * loop exits, and no further events reach the monitor.
+   * Stop the current consumption loop BY FIRING THE ABORT. Idempotent.
+   * After this call the AsyncIterable's next `next()` rejects with an
+   * AbortError, the loop exits, and no further events reach the monitor.
    *
-   * Does NOT stop the monitor itself — the composition root is
-   * responsible for that orchestration (`monitor.stop()` lives on the
-   * same shutdown path).
+   * Use ONLY when the underlying socket is still OPEN. orpc registers an
+   * async abort listener on our call's signal that fires-and-forgets an
+   * `ABORT_SIGNAL` frame on abort (`@orpc/standard-server-peer`:
+   * `peer.request → signal.addEventListener("abort", … peer.send(…))`).
+   * On an OPEN socket that send lands cleanly; on a closed/closing socket
+   * it would throw UNHANDLED (the listener is fire-and-forget, so there's
+   * no promise we can catch) — see `drop()` for that mechanism and why
+   * the close paths use it instead.
+   *
+   * Production caller: the token-refresh socket swap
+   * (`TokenRefreshHandler.swapSocket`, via `stop()`), which stops the
+   * subscription while the OLD socket is still OPEN before closing it.
+   * Also used internally by `subscribe()`'s re-subscribe barrier (a
+   * re-subscribe happens on a live, just-opened socket).
+   *
+   * Does NOT stop the monitor itself — the composition root owns that
+   * orchestration (`monitor.stop()` lives on the same shutdown path).
    */
-  unsubscribe(): void {
-    // Cancel any pending pre-config retry (NFI-1): every teardown path
-    // (per-close hook, dispose, kick, terminal) routes through here, so
-    // a retry armed by a failed loop can never fire after the client
-    // stopped wanting a heartbeat.
-    this.clearRetryTimer();
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+  abort(): void {
+    this.releaseRetryAndLoop(() => {
+      if (this.abortController) {
+        this.abortController.abort();
+        this.abortController = null;
+      }
+    });
   }
 
   /**
-   * Alias for `unsubscribe()`. Exists so the subscriber conforms to the
+   * Stop the current consumption loop WITHOUT firing the abort. Idempotent.
+   * Releases our references (clears the controller field and the pending
+   * pre-config retry) and sets the `dropped` flag so `runLoop`'s catch
+   * treats the resulting exit as expected.
+   *
+   * How the loop actually ends: orpc's wrapper `close`-listener runs
+   * `peer.close()`, which REJECTS the in-flight `pull()`
+   * (`AsyncIdQueue.close()` → the pending pull rejects with a non-abort
+   * error). So the `for await` does NOT complete via a clean `done: true`;
+   * it THROWS, landing in `runLoop`'s catch with `signal.aborted === false`.
+   * The `dropped` flag is what marks that catch as the expected close-path
+   * exit (quiet debug, no resubscribe) instead of a real stream error.
+   *
+   * Use when the socket is already CLOSED/CLOSING. orpc registers its OWN
+   * `addEventListener("close", () => peer.close())` on the partysocket
+   * wrapper — independent of our `WebSocketHolder` — and that listener
+   * ends the heartbeat AsyncIterable and removes orpc's abort-send
+   * listeners WITHOUT emitting a frame. If we fired our abort in that
+   * window instead, orpc's signal-abort listener would fire-and-forget an
+   * `ABORT_SIGNAL` send onto the already-closed socket. That send reaches
+   * the browser-native `WebSocket.send()` (via orpc's adapter) and throws
+   * a DOM `InvalidStateError` ("the connection is in the CLOSING or CLOSED
+   * state"); being fire-and-forget, the rejection is UNHANDLED. partysocket
+   * 1.2.0 made this reachable by flipping `readyState`→CLOSED and
+   * dispatching `close` SYNCHRONOUSLY from `close()`, so our property
+   * `onclose` (→ event-handlers → onClose hook) runs BEFORE orpc's own
+   * wrapper close-listener. By calling `drop()` (not `abort()`) we leave
+   * the frameless cleanup to orpc's wrapper close-listener and avoid the
+   * throw entirely.
+   *
+   * NOTE on partysocket `send()`: partysocket's wrapper `send()` BUFFERS
+   * and warns (it never throws) in both 1.1.19 and 1.2.0; the throw above
+   * comes from the browser-native `WebSocket.send()` that orpc's adapter
+   * ultimately calls, NOT from the partysocket wrapper.
+   */
+  drop(): void {
+    // Mark this teardown as a deliberate drop so `runLoop`'s catch can
+    // classify its (non-abort) exit as expected rather than a real stream
+    // error. orpc ends the stream by REJECTING the in-flight `pull()` (its
+    // wrapper `close`-listener runs `peer.close()` → `AsyncIdQueue.close()`
+    // rejects the pending pull with a non-abort error), so `drop()`'s exit
+    // arrives via the catch with `signal.aborted === false` — NOT via a
+    // clean `done: true` completion. Without this flag every normal
+    // disconnect would log at error level (see `runLoop`).
+    this.dropped = true;
+    this.releaseRetryAndLoop(() => {
+      // Release our reference WITHOUT aborting. The loop's `for await`
+      // ends when orpc's wrapper close-listener calls `peer.close()`,
+      // which rejects the pending pull (a non-abort error); the catch sees
+      // `this.dropped` and exits quietly, and the loop's `finally` detaches
+      // idempotently.
+      this.abortController = null;
+    });
+  }
+
+  /**
+   * Shared teardown body for `abort()` / `drop()`. Cancels any pending
+   * pre-config retry (NFI-1) — every teardown path (per-close hook,
+   * dispose, kick, terminal, swap) routes through one of the two public
+   * stops, so a retry armed by a failed loop can never fire after the
+   * client stopped wanting a heartbeat — then runs the variant-specific
+   * controller release.
+   */
+  private releaseRetryAndLoop(releaseController: () => void): void {
+    this.clearRetryTimer();
+    releaseController();
+  }
+
+  /**
+   * Alias for `abort()`. Exists so the subscriber conforms to the
    * `{ stop(): void }` shape ReconnectManager expects from a heartbeat
-   * collaborator (Phase 1.3 cross-phase note). The composition root
-   * passes `this` to ReconnectManager via the same interface.
+   * collaborator (Phase 1.3 cross-phase note). The only ReconnectManager
+   * caller is the token-refresh swap, which stops the subscription while
+   * the old socket is still OPEN — so abort (not drop) is the correct
+   * semantics there.
    */
   stop(): void {
-    this.unsubscribe();
+    this.abort();
   }
 
   /**
@@ -336,12 +480,30 @@ export class HeartbeatSubscriber {
       }
       this.logger.debug("heartbeat-subscriber: stream ended cleanly");
     } catch (error) {
-      if (signal.aborted) {
-        // Expected path on `unsubscribe()`; the abort surfaces as an
-        // AbortError on the next pump. Quiet log.
-        this.logger.debug("heartbeat-subscriber: aborted");
+      if (signal.aborted || this.dropped) {
+        // EXPECTED teardown — two quiet exit shapes, neither a real error:
+        //
+        //   - `abort()` (or `subscribe()`'s re-subscribe barrier): the abort
+        //     surfaces as an AbortError on the next pump → `signal.aborted`.
+        //
+        //   - `drop()` (close-path teardown): the controller is NOT aborted,
+        //     so `signal.aborted` is false here. orpc's wrapper
+        //     `close`-listener runs `peer.close()`, which REJECTS the
+        //     in-flight `pull()` (`AsyncIdQueue.close()` rejects with a
+        //     non-abort error) — so this exit comes through THIS catch, NOT
+        //     a clean `done: true`. `this.dropped` is what classifies it as
+        //     expected. (Earlier comments here claimed drop() exits via the
+        //     clean `done: true` path; that was factually wrong and led to
+        //     an error-level log on every normal disconnect.)
+        //
+        // Quiet debug log; no resubscribe, no pre-config retry — a drop
+        // means the consumer stopped wanting this heartbeat.
+        this.logger.debug("heartbeat-subscriber: stream stopped (expected)");
       } else {
-        // Stream error during a live subscription.
+        // Genuine stream error on a LIVE subscription — neither aborted nor
+        // dropped. The `dropped` flag is set only by `drop()` and reset by
+        // every `subscribe()`, so a real mid-stream failure here is never
+        // masked.
         this.logger.error("heartbeat-subscriber: stream error", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -405,7 +567,7 @@ export class HeartbeatSubscriber {
     this.clearRetryTimer();
     this.retryTimer = this.clock.setTimeout(() => {
       this.retryTimer = null;
-      // Re-check the generation at fire time: a subscribe()/unsubscribe()
+      // Re-check the generation at fire time: a subscribe()/abort()/drop()
       // in the gap would have cleared this timer, but the check is cheap
       // belt-and-braces against future re-wirings.
       if (this.generation !== gen) return;

@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/shared",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared seam types/interfaces (Logger, Clock, Rng, heartbeat wire shape) for the @orpc-ws/* family. A published runtime dependency of the cores.",
   "license": "MIT",
   "repository": {
@@ -38,9 +38,10 @@
     "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
   },
   "devDependencies": {
-    "rimraf": "6.0.1",
-    "typescript": "5.9.3",
-    "vitest": "4.1.7"
+    "@types/node": "25.9.3",
+    "rimraf": "6.1.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
   },
   "type": "module",
   "exports": {

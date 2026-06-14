@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "types": ["node"],
     "rootDir": "./src",
     "outDir": "./dist",
     // Buildinfo at the package root, NOT inside `dist`: the typecheck pass

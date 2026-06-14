@@ -1,4 +1,4 @@
-# Security review — `@repo/orpc-ws-*` library
+# Security review — `@orpc-ws/*` library
 
 _Review date: 2026-06-10 · Reviewer: Fable model (security review pass) · Scope: `packages/*` library cores + adapters; demo apps consulted only as reference consumers. Review-only — no source changed._
 

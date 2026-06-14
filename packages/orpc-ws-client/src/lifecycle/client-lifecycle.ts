@@ -106,12 +106,23 @@ export class ClientLifecycle {
    * composition-level latch so the two paths together fire the consumer
    * callback at most once per client.
    *
-   * Teardown mirrors `dispose()`'s ordering: close the wrapper FIRST
-   * (partysocket's `close()` latches its internal `_closeCalled` flag and
-   * stops the auto-retry loop — same technique as the 4005 branch in
-   * event-handlers.ts), then clear the holder/link so the wrapper's late
-   * close event is stale-dropped (Bug 9 guard) instead of fighting the
-   * terminal state we set below.
+   * Teardown ordering (CLEAR-BEFORE-CLOSE — fixes the spurious-emit bug):
+   * capture the wrapper, then null the link + holder BEFORE calling
+   * `ws.close()`. partysocket 1.2.0 dispatches `close` SYNCHRONOUSLY from
+   * `close()`, so `ws.close()` re-enters our own `handleClose` inline.
+   * With the holder already cleared, that re-entrant close sees
+   * `wrapper !== holder.get()` (holder is null) → `decideClose` returns
+   * `ignore` (stale-ws, Bug 9 guard) → no state transition, no hooks, no
+   * spurious `auth_failure{refreshable:true}` / transient
+   * `disconnected{willRetry:true}`. (Pre-fix the holder was still set when
+   * we closed, so on a never-opened connection the re-entrant close hit
+   * the Bug-4 branch `code===1000 && !attemptHadOpened → auth-recovery`
+   * and emitted a contradictory non-terminal frame before our terminal
+   * emit below.) orpc's cleanup still happens because its close listener
+   * is on the WRAPPER, not our holder: `ws.close()` → orpc `peer.close()`
+   * (frameless) ends the heartbeat stream. We then `drop()` the subscriber
+   * (NOT `abort()`) to release our refs without firing an abort-send onto
+   * the now-closed socket.
    */
   fireTerminalAuthFailure = (): void => {
     if (this.terminalAuthFired) {
@@ -122,16 +133,22 @@ export class ClientLifecycle {
     }
     this.terminalAuthFired = true;
 
-    this.deps.heartbeatSubscriber.unsubscribe();
-    this.deps.heartbeatMonitor.stop();
+    // Stop the monitor + sleep detector up front (cheap, send-free).
     // Terminal means ALL background machinery stops (F3). Pre-fix the sleep
     // detector kept ticking, so a post-terminal wake still emitted
     // `woke_from_sleep` and ran the full reconnect machinery just to be
     // refused at the socket swap.
+    this.deps.heartbeatMonitor.stop();
     const sleepDetector = this.deps.getSleepDetector();
     if (sleepDetector) sleepDetector.stop();
 
+    // CLEAR the link + holder BEFORE closing the wrapper. partysocket's
+    // synchronous close (1.2.0) re-enters `handleClose` inline; with the
+    // holder nulled first, that re-entrant close is recognized as stale
+    // (Bug 9 guard) and ignored — no spurious emit. See the method doc.
     const ws = this.deps.websocketHolder.get();
+    this.deps.linkFactory.clearLink();
+    this.deps.websocketHolder.clear();
     if (ws) {
       try {
         ws.close();
@@ -142,8 +159,10 @@ export class ClientLifecycle {
         );
       }
     }
-    this.deps.linkFactory.clearLink();
-    this.deps.websocketHolder.clear();
+    // `drop()` (not `abort()`): the socket is now closed and orpc's wrapper
+    // close-listener has already torn the stream down framelessly. We only
+    // release our references here. See HeartbeatSubscriber.drop().
+    this.deps.heartbeatSubscriber.drop();
 
     // Terminal state BEFORE the consumer callback — the contract in
     // auth/types.ts promises the connection has already moved to a
@@ -260,13 +279,24 @@ export class ClientLifecycle {
     // (Bug 12): an armed debounce timer or in-flight refresh would otherwise
     // fire AFTER this teardown and resurrect a zombie socket.
     this.deps.getReconnectManager().dispose();
-    this.deps.heartbeatSubscriber.unsubscribe();
     this.deps.heartbeatMonitor.stop();
     const sleepDetector = this.deps.getSleepDetector();
     if (sleepDetector) sleepDetector.stop();
 
-    // Close the underlying socket (if any) and clear caches.
+    // CLEAR-BEFORE-CLOSE (same discipline as fireTerminalAuthFailure):
+    // capture the wrapper, null the link + holder, THEN close. partysocket
+    // 1.2.0 dispatches `close` synchronously, re-entering `handleClose`
+    // inline; with the holder already null the re-entrant close is
+    // stale-dropped (Bug 9 guard) — no spurious transient
+    // `disconnected{willRetry:true}` frame before the terminal state below.
+    // orpc's wrapper close-listener (`peer.close()`) still ends the
+    // heartbeat AsyncIterable framelessly because it's bound to the
+    // WRAPPER, not our holder. We then `drop()` (not `abort()`) to release
+    // our refs without an abort-send onto the closed socket — see
+    // HeartbeatSubscriber.drop() for the mechanism.
     const ws = this.deps.websocketHolder.get();
+    this.deps.linkFactory.clearLink();
+    this.deps.websocketHolder.clear();
     if (ws) {
       try {
         ws.close();
@@ -277,8 +307,10 @@ export class ClientLifecycle {
         });
       }
     }
-    this.deps.linkFactory.clearLink();
-    this.deps.websocketHolder.clear();
+    // Release our heartbeat references. Idempotent belt-and-braces: the
+    // onClose hook already ran `drop()` if a socket existed; this also
+    // covers the no-socket dispose.
+    this.deps.heartbeatSubscriber.drop();
 
     // Terminal state. `willRetry: false` distinguishes this from partysocket's
     // auto-retry path (which would be willRetry: true).
