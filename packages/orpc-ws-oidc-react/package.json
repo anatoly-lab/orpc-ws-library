@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/oidc-react",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The library's React bindings: hooks (useConnectionState, useAuthState, useUser, useOidcCallback) and an optional react-router OidcCallback component on the ./react-router sub-path. Does not re-export the cores.",
   "license": "MIT",
   "repository": {
