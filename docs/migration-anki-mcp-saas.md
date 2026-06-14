@@ -1,4 +1,4 @@
-# Migration guide — `anki-mcp-saas` → `@repo/orpc-ws-*`
+# Migration guide — `anki-mcp-saas` → `@orpc-ws/*`
 
 Step-by-step recipe for replacing the source app's hand-rolled
 WebSocket transport with the library. Two halves: `apps/web` (client)

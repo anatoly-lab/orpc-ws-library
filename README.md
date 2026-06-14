@@ -1,4 +1,4 @@
-# `@repo/orpc-ws-*`
+# `@orpc-ws/*`
 
 The typed ORPC client/server for an app that talks to its backend over
 a long-lived WebSocket. Reconnect, heartbeat, sleep detection, auth
@@ -108,9 +108,11 @@ tests-e2e/        # Playwright + Testcontainers Keycloak
 docs/             # implementation-plan, migration guide, mermaid diagrams
 ```
 
-`npm install` from the root. `npx turbo run test` for the unit suite.
+`corepack enable` then `pnpm install` from the root (pnpm version is pinned
+in the root `package.json` `packageManager` field). `pnpm exec turbo run test`
+for the unit suite.
 
-For `npm run dev:demo`, copy **both** env templates: `apps/demo-spa/.env.example`
+For `pnpm dev:demo`, copy **both** env templates: `apps/demo-spa/.env.example`
 → `apps/demo-spa/.env` (the SPA reads `VITE_OIDC_ISSUER_URL`,
 `VITE_OIDC_CLIENT_ID`, `VITE_WS_URL` at build time and fails loudly if
 they're missing) and `apps/demo-server/.env.example` → `apps/demo-server/.env`

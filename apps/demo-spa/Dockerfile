@@ -14,6 +14,10 @@
 
 # ── base ──────────────────────────────────────────────────────────────
 FROM node:22-alpine AS base
+# corepack provisions the pnpm version pinned in package.json "packageManager".
+# Alpine's bundled corepack predates the npm signing-key rotation and fails
+# "Cannot find matching keyid" on recent pnpm releases — update it first.
+RUN npm i -g corepack@latest && corepack enable
 RUN npm i -g turbo@2
 WORKDIR /app
 
@@ -26,7 +30,7 @@ RUN turbo prune @demo/spa --docker
 FROM base AS builder
 
 COPY --from=pruner /app/out/json/ .
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
 COPY --from=pruner /app/out/full/ .
 
@@ -41,7 +45,7 @@ ENV VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
 ENV VITE_WS_URL=$VITE_WS_URL
 ENV VITE_UPLOAD_URL=$VITE_UPLOAD_URL
 
-RUN npx turbo run build --filter=@demo/spa
+RUN turbo run build --filter=@demo/spa
 
 # ── runner ────────────────────────────────────────────────────────────
 FROM nginx:alpine AS runner

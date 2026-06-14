@@ -96,7 +96,7 @@ const OIDC_DISCOVERY_URL = `http://keycloak:${KEYCLOAK_INTERNAL_PORT}/realms/${K
 // First run pulls the 600+ MB KC image; subsequent runs are seconds.
 const KEYCLOAK_STARTUP_TIMEOUT_MS = 5 * 60_000;
 const APP_STARTUP_TIMEOUT_MS = 90_000;
-// App images are large multi-stage builds (turbo prune + npm ci + tshy).
+// App images are large multi-stage builds (turbo prune + pnpm install + tshy).
 // Cold build can be minutes; warm (layer-cached) build is seconds.
 const IMAGE_BUILD_TIMEOUT_MS = 10 * 60_000;
 

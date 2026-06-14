@@ -4,14 +4,17 @@
 # `turbo prune` can see every workspace. Build with:
 #   docker build -f apps/demo-server/Dockerfile -t orpc-ws-e2e/server .
 #
-# Uses npm workspaces (this repo's package manager — there is no pnpm)
-# and `turbo prune --docker`, which emits:
-#   out/json  → just the package.json files (for a cache-friendly install)
+# Uses pnpm workspaces and `turbo prune --docker`, which emits:
+#   out/json  → package.json files + pnpm-workspace.yaml (cache-friendly install)
 #   out/full  → the pruned source tree
-#   out/package-lock.json → the pruned lockfile (npm)
+#   out/pnpm-lock.yaml → the pruned lockfile (pnpm)
 
 # ── base ──────────────────────────────────────────────────────────────
 FROM node:22-alpine AS base
+# corepack provisions the pnpm version pinned in package.json "packageManager".
+# Alpine's bundled corepack predates the npm signing-key rotation and fails
+# "Cannot find matching keyid" on recent pnpm releases — update it first.
+RUN npm i -g corepack@latest && corepack enable
 RUN npm i -g turbo@2
 WORKDIR /app
 
@@ -26,13 +29,15 @@ RUN turbo prune @demo/server --docker
 # workspace dependencies (tshy dual-builds the library cores).
 FROM base AS builder
 
-# package.jsons + lockfile first, for a cache-friendly install layer.
+# package.jsons + lockfile first, for a cache-friendly install layer. turbo prune
+# carries the pruned pnpm-workspace.yaml (incl. linkWorkspacePackages, which links
+# the local cores by version) into out/json.
 COPY --from=pruner /app/out/json/ .
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
 # Now the pruned source and build.
 COPY --from=pruner /app/out/full/ .
-RUN npx turbo run build --filter=@demo/server
+RUN turbo run build --filter=@demo/server
 
 # ── runner ────────────────────────────────────────────────────────────
 # Minimal runtime: the whole built workspace + installed node_modules.

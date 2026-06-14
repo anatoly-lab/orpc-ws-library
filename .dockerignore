@@ -1,6 +1,6 @@
 # Keep the Docker build context (and turbo-prune scan) small. The
-# multi-stage builds run `turbo prune` + `npm ci` from a clean slate, so
-# none of these belong in the context.
+# multi-stage builds run `turbo prune` + `pnpm install --frozen-lockfile`
+# from a clean slate, so none of these belong in the context.
 node_modules
 **/node_modules
 **/dist

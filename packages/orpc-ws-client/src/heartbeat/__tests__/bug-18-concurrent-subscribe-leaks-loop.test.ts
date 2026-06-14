@@ -5,7 +5,7 @@
 // barrier was not atomic across its `await`:
 //
 //   if (this.abortController || this.activeLoop) {
-//     this.unsubscribe();
+//     this.abort();
 //     const prior = this.activeLoop;
 //     this.activeLoop = null;        // <-- 2nd caller now sees a clean slate
 //     if (prior) await prior;        // <-- suspension point
@@ -15,12 +15,12 @@
 //
 // Interleaving (fast open→close→open churn — the composition root calls
 // `void heartbeatSubscriber.subscribe()` on every open):
-//   open#1 → loop-1 live. close → unsubscribe(). open#2 → subscribe() A:
+//   open#1 → loop-1 live. close → drop(). open#2 → subscribe() A:
 //   enters the barrier (activeLoop still set), nulls the fields, awaits
 //   loop-1's drain. open#3 → subscribe() B: both fields are null, skips
 //   the barrier, starts loop-B and installs controller-B. A resumes,
 //   starts loop-A and OVERWRITES abortController/activeLoop → loop-B's
-//   controller is unreachable. unsubscribe()/stop()/dispose() abort only
+//   controller is unreachable. abort()/drop()/stop()/dispose() abort only
 //   loop-A; loop-B keeps consuming the stream and calling
 //   monitor.recordPing() forever — permanently feeding the watchdog from
 //   a stale subscription and masking real heartbeat timeouts.
@@ -29,7 +29,7 @@
 // before any await and bails after the barrier if a newer call claimed a
 // higher generation. Net effect: after ANY interleaving of concurrent
 // subscribe() calls, exactly ONE loop is live and it IS the one
-// unsubscribe() aborts.
+// abort() aborts.
 //
 // Harness mirrors subscriber.test.ts: fake LinkFactory whose link records
 // every call() and returns a per-call controllable AsyncIterable.
@@ -168,8 +168,8 @@ const flush = async (): Promise<void> => {
 
 describe("Bug 18 — concurrent subscribe() leaks an unabortable loop", () => {
   it(
-    "after open#1 → unsubscribe → concurrent subscribe A + B, exactly one " +
-      "loop is live and unsubscribe() actually stops it",
+    "after open#1 → abort → concurrent subscribe A + B, exactly one " +
+      "loop is live and abort() actually stops it",
     async () => {
       const { factory, calls } = makeFakeLinkFactory();
       const monitor = makeFakeMonitor();
@@ -188,7 +188,7 @@ describe("Bug 18 — concurrent subscribe() leaks an unabortable loop", () => {
 
       // close: abort loop-1. Its drain (catch/finally) is still pending
       // on the microtask queue — that's the window the bug needs.
-      subscriber.unsubscribe();
+      subscriber.abort();
 
       // open#2 (caller A): enters the barrier (activeLoop still set),
       // nulls the fields, suspends awaiting loop-1's drain.
@@ -212,10 +212,10 @@ describe("Bug 18 — concurrent subscribe() leaks an unabortable loop", () => {
       await flush();
       expect(monitor.recordPingCalls).toBe(2);
 
-      // ...and unsubscribe() actually reaches it. Pre-fix, the held
+      // ...and abort() actually reaches it. Pre-fix, the held
       // controller belonged to A's loop, so B's orphaned loop survived
       // this call and kept feeding the watchdog.
-      subscriber.unsubscribe();
+      subscriber.abort();
       await flush();
       expect(calls[1]!.options.signal?.aborted).toBe(true);
 
@@ -251,8 +251,8 @@ describe("Bug 18 — concurrent subscribe() leaks an unabortable loop", () => {
     const liveCalls = calls.filter((c) => c.options.signal?.aborted === false);
     expect(liveCalls).toHaveLength(1);
 
-    // And unsubscribe() kills it — afterwards nothing reaches the monitor.
-    subscriber.unsubscribe();
+    // And abort() kills it — afterwards nothing reaches the monitor.
+    subscriber.abort();
     await flush();
     expect(liveCalls[0]!.options.signal?.aborted).toBe(true);
 

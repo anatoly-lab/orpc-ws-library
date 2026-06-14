@@ -11,16 +11,20 @@
 //   1. `subscribe()` calls `link.call(HEARTBEAT_PATH, undefined, opts)`
 //      — path pinned literally (Bug 8 regression at the path level).
 //   2. The options carry the abort controller's signal — proves
-//      `unsubscribe()` actually aborts the upstream stream.
+//      `abort()` actually aborts the upstream stream.
 //   3. `config` event → `monitor.configure(intervalMs, timeoutMs)` then
 //      `monitor.start()`.
 //   4. `ping` event → `monitor.recordPing()`.
-//   5. `unsubscribe()` aborts the controller; after unsubscribe no
-//      further `recordPing()` calls can land on the monitor.
-//   6. `stop()` is observationally identical to `unsubscribe()`.
-//   7. Stream error (not abort) is logged but does NOT auto-resubscribe
+//   5. `abort()` aborts the controller; after abort no further
+//      `recordPing()` calls can land on the monitor.
+//   6. `stop()` is observationally identical to `abort()`.
+//   7. `drop()` releases references WITHOUT aborting the controller —
+//      the close-path teardown (orpc's wrapper close-listener does the
+//      frameless cleanup; firing our abort would send onto a closed
+//      socket).
+//   8. Stream error (not abort) is logged but does NOT auto-resubscribe
 //      — composition root handles reconnect via `onTimeout` wiring.
-//   8. Re-subscribe aborts the prior stream before starting a new one.
+//   9. Re-subscribe aborts the prior stream before starting a new one.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -254,10 +258,10 @@ describe("HeartbeatSubscriber — stealth path (HEARTBEAT_PATH)", () => {
     // `Record<string, never>`, so the only valid value is `{}`.
     expect(calls[0]?.options.context).toEqual({});
 
-    subscriber.unsubscribe();
+    subscriber.abort();
   });
 
-  it("the signal passed to link.call is the controller's signal — unsubscribe() aborts it", async () => {
+  it("the signal passed to link.call is the controller's signal — abort() aborts it", async () => {
     const { factory, calls } = makeFakeLinkFactory();
     const monitor = makeFakeMonitor();
     const subscriber = new HeartbeatSubscriber({
@@ -272,7 +276,7 @@ describe("HeartbeatSubscriber — stealth path (HEARTBEAT_PATH)", () => {
     expect(signal).toBeDefined();
     expect(signal?.aborted).toBe(false);
 
-    subscriber.unsubscribe();
+    subscriber.abort();
 
     expect(signal?.aborted).toBe(true);
   });
@@ -298,7 +302,7 @@ describe("HeartbeatSubscriber — event handling", () => {
     ]);
     expect(monitor.startCalls).toBe(1);
 
-    subscriber.unsubscribe();
+    subscriber.abort();
   });
 
   it("on 'ping' event: monitor.recordPing called", async () => {
@@ -323,11 +327,11 @@ describe("HeartbeatSubscriber — event handling", () => {
     expect(monitor.configureCalls).toEqual([]);
     expect(monitor.startCalls).toBe(0);
 
-    subscriber.unsubscribe();
+    subscriber.abort();
   });
 
   it(
-    "after unsubscribe() no further ping events land on the monitor",
+    "after abort() no further ping events land on the monitor",
     async () => {
       const { factory, calls } = makeFakeLinkFactory();
       const monitor = makeFakeMonitor();
@@ -343,7 +347,7 @@ describe("HeartbeatSubscriber — event handling", () => {
       await flush();
       expect(monitor.recordPingCalls).toBe(1);
 
-      subscriber.unsubscribe();
+      subscriber.abort();
       await flush();
 
       // The stream is still "open" from the test's perspective, but the
@@ -358,8 +362,59 @@ describe("HeartbeatSubscriber — event handling", () => {
   );
 });
 
-describe("HeartbeatSubscriber — stop() / unsubscribe() equivalence", () => {
-  it("stop() aborts the controller (same effect as unsubscribe)", async () => {
+describe("HeartbeatSubscriber — drop() (Option B close-path teardown)", () => {
+  it("drop() does NOT abort the controller and releases our reference — orpc's wrapper close-listener owns the frameless stream teardown", async () => {
+    const { factory, calls } = makeFakeLinkFactory();
+    const monitor = makeFakeMonitor();
+    const subscriber = new HeartbeatSubscriber({
+      linkFactory: factory,
+      monitor,
+    });
+
+    await subscriber.subscribe();
+    await flush();
+
+    const signal = calls[0]?.options.signal;
+    expect(signal).toBeDefined();
+    expect(signal?.aborted).toBe(false);
+
+    // The whole point of drop() vs abort(): on the close paths the socket
+    // is already closed and orpc's `addEventListener("close")` on the
+    // wrapper tears the subscription down WITHOUT a frame. Firing our
+    // abort would instead make orpc send an ABORT_SIGNAL onto the closed
+    // socket. So drop() must NOT abort the controller's signal.
+    subscriber.drop();
+    expect(signal?.aborted).toBe(false);
+
+    // drop() released our reference to the controller: a subsequent
+    // abort() has nothing to abort, so the original signal STAYS
+    // un-aborted (had drop() kept the ref, abort() would have aborted it).
+    subscriber.abort();
+    expect(signal?.aborted).toBe(false);
+
+    // In production orpc's wrapper close-listener ends the stream; we
+    // simulate that here so the loop drains and the test doesn't leak a
+    // pending `for await`.
+    calls[0]?.stream.close();
+    await flush();
+  });
+
+  it("drop() is idempotent and safe before any subscribe()", () => {
+    const { factory } = makeFakeLinkFactory();
+    const monitor = makeFakeMonitor();
+    const subscriber = new HeartbeatSubscriber({
+      linkFactory: factory,
+      monitor,
+    });
+    expect(() => {
+      subscriber.drop();
+      subscriber.drop();
+    }).not.toThrow();
+  });
+});
+
+describe("HeartbeatSubscriber — stop() / abort() equivalence", () => {
+  it("stop() aborts the controller (same effect as abort)", async () => {
     const { factory, calls } = makeFakeLinkFactory();
     const monitor = makeFakeMonitor();
     const subscriber = new HeartbeatSubscriber({
@@ -437,6 +492,56 @@ describe("HeartbeatSubscriber — stream error / close behavior", () => {
     ).toBe(true);
   });
 
+  it("after drop(): orpc's REJECTING teardown is the expected (quiet) path — NO error log, NO pre-config retry", async () => {
+    // Reproduces the REAL orpc teardown shape. orpc ends the heartbeat
+    // stream by REJECTING the in-flight `pull()` — its wrapper
+    // `close`-listener runs `peer.close()` → `AsyncIdQueue.close()` rejects
+    // the pending pull with a non-abort error — NOT by resolving
+    // `done: true`. Because `drop()` deliberately does NOT abort the
+    // controller, `signal.aborted` is false at that catch; only the
+    // `dropped` flag classifies this as expected.
+    //
+    // The bug: before the fix, `drop()` did not set a flag, so this exit
+    // landed in the `else` branch and logged `error("…stream error…")` on
+    // EVERY normal disconnect, and (when the failure preceded `config`)
+    // could arm a pre-config retry timer on a just-closed connection.
+    const { factory, calls } = makeFakeLinkFactory();
+    const monitor = makeFakeMonitor();
+    const logger = makeLogger();
+    // Tight retry deps + a fake clock so we can ASSERT no retry timer was
+    // armed: a pre-config retry would log a "retrying subscription" warn
+    // and issue a second link.call. With the fix, neither happens.
+    const subscriber = new HeartbeatSubscriber({
+      linkFactory: factory,
+      monitor,
+      logger,
+    });
+
+    await subscriber.subscribe();
+    await flush();
+
+    // Socket closed BEFORE the `config` event (receivedConfig === false) —
+    // the worst case from the bug report, where a stray retry could arm.
+    // Drop first (mirrors the lifecycle orchestrator's close-path choice),
+    // THEN orpc's close-listener rejects the pending pull.
+    subscriber.drop();
+    calls[0]?.stream.error(new Error("AsyncIdQueue closed")); // non-abort reject
+    await flush();
+
+    // No error-level "stream error" telemetry on a normal disconnect.
+    expect(
+      logger.calls.some(
+        (c) => c.level === "error" && c.msg.includes("stream error"),
+      ),
+    ).toBe(false);
+    // No pre-config retry: still exactly one link.call, and no "retrying"
+    // warn was emitted.
+    expect(calls).toHaveLength(1);
+    expect(
+      logger.calls.some((c) => c.msg.includes("retrying subscription")),
+    ).toBe(false);
+  });
+
   it("on stream close (cleanly): logs and does NOT auto-resubscribe", async () => {
     const { factory, calls } = makeFakeLinkFactory();
     const monitor = makeFakeMonitor();
@@ -476,8 +581,10 @@ describe("HeartbeatSubscriber — re-subscribe race", () => {
       const firstSignal = calls[0]?.options.signal;
       expect(firstSignal?.aborted).toBe(false);
 
-      // Re-subscribe before any unsubscribe — the prior controller must
-      // be aborted, the prior loop awaited, and a new link.call issued.
+      // Re-subscribe before any abort/drop — the prior controller must
+      // be aborted (re-subscribe happens on a live socket, so abort() is
+      // the correct teardown), the prior loop awaited, and a new
+      // link.call issued.
       await subscriber.subscribe();
       await flush();
 
@@ -488,7 +595,7 @@ describe("HeartbeatSubscriber — re-subscribe race", () => {
       // Distinct signal — the controller is fresh, not the prior one.
       expect(calls[1]?.options.signal).not.toBe(firstSignal);
 
-      subscriber.unsubscribe();
+      subscriber.abort();
     },
   );
 });

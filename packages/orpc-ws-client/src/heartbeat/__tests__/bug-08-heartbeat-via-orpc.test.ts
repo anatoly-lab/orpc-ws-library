@@ -124,7 +124,7 @@ describe("Bug 8 regression — heartbeat over ORPC link (stealth path)", () => {
       // Raw frame send (the pre-Bug-8 approach) must NEVER tick.
       expect(rawSend).not.toHaveBeenCalled();
 
-      subscriber.unsubscribe();
+      subscriber.abort();
     },
   );
 
@@ -152,7 +152,7 @@ describe("Bug 8 regression — heartbeat over ORPC link (stealth path)", () => {
       // exists to avoid.
       expect(path).not.toEqual(["system", "heartbeat"]);
 
-      subscriber.unsubscribe();
+      subscriber.abort();
     },
   );
 
@@ -171,7 +171,7 @@ describe("Bug 8 regression — heartbeat over ORPC link (stealth path)", () => {
 
       expect(recordedCalls[0]?.options.signal).toBeInstanceOf(AbortSignal);
 
-      subscriber.unsubscribe();
+      subscriber.abort();
     },
   );
 });

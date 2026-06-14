@@ -1,0 +1,36 @@
+# pnpm workspace definition + settings (replaces the root package.json
+# "workspaces" field AND the old .npmrc). As of pnpm 10/11, `.npmrc` holds only
+# auth/registry; every other setting lives here in camelCase (see pnpm "Settings").
+#
+# Same globs as before: publishable cores under packages/*, the private demo
+# apps under apps/*, and the Playwright e2e suite as a top-level dir.
+packages:
+  - "packages/*"
+  - "apps/*"
+  - "tests-e2e"
+
+# ALL cross-package @orpc-ws/* deps use the pnpm `workspace:*` protocol (the
+# private @demo/contract dep does too). pnpm rewrites `workspace:*` → the exact
+# just-published version at publish time, and `changeset publish` delegates to
+# `pnpm publish`, so the registry metadata is always correct without a hand-run
+# version-stamp script (see CLAUDE.md "Monorepo tooling" + RELEASING.md).
+# `linkWorkspacePackages: true` is now belt-and-suspenders — `workspace:*` deps
+# link to the local copy regardless — but we keep it so any plain-version dep
+# would still resolve locally.
+linkWorkspacePackages: true
+
+# Carried over from the old .npmrc.
+saveExact: true
+engineStrict: true
+# pnpm 11 blocks dependency build/postinstall scripts by default (supply-chain
+# hardening). Each must be explicitly allowed (true) or declined (false), or the
+# non-interactive `pnpm install` turbo runs before tasks exits 1. We allow only
+# the two that matter for build/lint; the rest are declined (they're optional
+# native bits or funding banners and work fine — or are unused — without them).
+allowBuilds:
+  esbuild: true            # vite/vitest/tsx native binary setup
+  unrs-resolver: true      # eslint-import-resolver-typescript native binding
+  '@nestjs/core': false    # postinstall is just a funding banner
+  protobufjs: false        # codegen CLI postinstall, unused here
+  ssh2: false              # native crypto accel (testcontainers/docker) — JS fallback works
+  cpu-features: false      # optional ssh2 speedup, not required

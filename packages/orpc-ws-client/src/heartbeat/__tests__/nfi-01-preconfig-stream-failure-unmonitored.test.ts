@@ -266,7 +266,7 @@ describe("NFI-1 — pre-config stream failure leaves the connection unmonitored"
       ]);
       expect(ctx.monitor.startCalls).toBe(1);
 
-      ctx.subscriber.unsubscribe();
+      ctx.subscriber.abort();
     },
   );
 
@@ -287,7 +287,7 @@ describe("NFI-1 — pre-config stream failure leaves the connection unmonitored"
       await ctx.advance(RETRY_DELAY_MS);
       expect(ctx.calls).toHaveLength(2);
 
-      ctx.subscriber.unsubscribe();
+      ctx.subscriber.abort();
     },
   );
 
@@ -331,7 +331,7 @@ describe("NFI-1 — pre-config stream failure leaves the connection unmonitored"
     // Teardown (per-close hook / dispose / kick / terminal all route
     // through unsubscribe) must cancel the retry — a dead client never
     // re-subscribes.
-    ctx.subscriber.unsubscribe();
+    ctx.subscriber.abort();
     expect(ctx.pendingCount()).toBe(0);
 
     await ctx.advance(10 * RETRY_DELAY_MS);
@@ -358,7 +358,7 @@ describe("NFI-1 — pre-config stream failure leaves the connection unmonitored"
       await ctx.advance(10 * RETRY_DELAY_MS);
       expect(ctx.calls).toHaveLength(2);
 
-      ctx.subscriber.unsubscribe();
+      ctx.subscriber.abort();
     },
   );
 

@@ -1,4 +1,4 @@
-# Implementation Plan — `@repo/orpc-ws-*` Library
+# Implementation Plan — `@orpc-ws/*` Library
 
 **Status: draft, v2.** Revised after a 4-agent review (architecture/SOLID,
 test strategy + migration realism, DX/public API, ORPC/NestJS
@@ -16,12 +16,12 @@ open items live at the bottom under §"Open for discussion".
 **Goal:** green CI on a fresh clone; packages compile + lint + smoke-test pass.
 
 ### Files
-- `package.json` (root, private, `workspaces: ["packages/*"]`)
+- `package.json` (root, private) + `pnpm-workspace.yaml` (workspace globs: `packages/*`)
 - `turbo.json` (pipelines: `build`, `lint`, `typecheck`, `test`; `outputs: ["dist/**"]`)
 - `tsconfig.base.json` — `strict`, `noUncheckedIndexedAccess`, ES2022, ESM
 - `.eslintrc.cjs` — `import/no-extraneous-dependencies` + `import/no-restricted-paths` (framework-free guard, see below)
 - `vitest.base.ts` — shared config (fake timers, happy-dom, common matchers)
-- `.gitignore`, `.npmrc` (`engine-strict=true`, `save-exact=true`)
+- `.gitignore`, `pnpm-workspace.yaml` settings (`engineStrict: true`, `saveExact: true`, `linkWorkspacePackages: true`)
 - `.github/workflows/ci.yml` — `turbo run lint typecheck test build` + turbo cache
 
 ### Shared types pinned in Phase 0
@@ -87,7 +87,7 @@ packages/
 ```
 
 ### Definition of done
-- `npm install` from root succeeds
+- `pnpm install` from root succeeds
 - `turbo run typecheck lint test build` passes on CI
 - One smoke test per package
 - No production code beyond `index.ts` placeholders + smoke tests

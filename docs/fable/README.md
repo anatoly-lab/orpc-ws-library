@@ -1,4 +1,4 @@
-# Fable model review — `@repo/orpc-ws-*`
+# Fable model review — `@orpc-ws/*`
 
 Independent codebase review performed by agents running on the **Fable**
 model. Scope: the library packages under `packages/*` (cores + adapters +
