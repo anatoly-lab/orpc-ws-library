@@ -100,7 +100,9 @@ function makeHarness(opts: { opened: boolean }): Harness {
   // REAL EventHandlers so the re-entrant close routes through the genuine
   // close-decision tree. The no-tokenProvider terminal path is what we
   // exercise: onAuthRecoveryNeeded → fireTerminalAuthFailure directly.
-  let lifecycle!: ClientLifecycle;
+  // `lifecycle` is built below as `const` and referenced here through a
+  // deferred closure (same forward-ref shape the real composition root uses
+  // for `reconnectManager` in index.ts), so no `let` is needed.
   const eventHandlers = new EventHandlers({
     connectionState: state,
     websocketHolder: holder,
@@ -121,7 +123,7 @@ function makeHarness(opts: { opened: boolean }): Harness {
   const handlers = eventHandlers.createHandlers(ws as never);
   ws.onclose = (event) => handlers.onClose(event, ws as never);
 
-  lifecycle = new ClientLifecycle({
+  const lifecycle = new ClientLifecycle({
     connectionState: state,
     websocketHolder: holder,
     linkFactory,
