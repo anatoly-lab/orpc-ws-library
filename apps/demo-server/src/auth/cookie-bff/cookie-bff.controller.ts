@@ -20,6 +20,11 @@ import type { Request, Response } from "express";
 
 import { APP_ENV_CONFIG, type AppEnvConfig } from "../../config.js";
 import { clearCookie, parseCookie, serializeCookie } from "../../shared/cookies.js";
+import {
+  clearStateCookieHeader,
+  stateCookieHeader,
+  stateCookieMatches,
+} from "../../shared/oauth-state-cookie.js";
 import { decodeIdTokenClaims } from "../../shared/oidc-code-exchange.js";
 import { getOidcEndpoints } from "../../shared/keycloak-urls.js";
 // `OidcCodeExchange` + `SessionStore` are used ONLY in constructor-param
@@ -61,9 +66,13 @@ export class CookieBffController {
 
   @Get("login")
   async login(@Req() req: Request, @Res() res: Response): Promise<void> {
-    const { url } = await this.exchange.createAuthorizationUrl(
+    const { url, state } = await this.exchange.createAuthorizationUrl(
       this.callbackUri(req),
     );
+    // Bind this login to THIS browser: stash `state` in a short-lived
+    // httpOnly cookie the callback must echo back (login-CSRF fix). `append`
+    // (not `setHeader`) so we never clobber any other Set-Cookie.
+    res.append("Set-Cookie", stateCookieHeader(state));
     res.redirect(302, url);
   }
 
@@ -73,6 +82,17 @@ export class CookieBffController {
     const state = typeof req.query.state === "string" ? req.query.state : null;
     if (!code || !state) {
       res.status(400).send("Missing code/state");
+      return;
+    }
+
+    // Browser-binding check: the callback must carry the `oauth_state` cookie
+    // set at /auth/login, matching the query `state`. A forged/cross-browser
+    // callback has no matching cookie -> reject before token exchange. Clear
+    // the cookie regardless of outcome (single-use). Defense in depth on top
+    // of the server-side `state -> verifier` check inside exchangeCode.
+    res.append("Set-Cookie", clearStateCookieHeader());
+    if (!stateCookieMatches(req.headers.cookie, state)) {
+      res.status(400).send("Invalid OAuth state (browser binding failed)");
       return;
     }
 
@@ -93,7 +113,9 @@ export class CookieBffController {
       expiresAt: Date.now() + tokens.expiresIn * 1000,
     });
 
-    res.setHeader(
+    // `append` (not `setHeader`) so the sid cookie joins the state-cookie
+    // clear emitted above rather than overwriting it.
+    res.append(
       "Set-Cookie",
       serializeCookie(this.config.sessionCookieName, sid, { httpOnly: true }),
     );
