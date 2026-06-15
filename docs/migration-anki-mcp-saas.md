@@ -131,7 +131,7 @@ Was 30 lines, becomes one import:
 
 ```ts
 // apps/web/src/hooks/useConnectionState.ts
-export { useConnectionState } from "@orpc-ws/client/react";
+export { useConnectionState } from "@orpc-ws/react";
 ```
 
 If you kept the legacy string-union shape (Step 1 above), you'll want

@@ -185,9 +185,11 @@ function toSvelteStore(state) {
 ```
 
 ### Definition of done
-- `import { useConnectionState } from "@orpc-ws/client/react"` works in a consumer app
+- `import { useConnectionState } from "@orpc-ws/react"` works in a consumer app
+  (the React bindings ship in the sibling `@orpc-ws/react` adapter, not a
+  `@orpc-ws/client` sub-path)
 - Bug 7 (StrictMode double-mount) regression passes
-- `.d.ts` correctly typed for the sub-path
+- `.d.ts` correctly typed for the adapter
 
 ---
 

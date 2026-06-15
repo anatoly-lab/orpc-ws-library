@@ -1,12 +1,12 @@
 {
-  "name": "@orpc-ws/oidc-react",
+  "name": "@orpc-ws/react",
   "version": "0.1.2",
-  "description": "The library's React bindings: hooks (useConnectionState, useAuthState, useUser, useOidcCallback) and an optional react-router OidcCallback component on the ./react-router sub-path. Does not re-export the cores.",
+  "description": "React bindings for the @orpc-ws/client WebSocket transport: useConnectionState, useWsSubscription, OrpcWsProvider, useOrpcWs. Does not re-export the core.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/anatoly-lab/orpc-ws-library.git",
-    "directory": "packages/orpc-ws-oidc-react"
+    "directory": "packages/orpc-ws-react"
   },
   "publishConfig": {
     "access": "public"
@@ -18,10 +18,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./react-router": {
-      "types": "./dist/react-router/index.d.ts",
-      "import": "./dist/react-router/index.js"
     }
   },
   "files": [
@@ -42,16 +38,12 @@
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
-    "@orpc-ws/oidc-pkce": "workspace:*"
+    "@orpc-ws/client": "workspace:*",
+    "@orpc/client": "1.14.6",
+    "@orpc/contract": "1.14.6"
   },
   "peerDependencies": {
-    "react": ">=18.0.0",
-    "react-router-dom": "^7.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react-router-dom": {
-      "optional": true
-    }
+    "react": ">=18.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",
@@ -61,7 +53,6 @@
     "happy-dom": "20.10.3",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "react-router-dom": "^7.17.0",
     "rimraf": "6.1.3",
     "typescript": "6.0.3",
     "vitest": "4.1.8"

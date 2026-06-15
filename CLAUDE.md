@@ -20,7 +20,7 @@ All tasks run through Turborepo from the repo root. First-time setup:
 
 | Task | Command | Notes |
 |---|---|---|
-| Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for `@orpc-ws/oidc-react` (ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps. Topo-ordered via `^build`. |
+| Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for the two React adapters `@orpc-ws/react` and `@orpc-ws/oidc-react` (both ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps. Topo-ordered via `^build`. |
 | Typecheck all | `pnpm typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
 | Lint all | `pnpm lint` | ESLint flat config; enforces framework-free cores. Note: `lint` `dependsOn: ["build"]` in `turbo.json` — tshy writes a temporary `package.json` mid-build that the ESLint import resolver would otherwise race (commit `edec802`). |
 | Unit tests all | `pnpm test` | Vitest, per package. **User runs tests — assistant does not.** |
@@ -52,7 +52,7 @@ e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
 
 ## Codebase map (as built)
 
-Seven packages under `packages/` (the "Package layout (locked)" section below
+Eight packages under `packages/` (the "Package layout (locked)" section below
 states intent; this is the current tree), plus demo apps under `apps/`. Every
 non-adapter package is framework-free; the boundary is lint-enforced.
 
@@ -68,12 +68,18 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   `OrpcWsServer<TUser, TContract>` class (`start` / `stop` / `attach`).
   Modules: `lifecycle/`, `router/`, `heartbeat/`, `state/`, `upload/`,
   `config/`.
-- `@orpc-ws/oidc-react` — the single React adapter; hosts React bindings
-  for BOTH cores. `ws/`: `useConnectionState`, `useWsSubscription`,
-  `OrpcWsProvider`, `useOrpcWs`. `oidc/`: `useAuthState`, `useUser`,
-  `useOidcCallback`, `RequireAuth`. Optional `./react-router` sub-path adds
-  the `OidcCallback` `<Route>` drop-in (`react-router-dom` optional peer).
-  Does NOT re-export the cores — consumers import each core directly.
+- `@orpc-ws/react` — the WS-transport React adapter; hosts the React
+  bindings for the WS client core only: `useConnectionState`,
+  `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs` (+ types
+  `OrpcWsProviderProps`, `UseWsSubscriptionOptions`,
+  `UseWsSubscriptionResult`). Depends only on `@orpc-ws/client`; sole peer
+  is `react`. Single `.` export, no sub-paths. Does NOT re-export the core.
+- `@orpc-ws/oidc-react` — the OIDC-auth React adapter; hosts the auth
+  bindings only: `useAuthState`, `useUser`, `useOidcCallback`,
+  `RequireAuth`. Depends only on `@orpc-ws/oidc-pkce` (no longer on the
+  client core). Optional `./react-router` sub-path adds the `OidcCallback`
+  `<Route>` drop-in (`react-router-dom` optional peer). Does NOT re-export
+  the core — consumers import `@orpc-ws/oidc-pkce` directly.
 - `@orpc-ws/server-nestjs` — NestJS adapter. `OrpcWsModule.forRootAsync`
   + injectable `OrpcWsService`; wraps core lifecycle in Nest hooks.
 - `@orpc-ws/oidc-pkce` — browser OIDC/PKCE core, zero deps. Pull API
@@ -97,9 +103,10 @@ Two cross-package mechanisms to know before editing:
   `ConnectionState`, for reactive UI) vs `client.onEvent` (notifications:
   `auth_failure` / `heartbeat_timeout` / `woke_from_sleep`).
 
-Note: there is no `@orpc-ws/client/react` sub-path. React bindings live
-in `@orpc-ws/oidc-react` (lint config no longer exempts a `src/react/`
-path in the client core).
+Note: there is no `@orpc-ws/client/react` sub-path. The WS-transport React
+bindings live in `@orpc-ws/react`, and the OIDC-auth bindings in
+`@orpc-ws/oidc-react` (lint config no longer exempts a `src/react/` path in
+the client core).
 
 ## Non-negotiable principles
 
@@ -210,7 +217,8 @@ not aspirational:
 | Package                              | Purpose                                                                   | Framework deps     |
 | ------------------------------------ | ------------------------------------------------------------------------- | ------------------ |
 | `@orpc-ws/client`               | **Client core.** Vanilla TS, fully framework-free. Reconnect, heartbeat, sleep detect, etc. No React sub-path. | none               |
-| `@orpc-ws/oidc-react`           | **The library's single React adapter.** Hosts the React bindings for both cores (WS connection-state hooks + OIDC auth hooks) only. Does **not** re-export the cores — consumers import the framework-free APIs directly from `@orpc-ws/client` / `@orpc-ws/oidc-pkce`. Also exposes an optional `./react-router` sub-path (see prose below). | `react` peer (+ optional `react-router-dom` on the sub-path) |
+| `@orpc-ws/react`                | **WS-transport React adapter.** Hosts the WS connection-state hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) only. Depends only on `@orpc-ws/client`. Does **not** re-export the core. No sub-paths. | `react` peer |
+| `@orpc-ws/oidc-react`           | **OIDC-auth React adapter.** Hosts the OIDC auth hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`) only. Depends only on `@orpc-ws/oidc-pkce`. Does **not** re-export the core. Also exposes an optional `./react-router` sub-path (see prose below). | `react` peer (+ optional `react-router-dom` on the sub-path) |
 | `@orpc-ws/server`               | **Server core.** Pure Node + `ws` + `@orpc/server`. Verifier-pluggable.   | none               |
 | `@orpc-ws/server-nestjs`        | NestJS adapter (separate package — decorator metadata can't share a sub-path with vanilla TS without bundler pain). | `@nestjs/common` peer |
 
@@ -220,10 +228,11 @@ with future-us: any of them must be addable as a thin (~50–150 LOC)
 sibling package without touching the core. If a future adapter requires
 core changes, the seam is wrong — fix the seam, not the adapter.
 
-**Framework adapters are siblings, one merged adapter per framework
+**Framework adapters are siblings, one adapter per core, per framework
 (resolved).** Each framework adapter for this library is its own
 **separate sibling package — never a sub-path _of a core_** — and there
-is **one merged adapter per framework, not one-per-core**. The
+is **one adapter per core, per framework** (so React gets `@orpc-ws/react`
+for the client core and `@orpc-ws/oidc-react` for the OIDC core). The
 "never a sub-path" rule protects the *cores*: `@orpc-ws/client`
 and `@orpc-ws/oidc-pkce` never carry framework code via a sub-path (this
 is why the old `@orpc-ws/client/react` sub-path was removed). It
@@ -233,22 +242,39 @@ framework binding behind a sub-path of *itself* (see
 `@orpc-ws/oidc-react/react-router` below), so that the adapter's
 main entry stays free of the extra dependency. Such a sub-path lives
 *inside* the sibling adapter, not on a core, so it satisfies — not
-violates — the "Sub-path vs separate sibling package" rule below. The
-first instance is `@orpc-ws/oidc-react`, which depends on *both*
-cores (`@orpc-ws/client` + `@orpc-ws/oidc-pkce`) and exposes the
-React bindings for both. It does **not** re-export the cores —
-consumers import the framework-free APIs directly from each core.
+violates — the "Sub-path vs separate sibling package" rule below.
+`@orpc-ws/react` depends only on `@orpc-ws/client` and exposes the WS
+connection-state bindings; `@orpc-ws/oidc-react` depends only on
+`@orpc-ws/oidc-pkce` and exposes the auth bindings. Neither re-exports
+its core — consumers import the framework-free APIs directly from each
+core.
 
-Why merged, not per-core: the library's scope is "browser↔server WS
-connection using OIDC" as a unit — every consumer needs *both* cores,
-so a single merged React adapter (rather than a separate WS-react and
-OIDC-react) keeps the React glue in one place. Per-core React siblings
-(e.g. a standalone OIDC-react) were explicitly **rejected**: auth-only,
-non-WS reuse of an OIDC-react package is out of scope. Future framework
-adapters follow the same shape — one `@orpc-ws/oidc-svelte`, one
-`@orpc-ws/oidc-vue`, each depending on both cores and exposing
-framework bindings only. Cores stay framework-free; adapters add only
-the framework glue.
+**This REVERSES the earlier "one merged adapter per framework, not
+one-per-core" decision** (which explicitly *rejected* per-core React
+siblings). That decision rested on the premise "every consumer needs
+*both* cores" — and that premise is **false**. A consumer that
+authenticates with a custom `TokenProvider` (e.g. a backend token
+endpoint) or cookie/BFF auth uses the WS transport but never touches
+browser PKCE: it needs `@orpc-ws/client` + `@orpc-ws/react` and never
+`@orpc-ws/oidc-pkce`. The old merged adapter forced that consumer to
+(a) drag an unused `@orpc-ws/oidc-pkce` into `node_modules` and
+(b) import transport hooks from an auth-named package — a
+separation-of-concerns smell. Splitting per-core makes each adapter
+depend on exactly its core (ISP/DIP): the WS-only consumer gets a clean
+single-package dependency, while a PKCE+WS consumer (the demo) pays one
+extra import line. The trade, stated honestly: the both-cores case now
+imports from two packages instead of one — the deliberate cost of
+decoupling the WS-only case. (Note too that the auth hooks
+— `useAuthState` / `useUser` / `RequireAuth` — are typed against an
+`@orpc-ws/oidc-pkce` instance, so they were only ever usable by PKCE
+consumers; a backend-delegated/cookie consumer imports *zero* from
+`@orpc-ws/oidc-react` regardless.)
+
+Future framework adapters follow the **new** shape — per-core siblings,
+not one merged adapter: a future `@orpc-ws/svelte` binds the client core
+and is a *separate* package from any OIDC-svelte adapter, each depending
+only on its own core and exposing framework bindings only. Cores stay
+framework-free; adapters add only the framework glue.
 
 **Sub-path vs separate sibling package (cores and server-side
 helpers).** A sub-path adapter is appropriate when (a) it targets the
@@ -264,19 +290,22 @@ because both conditions fail.
 
 ### Adapter wiring convention
 
-- **Cores are pinned, framework is peer.** The adapter depends on each
-  core via **exact-version `dependencies`** (e.g. `"0.1.0"`, consistent
-  with the repo's `save-exact=true`; never `workspace:*`). The
-  framework (`react`) is the only `peerDependencies` entry, with a wide
-  range (e.g. `">=18.0.0"`).
-- **Adapter exposes framework bindings only; cores are imported
-  directly.** The adapter does **not** re-export the cores. It exports
-  only its React bindings: `useConnectionState`, `useWsSubscription`,
-  `OrpcWsProvider`, `useOrpcWs`, `OrpcWsProviderProps`, `useAuthState`,
-  `useUser`, `useOidcCallback`, `RequireAuth`. Consumers import the framework-free APIs straight
-  from each core. The cores remain regular `dependencies` of the adapter
-  (the hooks `import type` from them, and the emitted `.d.ts` references
-  those types, so the dep must resolve) — `react` is the sole peer.
+- **Core is pinned, framework is peer.** Each adapter depends on its one
+  core via **`dependencies`** (the repo uses the `workspace:*` protocol,
+  which `pnpm publish` rewrites to the exact published version; never a
+  hand-pinned range or a published `^`). The framework (`react`) is the
+  only `peerDependencies` entry, with a wide range (e.g. `">=18.0.0"`).
+- **Adapter exposes framework bindings only; the core is imported
+  directly.** The adapter does **not** re-export its core. `@orpc-ws/react`
+  exports only the WS bindings: `useConnectionState`, `useWsSubscription`,
+  `OrpcWsProvider`, `useOrpcWs` (+ `OrpcWsProviderProps`,
+  `UseWsSubscriptionOptions`, `UseWsSubscriptionResult`).
+  `@orpc-ws/oidc-react` exports only the auth bindings: `useAuthState`,
+  `useUser`, `useOidcCallback`, `RequireAuth`. Consumers import the
+  framework-free APIs straight from each core. The core remains a regular
+  `dependency` of its adapter (the hooks `import type` from it, and the
+  emitted `.d.ts` references those types, so the dep must resolve) —
+  `react` is the sole peer.
 - **Optional, heavier-coupled bindings live behind an internal
   sub-path.** The adapter's main entry stays free of any router or
   other heavier framework dependency. A binding that needs more than
@@ -296,10 +325,13 @@ because both conditions fail.
   ```ts
   import { createOrpcWsClient } from "@orpc-ws/client";
   import { createOidcAuth } from "@orpc-ws/oidc-pkce";
-  import { useConnectionState, useAuthState }
-    from "@orpc-ws/oidc-react";
+  import { useConnectionState } from "@orpc-ws/react";
+  import { useAuthState } from "@orpc-ws/oidc-react";
   // createOrpcWsClient(...) ; createOidcAuth(...) from the cores;
-  // hooks from the adapter.
+  // WS hooks from @orpc-ws/react, auth hooks from @orpc-ws/oidc-react.
+  // A WS-only consumer (custom TokenProvider / cookie auth) imports
+  // ONLY from @orpc-ws/client + @orpc-ws/react and never touches the
+  // OIDC packages.
   ```
 
 Validated against TanStack / XState / Zag.js: core + per-framework
@@ -314,7 +346,11 @@ core the single source of its own public surface.)
 - **Lint rule** (`eslint-plugin-import/no-restricted-paths` or equivalent):
   `@orpc-ws/client` and `@orpc-ws/server` source must not
   import from `react`, `@nestjs/*`, `vue`, `svelte`, `solid-js`,
-  `express`, `fastify`. CI fails on violation.
+  `express`, `fastify`. CI fails on violation. The two React adapters are
+  also lint-scoped: `@orpc-ws/react` (browser-only, WS-transport only) is
+  additionally forbidden from importing the OIDC auth core
+  (`@orpc-ws/oidc-pkce`), `react-router-dom`, server cores, Node-only deps,
+  and other UI frameworks — keeping it free of any OIDC or router coupling.
 - **No framework lifecycle leakage.** The server core owns its own
   lifecycle (`start`, `stop`, `attach(httpServer)`). The NestJS adapter
   *wraps* core lifecycle in `OnApplicationBootstrap` / `OnModuleDestroy`;
@@ -623,7 +659,7 @@ the `release:version` root script).
 
 - **Tool: [Changesets](https://github.com/changesets/changesets)**
   (`@changesets/cli`, root devDep; config in `.changeset/config.json`).
-- **Lockstep via the `fixed` group** — all seven published packages are
+- **Lockstep via the `fixed` group** — all eight published packages are
   listed in one `fixed` array, so any release bumps them all to the same
   version (`fixed` does **not** support globs; list each package).
 - **Internal deps are `workspace:*`** — `pnpm publish` (driven by

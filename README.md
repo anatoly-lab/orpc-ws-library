@@ -16,10 +16,11 @@ Optional OIDC / PKCE auth helpers (`@orpc-ws/oidc-pkce` for the browser,
 graph LR
     subgraph Browser
       Core["@orpc-ws/client<br/>(framework-free core)"]
-      React["@orpc-ws/oidc-react<br/>(React adapter — both cores)"]
+      WsReact["@orpc-ws/react<br/>(WS React adapter)"]
+      OidcReact["@orpc-ws/oidc-react<br/>(OIDC React adapter)"]
       OidcPkce["@orpc-ws/oidc-pkce<br/>(OIDC + PKCE, optional)"]
-      React --> Core
-      React --> OidcPkce
+      WsReact --> Core
+      OidcReact --> OidcPkce
       OidcPkce -.tokenProvider.-> Core
     end
 
@@ -50,7 +51,8 @@ shape. Both parameterize on `<TContract>` and pass it through end-to-end.
 | Package | One-liner | Framework deps |
 |---|---|---|
 | [`@orpc-ws/client`](./packages/orpc-ws-client) | Browser core. Connect, reconnect, heartbeat, sleep detection, typed RPC. | none |
-| [`@orpc-ws/oidc-react`](./packages/orpc-ws-oidc-react) | React adapter (separate sibling, depends on both cores). WS hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) + OIDC hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`). Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router-dom`) |
+| [`@orpc-ws/react`](./packages/orpc-ws-react) | WS-transport React adapter (depends only on `@orpc-ws/client`). Hooks: `useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`. | `react` peer |
+| [`@orpc-ws/oidc-react`](./packages/orpc-ws-oidc-react) | OIDC-auth React adapter (depends only on `@orpc-ws/oidc-pkce`). Hooks: `useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`. Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router-dom`) |
 | [`@orpc-ws/server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
 | [`@orpc-ws/server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
 | [`@orpc-ws/shared`](./packages/orpc-ws-shared) | Shared seam types (Logger / Clock / Rng / heartbeat wire shape). Published — it's a runtime dependency of the cores. | none |
@@ -102,7 +104,7 @@ push.
 ## Repo layout
 
 ```
-packages/         # 7 packages (5 transport + 2 OIDC helpers)
+packages/         # 8 packages (6 transport + 2 OIDC helpers)
 apps/             # demo-contract, demo-spa, demo-server
 tests-e2e/        # Playwright + Testcontainers Keycloak
 docs/             # implementation-plan, migration guide, mermaid diagrams
@@ -129,11 +131,12 @@ one up in a Testcontainer.
 
 ## Module formats
 
-Every published package except `@orpc-ws/oidc-react` ships **dual
+Every published package except the two React adapters ships **dual
 ESM + CommonJS** (built with [tshy](https://github.com/isaacs/tshy)) —
 `import` resolves to ESM, `require` to CommonJS, each with its own types.
-`@orpc-ws/oidc-react` is **ESM-only** (a module-level React
-`createContext` makes a dual build a dual-package-identity hazard).
+`@orpc-ws/react` and `@orpc-ws/oidc-react` are **ESM-only** (a
+module-level React `createContext` makes a dual build a
+dual-package-identity hazard).
 
 **CommonJS consumers need Node ≥ 20.19 or ≥ 22.12.** The CJS builds keep
 their dependencies external, and `@orpc/*` / `jose` are ESM-only; loading

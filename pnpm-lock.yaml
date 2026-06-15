@@ -133,6 +133,9 @@ importers:
       '@orpc-ws/oidc-react':
         specifier: workspace:*
         version: link:../../packages/orpc-ws-oidc-react
+      '@orpc-ws/react':
+        specifier: workspace:*
+        version: link:../../packages/orpc-ws-react
       react:
         specifier: 19.2.7
         version: 19.2.7
@@ -238,12 +241,49 @@ importers:
 
   packages/orpc-ws-oidc-react:
     dependencies:
-      '@orpc-ws/client':
-        specifier: workspace:*
-        version: link:../orpc-ws-client
       '@orpc-ws/oidc-pkce':
         specifier: workspace:*
         version: link:../oidc-pkce
+    devDependencies:
+      '@testing-library/jest-dom':
+        specifier: 6.9.1
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: 16.3.2
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@types/react':
+        specifier: 19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      happy-dom:
+        specifier: 20.10.3
+        version: 20.10.3
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router-dom:
+        specifier: ^7.17.0
+        version: 7.17.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.8
+        version: 4.1.8(@types/node@25.9.3)(happy-dom@20.10.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/orpc-ws-react:
+    dependencies:
+      '@orpc-ws/client':
+        specifier: workspace:*
+        version: link:../orpc-ws-client
       '@orpc/client':
         specifier: 1.14.6
         version: 1.14.6
@@ -272,9 +312,6 @@ importers:
       react-dom:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
-      react-router-dom:
-        specifier: ^7.17.0
-        version: 7.17.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       rimraf:
         specifier: 6.1.3
         version: 6.1.3

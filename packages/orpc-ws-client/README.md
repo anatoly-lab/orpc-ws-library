@@ -1,9 +1,9 @@
 # `@orpc-ws/client`
 
 Framework-free ORPC-over-WebSocket client core. Plain TypeScript — no
-React, no Vue, no framework runtime. UI adapters live behind sub-path
-entries (built-in `./react`) or as thin consumer-side wrappers around a
-generic state contract.
+React, no Vue, no framework runtime. UI adapters live in sibling packages
+(React: [`@orpc-ws/react`](../orpc-ws-react)) or as thin consumer-side
+wrappers around a generic state contract.
 
 ## Install
 
@@ -11,7 +11,8 @@ generic state contract.
 npm install @orpc-ws/client
 ```
 
-`react` is an optional peer — only required for the `./react` sub-path.
+This core has no framework dependency. For React bindings, install the
+sibling [`@orpc-ws/react`](../orpc-ws-react) adapter.
 
 ## Quickstart
 
@@ -133,8 +134,12 @@ union and throws at runtime.
 
 ## React adapter
 
+The React bindings live in the sibling
+[`@orpc-ws/react`](../orpc-ws-react) package (there is no
+`@orpc-ws/client/react` sub-path — the core stays framework-free).
+
 ```tsx
-import { useConnectionState } from "@orpc-ws/client/react";
+import { useConnectionState } from "@orpc-ws/react";
 
 function ConnectionBadge({ client }) {
   const conn = useConnectionState(client);
@@ -146,8 +151,9 @@ function ConnectionBadge({ client }) {
 }
 ```
 
-Optional provider + `useOrpcWs<TContract>()` hook also exported — see
-[`src/index.ts`](./src/index.ts).
+`@orpc-ws/react` also exports `useWsSubscription`, an optional
+`OrpcWsProvider`, and a `useOrpcWs<TContract>()` hook — see its
+[README](../orpc-ws-react/README.md).
 
 ## Other frameworks
 

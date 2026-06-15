@@ -17,6 +17,7 @@
     "@orpc-ws/client": "workspace:*",
     "@orpc-ws/oidc-pkce": "workspace:*",
     "@orpc-ws/oidc-react": "workspace:*",
+    "@orpc-ws/react": "workspace:*",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-router-dom": "7.17.0"

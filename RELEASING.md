@@ -1,6 +1,6 @@
 # Releasing `@orpc-ws/*`
 
-How to cut and publish a release of the seven `@orpc-ws/*` packages. The
+How to cut and publish a release of the eight `@orpc-ws/*` packages. The
 monorepo is **lockstep-versioned** via [Changesets](https://github.com/changesets/changesets):
 every published package shares one identical version and they all publish
 together.
@@ -15,18 +15,30 @@ together.
 - Steady-state publishing needs **no npm token**: CI authenticates via npm
   OIDC trusted publishing (see [Authentication](#authentication--publishing)).
   A token is only needed for the one-time bootstrap of a brand-new package.
-- **One-time GitHub repo setting (required once):** Settings → Actions →
-  General → Workflow permissions → enable **"Allow GitHub Actions to create
-  and approve pull requests."** Without it, `changesets/action` cannot open
-  the "Version Packages" PR.
+- **One-time GitHub setting (required once):** enable **"Allow GitHub Actions
+  to create and approve pull requests."** Without it, `changesets/action`
+  cannot open the "Version Packages" PR.
+  - **Org-governed for this repo.** `orpc-ws-library` lives under the
+    `anatoly-lab` **organization**, so this toggle is governed at the org
+    level — the per-repo checkbox (Settings → Actions → General → Workflow
+    permissions) is **greyed out / unselectable**. Enable it instead at
+    **Organization Settings → Actions → General → Workflow permissions**
+    (`https://github.com/organizations/anatoly-lab/settings/actions`).
+  - **Least-privilege alternative.** Rather than flipping the org-wide
+    toggle, mint a **fine-grained PAT** scoped to just this repo
+    (Contents: write + Pull requests: write), store it as a repo secret, and
+    pass it as the `GITHUB_TOKEN` env on the `changesets/action` step. That
+    bypasses the "Actions can't create PRs" restriction without touching
+    org-wide policy.
 
 ## Lockstep versioning model
 
-All seven published packages always carry the **same** version and publish as
+All eight published packages always carry the **same** version and publish as
 a unit:
 
 - `@orpc-ws/shared`
 - `@orpc-ws/client`
+- `@orpc-ws/react`
 - `@orpc-ws/server`
 - `@orpc-ws/oidc-pkce`
 - `@orpc-ws/oidc-react`
@@ -61,7 +73,7 @@ On every push to `main`, the `npm-publish.yml` workflow runs `changesets/action`
 If there are pending `.changeset/*.md` files, it opens (or updates) a **"Version
 Packages" PR**. That PR runs `pnpm changeset version`, which:
 
-- bumps all seven packages in lockstep,
+- bumps all eight packages in lockstep,
 - rewrites internal `workspace:*` deps,
 - folds the changeset summaries into each `CHANGELOG.md`,
 - and deletes the consumed `.changeset/*.md` files.
@@ -111,7 +123,7 @@ OIDC (a present-but-empty token would bypass OIDC and 404). Provenance is
 automatic.
 
 > **Do not rename `npm-publish.yml`.** The npmjs.org trusted-publisher bindings
-> for all seven packages are keyed to this exact workflow filename; renaming it
+> for all eight packages are keyed to this exact workflow filename; renaming it
 > breaks OIDC authorization.
 
 ## One-time setup for a brand-NEW package

@@ -1,9 +1,10 @@
 // React bindings for the ORPC-WS client core.
 //
-// Thin barrel — keeps the two hook/provider modules grouped under `ws/` so
-// the `oidc/` react hooks can sit alongside without churn. Only the
+// Public surface of @orpc-ws/react — the WS-transport React adapter. Only the
 // React-specific hooks/provider live here; the framework-free transport core
-// is imported directly from `@orpc-ws/client`.
+// is imported directly from `@orpc-ws/client`. Auth (OIDC) bindings live in
+// the sibling `@orpc-ws/oidc-react` package, so this package has zero coupling
+// to OIDC or any router.
 
 export { useConnectionState } from "./use-connection-state.js";
 export { OrpcWsProvider, useOrpcWs } from "./provider.js";

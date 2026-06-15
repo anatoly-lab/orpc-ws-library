@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    // Buildinfo lives at the package root, NOT inside `dist`: `files`
+    // ships `dist`, so a `dist/.tsbuildinfo` would get packed into the
+    // tarball. Root `.tsbuildinfo` is gitignored and out of `files`.
+    "tsBuildInfoFile": "./.tsbuildinfo",
+    // DOM lib: this is a browser-targeted React adapter — the hooks touch
+    // React's DOM renderer and the core's browser state shape.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // `react-jsx`: modern automatic runtime — no `import React` at every
+    // JSX site. The whole package is React, so it applies project-wide.
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**"
+  ]
+}

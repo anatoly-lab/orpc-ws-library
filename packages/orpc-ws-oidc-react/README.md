@@ -1,55 +1,34 @@
 # `@orpc-ws/oidc-react`
 
-The library's **React bindings** — hooks and a provider that adapt the
-framework-free cores to React. This package contains *only* React glue.
-It does **not** re-export the cores; the client and auth factories (and
-their types) come straight from `@orpc-ws/client` and
-`@orpc-ws/oidc-pkce`.
+The **OIDC-auth React bindings** — hooks that adapt the framework-free
+`@orpc-ws/oidc-pkce` core to React. This package contains *only* React glue
+for the OIDC/PKCE auth flow. It does **not** re-export the core; the auth
+factory (and its types) comes straight from `@orpc-ws/oidc-pkce`.
+
+For the WebSocket-transport bindings (`useConnectionState`,
+`useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`), use the sibling
+[`@orpc-ws/react`](../orpc-ws-react) adapter — it depends on
+`@orpc-ws/client`, not on the OIDC core. A WS-only consumer (custom
+`TokenProvider` / cookie auth) imports nothing from this package.
 
 ```ts
-import { createOrpcWsClient, consoleLogger } from "@orpc-ws/client";
 import { createOidcAuth } from "@orpc-ws/oidc-pkce";
-import {
-  useConnectionState,
-  useAuthState,
-  OrpcWsProvider,
-} from "@orpc-ws/oidc-react";
+import { useAuthState, RequireAuth } from "@orpc-ws/oidc-react";
 
-// Construct the framework-free pieces from the cores:
-const client = createOrpcWsClient<MyContract>({
-  url: "wss://…",
-  logger: consoleLogger,
-});
+// Construct the framework-free auth client from the core:
 const auth = createOidcAuth({ /* … */ });
 
 // Use the React bindings from this package:
-function App() {
-  return (
-    <OrpcWsProvider client={client}>
-      <Status />
-    </OrpcWsProvider>
-  );
-}
-
 function Status() {
-  const state = useConnectionState(useOrpcWs<MyContract>());
   const authState = useAuthState(auth);
-  return <span>{state.status} / {authState.status}</span>;
+  return <span>{authState.status}</span>;
 }
 ```
 
 ## What's here
 
-This package exports the React bindings only:
+This package exports the OIDC-auth React bindings only:
 
-- **`useConnectionState(client)`** — `useSyncExternalStore` binding to the
-  client's reactive connection state.
-- **`useWsSubscription(client, selector, options?)`** — subscribes a
-  component to a server-pushed ORPC AsyncIterable stream and owns the whole
-  lifecycle (connected-gating, abort teardown, re-subscribe on reconnect,
-  error surfacing). See below.
-- **`OrpcWsProvider` / `useOrpcWs()`** — optional context helper for sharing
-  one client across the tree. `OrpcWsProviderProps` types the provider.
 - **`useAuthState(auth)`** — `useSyncExternalStore` binding to the OIDC
   auth snapshot.
 - **`useUser(auth)`** — convenience hook for the current OIDC user.
@@ -184,58 +163,6 @@ mid-recovery.
 imports a router and lives in the main entry. Use it with React Router (wrap an
 `<Outlet />`), any other router, or none (wrap a page directly).
 
-## Subscribing to a server stream — `useWsSubscription` (main entry)
-
-ORPC procedures can return an `AsyncIterable` — a server-pushed stream (a
-live tick, presence updates, a job's progress). Consuming one in React is
-fiddly: gate on the WS being connected, open an `AbortController`, pump the
-iterator, suppress the abort-as-throw on teardown, re-subscribe when the
-socket reconnects, and surface real errors. `useWsSubscription` owns all of
-that so a page never repeats it. Under the hood it wraps ORPC's first-class
-`consumeEventIterator` helper.
-
-```tsx
-import { useWsSubscription } from "@orpc-ws/oidc-react";
-
-function LiveTick() {
-  const { data: lastTick } = useWsSubscription(
-    wsClient,
-    (rpc, signal) => rpc.tick(undefined, { signal }),
-  );
-  return <p>{lastTick ? `tick #${lastTick.tick}` : "waiting…"}</p>;
-}
-```
-
-**Signature.** `useWsSubscription(client, subscribe, options?)`:
-
-- `client` — the `OrpcWsClient` from `createOrpcWsClient` (same instance
-  across renders).
-- `subscribe` — a selector `(rpc, signal) => Promise<AsyncIterable<TEvent>>`.
-  You get the typed `rpc` proxy and an `AbortSignal` to thread into the
-  call's options. The selector may be a fresh inline closure every render —
-  it's read through a ref, so a new identity does not re-subscribe.
-- `options` — optional `{ onEvent?, onError?, enabled? }`.
-
-**Returns** `{ data, error, status }`: `data` is the **latest** event (or
-`null` before the first; it persists across reconnects), `error` is the last
-non-abort error, and `status` is `"idle"` (not subscribed — disconnected or
-disabled), `"active"`, or `"error"`.
-
-**The "both" shape.** The hook tracks the latest event in `data` **and**
-forwards every event to your `onEvent` callback. Use `data` for reactive
-render; use `onEvent` for imperative reactions (append to a log, fire a
-toast). They're not either/or.
-
-**`enabled`.** Pass `enabled: false` to suspend the subscription while the
-component stays mounted (a paused view, a feature flag) without subscribing
-even when the WS is connected; flip it back to `true` to resume.
-
-**Connected-gating + re-subscribe.** The hook subscribes only while the WS
-is `connected` and `enabled !== false`. When the socket drops it tears down
-(abort + `consumeEventIterator`'s own cancel) and goes `idle`; when it
-reconnects it re-subscribes automatically. Aborts from teardown are
-suppressed — they never reach `error` or `onError`.
-
 ## Tradeoffs & alternatives
 
 The callback flow ships as two surfaces on purpose:
@@ -263,16 +190,19 @@ live in the hook — there is one implementation, exercised by both surfaces.
 
 ## Where the rest lives
 
-The framework-free APIs are imported **directly from the cores** — this
+The framework-free auth APIs are imported **directly from the core** — this
 package does not wrap or re-export them:
 
-- **`@orpc-ws/client`** — the WS client core: `createOrpcWsClient`,
-  `consoleLogger`, `ConnectionState`, `OrpcWsClient`, config, logger
-  bridges, …
 - **`@orpc-ws/oidc-pkce`** — the browser OIDC + PKCE core: `createOidcAuth`,
-  `CallbackError`, `AuthSnapshot`, `OidcUser`, `AuthStatus`, …
+  `CallbackError`, `AuthSnapshot`, `OidcUser`, `AuthStatus`,
+  `formatCallbackError`, …
 
-Keeping this package React-only keeps the layering honest: each core stays
+The WebSocket-transport hooks live in the sibling
+[`@orpc-ws/react`](../orpc-ws-react) adapter (which depends on
+`@orpc-ws/client`) — this package depends only on `@orpc-ws/oidc-pkce` and
+never touches the WS core.
+
+Keeping this package React-only keeps the layering honest: the core stays
 the single source of its own public surface, and future framework adapters
 (`-svelte`, `-vue`, `-solid`) follow the same rule — framework bindings
 only, no core re-exports.
