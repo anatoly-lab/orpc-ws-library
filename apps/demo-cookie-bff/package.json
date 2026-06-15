@@ -1,0 +1,31 @@
+{
+  "name": "@demo/cookie-bff",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vite + React cookie-BFF auth demo for the orpc-ws-library e2e suite. The browser holds NOTHING; the httpOnly `sid` cookie set by the server authenticates the WS handshake automatically (no `?token=`). Imports ONLY @orpc-ws/client + @orpc-ws/react (no oidc packages, no tokenProvider) to prove the cookie WS-only consumer path. Runs standalone (dev: vite on 5175, e2e: vite preview on 4175).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5175 --strictPort",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --port 4175 --strictPort",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@demo/contract": "workspace:*",
+    "@orpc-ws/client": "workspace:*",
+    "@orpc-ws/react": "workspace:*",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "7.17.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "rimraf": "6.1.3",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
+  }
+}
