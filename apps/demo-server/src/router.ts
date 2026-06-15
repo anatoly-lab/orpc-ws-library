@@ -20,7 +20,8 @@ import { appContract, type TickEvent } from "@demo/contract";
 import type { OidcUser } from "@orpc-ws/oidc-verifier-jose";
 
 // The demo uses the library's default `OidcUser` shape verbatim —
-// no custom `mapUser` is wired in `app.module.ts`. If the demo ever
+// no custom `mapUser` is wired in the auth app-modules
+// (`auth/<mode>/<mode>.app-module.ts`). If the demo ever
 // needs Keycloak-specific claims (roles, realm_access), swap this for
 // a local `DemoUser` interface and pass a `mapUser` to the verifier.
 interface DemoContext {

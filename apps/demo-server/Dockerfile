@@ -41,8 +41,9 @@ RUN turbo run build --filter=@demo/server
 
 # ── runner ────────────────────────────────────────────────────────────
 # Minimal runtime: the whole built workspace + installed node_modules.
-# The demo-server entry is dist/main.js (plain `tsc` → ./dist, see its
-# tsconfig outDir).
+# The demo-server entry is dist/main-pkce.js (plain `tsc` → ./dist, see its
+# tsconfig outDir). Only the PKCE mode is containerized for e2e — the
+# backend-token / cookie-bff mains are dev-only.
 FROM node:22-alpine AS runner
 WORKDIR /app
 
@@ -57,4 +58,4 @@ COPY --from=builder /app/ .
 
 WORKDIR /app/apps/demo-server
 EXPOSE 18081
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/main-pkce.js"]
