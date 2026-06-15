@@ -39,13 +39,30 @@ Regression tests for the design-doc bugs are greppable by filename
 (`bug-01-...`, `bug-06-...`, `bug-08-...`) — one named test per fixed bug
 (see "Tests from day 0").
 
-Demo (two separate processes — Vite SPA + NestJS server; **user runs these**):
-- `pnpm dev:demo` (both), or `pnpm dev:server` / `pnpm dev:pkce`
-- needs **both** `apps/demo-pkce/.env` (SPA build-time `VITE_*` vars) and
-  `apps/demo-server/.env` (server `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` /
-  `PORT`, loaded via Node `--env-file-if-exists`) — each copied from its
-  own `.env.example` — plus a running OIDC IdP. Preferred IdP is the hosted
-  Keycloak at `keycloak.anatoly.dev` (`orpc-ws-demo` realm).
+Demo (each demo is two separate processes — a Vite SPA + the NestJS server
+run in the matching mode; **user runs these**). Three auth-model demos share
+one multi-mode demo-server:
+- **pkce** (server on 18081): `pnpm dev:server:pkce` + `pnpm dev:pkce`
+  (or `pnpm dev:demo` for the default pair).
+- **backend-token** (server on 18082): `pnpm dev:server:backend-token` +
+  `pnpm dev:backend-token`.
+- **cookie-bff** (server on 18083): `pnpm dev:server:cookie-bff` +
+  `pnpm dev:cookie-bff`.
+- Build all four demo apps: `pnpm build:demo`. Preview a built SPA:
+  `pnpm preview:demo:pkce` / `:backend-token` / `:cookie-bff` (4173 / 4174 /
+  4175). The bare `pnpm dev:server` aliases the pkce mode.
+- needs **both** the SPA's `.env` (build-time `VITE_*` vars — every SPA needs
+  `VITE_WS_URL`; the two backend modes also need `VITE_SERVER_ORIGIN`; pkce
+  additionally needs `VITE_OIDC_*` + `VITE_UPLOAD_URL`) and
+  `apps/demo-server/.env` (shared `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID`; the
+  per-mode ports `PORT_PKCE` / `PORT_BACKEND_TOKEN` / `PORT_COOKIE_BFF` and
+  SPA-origin / session-cookie vars for the backend modes — loaded via Node
+  `--env-file-if-exists`) — each copied from its own `.env.example` — plus a
+  running OIDC IdP. Preferred IdP is the hosted Keycloak at
+  `keycloak.anatoly.dev` (`orpc-ws-demo` realm). The two backend modes need
+  their callback redirect URIs (`http://localhost:18082/auth/callback`,
+  `http://localhost:18083/auth/callback`) registered on that realm's client,
+  which acts as a **public PKCE client** (no secret) for the server-side flow.
 
 e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
 - `pnpm --filter @repo/tests-e2e test:e2e` (root `pnpm test` skips it).
@@ -88,9 +105,22 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 - `@orpc-ws/oidc-verifier-jose` — Node JWT verifier (depends on `jose`); a
   sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
 
-Apps (under `apps/`): `@demo/contract` (shared ORPC contract),
-`@demo/server` (NestJS, port 18081), `@demo/pkce` (React + Vite browser-PKCE demo, dev 5173 /
-e2e preview 4173). `@repo/tests-e2e` is **not** under `apps/` — it is a
+Apps (under `apps/`): `@demo/contract` (shared ORPC contract); a single
+**multi-mode** NestJS `@demo/server` with three bootstraps (`main-pkce` /
+`main-backend-token` / `main-cookie-bff`), each run as its **own process** on
+its own port (pkce 18081 / backend-token 18082 / cookie-bff 18083) because the
+library's `OrpcWsModule` is single-instance per Nest app, so one mode = one
+app = one process; and three React + Vite SPAs, one per auth model:
+- `@demo/pkce` — browser PKCE (imports `@orpc-ws/oidc-pkce` +
+  `@orpc-ws/oidc-react` + `@orpc-ws/react`); dev 5173 / e2e preview 4173.
+- `@demo/backend-token` — custom `TokenProvider`, server-minted access token
+  passed via WS `?token=` (imports only `@orpc-ws/client` + `@orpc-ws/react`,
+  no oidc packages — the WS-only consumer path); dev 5174 / preview 4174.
+- `@demo/cookie-bff` — httpOnly `sid` session cookie authenticates the WS
+  handshake automatically, no `?token=` (imports only `@orpc-ws/client` +
+  `@orpc-ws/react`, no `tokenProvider`); dev 5175 / preview 4175.
+
+`@repo/tests-e2e` is **not** under `apps/` — it is a
 top-level workspace dir (`pnpm-workspace.yaml` globs: `packages/*`,
 `apps/*`, `tests-e2e`).
 

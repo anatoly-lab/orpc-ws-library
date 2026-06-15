@@ -87,11 +87,31 @@ wsClient.connect();
 const { pong } = await wsClient.rpc.ping(); // fully typed
 ```
 
-Full demo (React SPA + NestJS server against a real Keycloak):
-[`apps/demo-pkce`](./apps/demo-pkce) + [`apps/demo-server`](./apps/demo-server).
-The SPA and server are **two separate processes** (Vite on `:5173`, Nest
-on `:18081`). Mirrors how a real deploy ships — SPA on a CDN / static
-host, API on its own process.
+## Demo
+
+Three runnable demos cover three auth models, each a React SPA paired with
+the multi-mode NestJS [`apps/demo-server`](./apps/demo-server) run in the
+matching mode. SPA and server are always **two separate processes** (mirrors
+a real deploy — SPA on a CDN / static host, API on its own process), so each
+demo is "server script + SPA script". The single demo-server has three
+bootstraps because the library's `OrpcWsModule` is single-instance per Nest
+app, so one auth mode = one app = one process on its own port.
+
+| Demo | Auth model | Library packages imported | Run (server + SPA) | Ports (server / dev / preview) |
+|---|---|---|---|---|
+| [`apps/demo-pkce`](./apps/demo-pkce) | Browser OIDC + PKCE | `@orpc-ws/oidc-pkce` + `@orpc-ws/oidc-react` + `@orpc-ws/react` | `pnpm dev:server:pkce` + `pnpm dev:pkce` (or `pnpm dev:demo`) | 18081 / 5173 / 4173 |
+| [`apps/demo-backend-token`](./apps/demo-backend-token) | Custom `TokenProvider` — server mints a short-lived access token the browser pulls and passes via WS `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages — the WS-only consumer path) | `pnpm dev:server:backend-token` + `pnpm dev:backend-token` | 18082 / 5174 / 4174 |
+| [`apps/demo-cookie-bff`](./apps/demo-cookie-bff) | httpOnly `sid` session cookie — authenticates the WS handshake automatically, no `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages, no `tokenProvider`) | `pnpm dev:server:cookie-bff` + `pnpm dev:cookie-bff` | 18083 / 5175 / 4175 |
+
+Build all demo apps with `pnpm build:demo`; preview a built SPA with
+`pnpm preview:demo:pkce` / `:backend-token` / `:cookie-bff`.
+
+The two **backend** modes run the OIDC Authorization-Code flow server-side as
+a **public PKCE client** (no client secret — the code exchange sends a PKCE
+`code_verifier`). They need their callback redirect URIs registered on the
+`orpc-ws-demo` Keycloak realm's client:
+`http://localhost:18082/auth/callback` (backend-token) and
+`http://localhost:18083/auth/callback` (cookie-bff).
 
 ## Status
 
@@ -105,7 +125,7 @@ push.
 
 ```
 packages/         # 8 packages (6 transport + 2 OIDC helpers)
-apps/             # demo-contract, demo-pkce, demo-server
+apps/             # demo-contract, demo-{pkce,backend-token,cookie-bff}, demo-server (multi-mode)
 tests-e2e/        # Playwright + Testcontainers Keycloak
 docs/             # implementation-plan, migration guide, mermaid diagrams
 ```
@@ -114,11 +134,14 @@ docs/             # implementation-plan, migration guide, mermaid diagrams
 in the root `package.json` `packageManager` field). `pnpm exec turbo run test`
 for the unit suite.
 
-For `pnpm dev:demo`, copy **both** env templates: `apps/demo-pkce/.env.example`
-→ `apps/demo-pkce/.env` (the SPA reads `VITE_OIDC_ISSUER_URL`,
-`VITE_OIDC_CLIENT_ID`, `VITE_WS_URL` at build time and fails loudly if
-they're missing) and `apps/demo-server/.env.example` → `apps/demo-server/.env`
-(the server reads `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `PORT`). A local
+For any demo, copy **both** env templates — the SPA's and the server's. Each
+SPA reads its `VITE_*` vars at build time and fails loudly if they're missing:
+`apps/demo-pkce/.env` needs `VITE_OIDC_ISSUER_URL`, `VITE_OIDC_CLIENT_ID`,
+`VITE_WS_URL`, `VITE_UPLOAD_URL`; the two backend SPAs need `VITE_WS_URL` +
+`VITE_SERVER_ORIGIN`. `apps/demo-server/.env` carries the shared
+`OIDC_ISSUER_URL` / `OIDC_CLIENT_ID`, the per-mode ports
+(`PORT_PKCE` / `PORT_BACKEND_TOKEN` / `PORT_COOKIE_BFF`), and the backend
+modes' SPA-origin + session-cookie vars (see its `.env.example`). A local
 Keycloak (or any OIDC IdP) must be running separately; the e2e suite spins
 one up in a Testcontainer.
 
