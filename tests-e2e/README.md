@@ -60,7 +60,7 @@ message and exits 0. Use `test:e2e` to actually run Playwright.
     1. `demo-server` on `:18081` (`turbo build && node dist/main.js`).
        Readiness via `port:` (Nest has no HTTP routes — only `/ws` upgrades —
        so a `url:` check would 404).
-    2. `demo-spa` on `:4173` (`turbo build && vite preview`). The
+    2. `demo-pkce` on `:4173` (`turbo build && vite preview`). The
        build step receives the `VITE_*` env so Vite inlines the right
        issuer/client/WS URL into the bundle.
 - `pages/` — Page Objects for the SPA and Keycloak login form.

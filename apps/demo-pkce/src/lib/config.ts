@@ -33,7 +33,7 @@ function requireEnv(name: string, value: string | undefined): string {
     // bundle that throws before any UI renders. Far better than a
     // silent fallback that mis-targets the wrong IdP / endpoint.
     throw new Error(
-      `${name} is required (set it in apps/demo-spa/.env or the build environment). See .env.example.`,
+      `${name} is required (set it in apps/demo-pkce/.env or the build environment). See .env.example.`,
     );
   }
   return value;

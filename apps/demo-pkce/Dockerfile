@@ -1,7 +1,7 @@
-# Multi-stage build for @demo/spa (Vite + React → static, served by nginx).
+# Multi-stage build for @demo/pkce (Vite + React → static, served by nginx).
 #
 # Built from the REPO ROOT so `turbo prune` sees every workspace:
-#   docker build -f apps/demo-spa/Dockerfile \
+#   docker build -f apps/demo-pkce/Dockerfile \
 #     --build-arg VITE_OIDC_ISSUER_URL=... \
 #     --build-arg VITE_OIDC_CLIENT_ID=... \
 #     --build-arg VITE_WS_URL=... \
@@ -24,7 +24,7 @@ WORKDIR /app
 # ── pruner ────────────────────────────────────────────────────────────
 FROM base AS pruner
 COPY . .
-RUN turbo prune @demo/spa --docker
+RUN turbo prune @demo/pkce --docker
 
 # ── builder ───────────────────────────────────────────────────────────
 FROM base AS builder
@@ -45,11 +45,11 @@ ENV VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
 ENV VITE_WS_URL=$VITE_WS_URL
 ENV VITE_UPLOAD_URL=$VITE_UPLOAD_URL
 
-RUN turbo run build --filter=@demo/spa
+RUN turbo run build --filter=@demo/pkce
 
 # ── runner ────────────────────────────────────────────────────────────
 FROM nginx:alpine AS runner
 RUN rm /etc/nginx/conf.d/default.conf
-COPY apps/demo-spa/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/apps/demo-spa/dist /usr/share/nginx/html
+COPY apps/demo-pkce/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/apps/demo-pkce/dist /usr/share/nginx/html
 EXPOSE 80

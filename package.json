@@ -21,12 +21,12 @@
     "test:e2e": "pnpm --filter @repo/tests-e2e run test:e2e",
     "ci": "turbo run lint typecheck test build",
     "clean": "turbo run clean && rimraf .turbo node_modules",
-    "build:demo": "turbo run build --filter=@demo/contract --filter=@demo/spa --filter=@demo/server",
-    "dev:demo": "turbo run dev --filter=@demo/server --filter=@demo/spa",
+    "build:demo": "turbo run build --filter=@demo/contract --filter=@demo/pkce --filter=@demo/server",
+    "dev:demo": "turbo run dev --filter=@demo/server --filter=@demo/pkce",
     "dev:server": "pnpm --filter @demo/server dev",
-    "dev:spa": "pnpm --filter @demo/spa dev",
+    "dev:pkce": "pnpm --filter @demo/pkce dev",
     "start:demo:server": "pnpm --filter @demo/server start",
-    "preview:demo:spa": "pnpm --filter @demo/spa preview",
+    "preview:demo:pkce": "pnpm --filter @demo/pkce preview",
     "upgrade:interactive": "pnpm update --recursive --interactive --latest"
   },
   "devDependencies": {

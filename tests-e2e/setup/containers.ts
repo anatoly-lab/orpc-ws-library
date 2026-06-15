@@ -1,12 +1,12 @@
 // Full-stack Docker orchestration for the e2e run.
 //
 // Brings up the WHOLE system as containers on one Docker network:
-//   Keycloak (IdP)  ─┐
-//   demo-server     ─┼─ network "e2e" (aliases: keycloak / server / spa)
-//   demo-spa (nginx)─┘
+//   Keycloak (IdP)   ─┐
+//   demo-server      ─┼─ network "e2e" (aliases: keycloak / server / spa)
+//   demo-pkce (nginx)─┘
 //
 // This REPLACES the old split where Playwright's `webServer` started the
-// demo-server + demo-spa as host dev processes while only Keycloak was a
+// demo-server + demo-pkce as host dev processes while only Keycloak was a
 // container. That split was the root cause of local-only failures:
 // `reuseExistingServer` silently reused a stale dev server pointed at the
 // wrong Keycloak, so the JWT `iss` the server validated never matched the
@@ -67,7 +67,7 @@ const SERVER_IMAGE = "orpc-ws-e2e/server";
 const SPA_IMAGE = "orpc-ws-e2e/spa";
 
 const SERVER_DOCKERFILE = "apps/demo-server/Dockerfile";
-const SPA_DOCKERFILE = "apps/demo-spa/Dockerfile";
+const SPA_DOCKERFILE = "apps/demo-pkce/Dockerfile";
 
 // ── realm / ports ─────────────────────────────────────────────────────────
 const KEYCLOAK_REALM = "orpc-ws-demo";
@@ -123,7 +123,7 @@ interface StartedStack {
 let started: StartedStack | null = null;
 
 /**
- * Build the demo-server + demo-spa images with FIXED tags via `docker build`.
+ * Build the demo-server + demo-pkce images with FIXED tags via `docker build`.
  *
  * Why shell `docker build` (not GenericContainer.fromDockerfile): fixed tags
  * (`orpc-ws-e2e/server` / `orpc-ws-e2e/spa`) let Docker's layer cache make
@@ -354,7 +354,7 @@ async function startServer(
 async function startSpa(
   network: StartedNetwork,
 ): Promise<StartedTestContainer> {
-  console.log("[stack] Starting demo-spa (nginx)...");
+  console.log("[stack] Starting demo-pkce (nginx)...");
   // nginx rarely crashes, but the hook is cheap and surfaces config errors.
   const logBuffer = createLogBuffer("spa");
 

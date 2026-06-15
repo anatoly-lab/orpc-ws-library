@@ -40,8 +40,8 @@ Regression tests for the design-doc bugs are greppable by filename
 (see "Tests from day 0").
 
 Demo (two separate processes — Vite SPA + NestJS server; **user runs these**):
-- `pnpm dev:demo` (both), or `pnpm dev:server` / `pnpm dev:spa`
-- needs **both** `apps/demo-spa/.env` (SPA build-time `VITE_*` vars) and
+- `pnpm dev:demo` (both), or `pnpm dev:server` / `pnpm dev:pkce`
+- needs **both** `apps/demo-pkce/.env` (SPA build-time `VITE_*` vars) and
   `apps/demo-server/.env` (server `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` /
   `PORT`, loaded via Node `--env-file-if-exists`) — each copied from its
   own `.env.example` — plus a running OIDC IdP. Preferred IdP is the hosted
@@ -89,7 +89,7 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
 
 Apps (under `apps/`): `@demo/contract` (shared ORPC contract),
-`@demo/server` (NestJS, port 18081), `@demo/spa` (React + Vite, dev 5173 /
+`@demo/server` (NestJS, port 18081), `@demo/pkce` (React + Vite browser-PKCE demo, dev 5173 /
 e2e preview 4173). `@repo/tests-e2e` is **not** under `apps/` — it is a
 top-level workspace dir (`pnpm-workspace.yaml` globs: `packages/*`,
 `apps/*`, `tests-e2e`).

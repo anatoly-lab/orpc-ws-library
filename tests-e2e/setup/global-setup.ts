@@ -1,6 +1,6 @@
 // Playwright globalSetup.
 //
-// Brings up the WHOLE stack (Keycloak + demo-server + demo-spa) as Docker
+// Brings up the WHOLE stack (Keycloak + demo-server + demo-pkce) as Docker
 // containers on one network, then polls each health endpoint until ready.
 // This replaces the old hybrid where Playwright's `webServer` started the
 // server + SPA as host dev processes — see setup/containers.ts header for
@@ -43,7 +43,7 @@ async function waitForOk(
 /** Wait until every host-facing health endpoint reports ready. */
 async function waitForSystemReady(stack: StackHandle): Promise<void> {
   await waitForOk(`${stack.serverUrl}/health/live`, "demo-server");
-  await waitForOk(`${stack.spaUrl}/health`, "demo-spa");
+  await waitForOk(`${stack.spaUrl}/health`, "demo-pkce");
 }
 
 export default async function globalSetup(): Promise<void> {

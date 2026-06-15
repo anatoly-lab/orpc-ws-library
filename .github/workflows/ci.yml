@@ -51,7 +51,7 @@ jobs:
   e2e:
     name: Playwright E2E (Keycloak + demo app)
     runs-on: ubuntu-latest
-    # Heavier than the unit job: globalSetup builds the demo-server + demo-spa
+    # Heavier than the unit job: globalSetup builds the demo-server + demo-pkce
     # Docker images and brings the whole stack (Keycloak + server + spa) up as
     # containers on one network, then drives the real Chromium login flow.
     # Runs in parallel with `verify`. ubuntu-latest ships Docker, so no extra

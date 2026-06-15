@@ -73,6 +73,52 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  apps/demo-pkce:
+    dependencies:
+      '@demo/contract':
+        specifier: workspace:*
+        version: link:../demo-contract
+      '@orpc-ws/client':
+        specifier: workspace:*
+        version: link:../../packages/orpc-ws-client
+      '@orpc-ws/oidc-pkce':
+        specifier: workspace:*
+        version: link:../../packages/oidc-pkce
+      '@orpc-ws/oidc-react':
+        specifier: workspace:*
+        version: link:../../packages/orpc-ws-oidc-react
+      '@orpc-ws/react':
+        specifier: workspace:*
+        version: link:../../packages/orpc-ws-react
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router-dom:
+        specifier: 7.17.0
+        version: 7.17.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      '@vitejs/plugin-react':
+        specifier: 6.0.2
+        version: 6.0.2(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.0.16
+        version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
+
   apps/demo-server:
     dependencies:
       '@demo/contract':
@@ -118,52 +164,6 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
-
-  apps/demo-spa:
-    dependencies:
-      '@demo/contract':
-        specifier: workspace:*
-        version: link:../demo-contract
-      '@orpc-ws/client':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-client
-      '@orpc-ws/oidc-pkce':
-        specifier: workspace:*
-        version: link:../../packages/oidc-pkce
-      '@orpc-ws/oidc-react':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-oidc-react
-      '@orpc-ws/react':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-react
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      react-router-dom:
-        specifier: 7.17.0
-        version: 7.17.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-    devDependencies:
-      '@types/react':
-        specifier: 19.2.17
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: 19.2.3
-        version: 19.2.3(@types/react@19.2.17)
-      '@vitejs/plugin-react':
-        specifier: 6.0.2
-        version: 6.0.2(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
-      rimraf:
-        specifier: 6.1.3
-        version: 6.1.3
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vite:
-        specifier: 8.0.16
-        version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
 
   packages/oidc-pkce:
     devDependencies:

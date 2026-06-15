@@ -1,8 +1,8 @@
 {
-  "name": "@demo/spa",
+  "name": "@demo/pkce",
   "version": "0.1.0",
   "private": true,
-  "description": "Vite + React SPA for the orpc-ws-library e2e demo. Auths via Keycloak PKCE; talks to the demo server via @orpc-ws/client. Runs as a standalone process (dev: vite on 5173, e2e: vite preview on 4173).",
+  "description": "Vite + React browser-PKCE auth demo for the orpc-ws-library e2e suite. Auths via Keycloak PKCE; talks to the demo server via @orpc-ws/client. Runs as a standalone process (dev: vite on 5173, e2e: vite preview on 4173).",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173 --strictPort",

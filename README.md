@@ -88,7 +88,7 @@ const { pong } = await wsClient.rpc.ping(); // fully typed
 ```
 
 Full demo (React SPA + NestJS server against a real Keycloak):
-[`apps/demo-spa`](./apps/demo-spa) + [`apps/demo-server`](./apps/demo-server).
+[`apps/demo-pkce`](./apps/demo-pkce) + [`apps/demo-server`](./apps/demo-server).
 The SPA and server are **two separate processes** (Vite on `:5173`, Nest
 on `:18081`). Mirrors how a real deploy ships — SPA on a CDN / static
 host, API on its own process.
@@ -105,7 +105,7 @@ push.
 
 ```
 packages/         # 8 packages (6 transport + 2 OIDC helpers)
-apps/             # demo-contract, demo-spa, demo-server
+apps/             # demo-contract, demo-pkce, demo-server
 tests-e2e/        # Playwright + Testcontainers Keycloak
 docs/             # implementation-plan, migration guide, mermaid diagrams
 ```
@@ -114,8 +114,8 @@ docs/             # implementation-plan, migration guide, mermaid diagrams
 in the root `package.json` `packageManager` field). `pnpm exec turbo run test`
 for the unit suite.
 
-For `pnpm dev:demo`, copy **both** env templates: `apps/demo-spa/.env.example`
-→ `apps/demo-spa/.env` (the SPA reads `VITE_OIDC_ISSUER_URL`,
+For `pnpm dev:demo`, copy **both** env templates: `apps/demo-pkce/.env.example`
+→ `apps/demo-pkce/.env` (the SPA reads `VITE_OIDC_ISSUER_URL`,
 `VITE_OIDC_CLIENT_ID`, `VITE_WS_URL` at build time and fails loudly if
 they're missing) and `apps/demo-server/.env.example` → `apps/demo-server/.env`
 (the server reads `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `PORT`). A local

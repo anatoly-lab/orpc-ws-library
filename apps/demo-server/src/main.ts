@@ -1,6 +1,6 @@
 // Demo server entry. This process owns ONE responsibility: host the
 // ORPC-over-WS endpoint on `/ws`. The Vite SPA is a separate process
-// (`apps/demo-spa`), reached on its own port — see the root README's
+// (`apps/demo-pkce`), reached on its own port — see the root README's
 // "Demo" section.
 //
 // Why split: the previous single-process layout (server-side
