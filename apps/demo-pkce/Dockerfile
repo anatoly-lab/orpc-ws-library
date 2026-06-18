@@ -13,7 +13,7 @@
 # runtime. Re-target a different IdP / server by rebuilding with new args.
 
 # ── base ──────────────────────────────────────────────────────────────
-FROM node:22-alpine AS base
+FROM node:22.22-alpine AS base
 # corepack provisions the pnpm version pinned in package.json "packageManager".
 # Alpine's bundled corepack predates the npm signing-key rotation and fails
 # "Cannot find matching keyid" on recent pnpm releases — update it first.

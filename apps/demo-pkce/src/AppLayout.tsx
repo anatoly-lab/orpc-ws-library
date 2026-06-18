@@ -20,7 +20,7 @@
 
 import { useEffect, type ReactElement } from "react";
 
-import { Outlet } from "react-router-dom";
+import { Outlet } from "react-router";
 
 import { RequireAuth, useAuthState } from "@orpc-ws/oidc-react";
 

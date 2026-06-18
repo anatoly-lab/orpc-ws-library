@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router";
 
 import { AppLayout } from "./AppLayout.js";
 import { Home } from "./pages/Home.js";

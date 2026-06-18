@@ -7,9 +7,11 @@ together.
 
 ## Prerequisites
 
-- **Node ≥ 22.14** locally, with **pnpm** provisioned via Corepack
-  (`corepack enable` — the version is pinned in the root `package.json`
-  `packageManager` field).
+- **Node ≥ 22.22** locally (the repo floor — `.nvmrc` pins `22.22`; raised
+  by react-router v8's `engines.node >=22.22.0`, on top of the OIDC ≥22.14
+  and undici/testcontainers ≥22.19 floors), with **pnpm** provisioned via
+  Corepack (`corepack enable` — the version is pinned in the root
+  `package.json` `packageManager` field).
 - The repository must stay **public** — npm provenance only works for public
   packages (it is automatic under trusted publishing).
 - Steady-state publishing needs **no npm token**: CI authenticates via npm

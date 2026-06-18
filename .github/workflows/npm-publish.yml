@@ -39,7 +39,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'   # latest 22.x: clears OIDC floor (>=22.14) AND undici/testcontainers (>=22.19)
+          node-version: '22.22'   # floor now ≥22.22: react-router v8 (engines.node >=22.22.0) on top of the OIDC (>=22.14) and undici/testcontainers (>=22.19) floors
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 

@@ -28,9 +28,11 @@ engineStrict: true
 # the two that matter for build/lint; the rest are declined (they're optional
 # native bits or funding banners and work fine — or are unused — without them).
 allowBuilds:
-  esbuild: true            # vite/vitest/tsx native binary setup
-  unrs-resolver: true      # eslint-import-resolver-typescript native binding
-  '@nestjs/core': false    # postinstall is just a funding banner
-  protobufjs: false        # codegen CLI postinstall, unused here
-  ssh2: false              # native crypto accel (testcontainers/docker) — JS fallback works
-  cpu-features: false      # optional ssh2 speedup, not required
+  esbuild: true # vite/vitest/tsx native binary setup
+  unrs-resolver: true # eslint-import-resolver-typescript native binding
+  '@nestjs/core': false # postinstall is just a funding banner
+  protobufjs: false # codegen CLI postinstall, unused here
+  ssh2: false # native crypto accel (testcontainers/docker) — JS fallback works
+  cpu-features: false # optional ssh2 speedup, not required
+minimumReleaseAgeExclude:
+  - react-router@8.0.1

@@ -6,7 +6,7 @@
 // callbacks (`onSuccess` / `onError`). The consumer owns navigation and UI —
 // this hook is deliberately router-agnostic so it works with React Router,
 // TanStack Router, plain `window.location`, or no router at all. The
-// react-router-dom-bound `OidcCallback` component (sub-path) is built ON TOP
+// react-router-bound `OidcCallback` component (sub-path) is built ON TOP
 // of this hook; there is no logic duplication between them.
 
 import { useEffect, useRef, useState } from "react";

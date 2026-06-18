@@ -52,7 +52,7 @@ shape. Both parameterize on `<TContract>` and pass it through end-to-end.
 |---|---|---|
 | [`@orpc-ws/client`](./packages/orpc-ws-client) | Browser core. Connect, reconnect, heartbeat, sleep detection, typed RPC. | none |
 | [`@orpc-ws/react`](./packages/orpc-ws-react) | WS-transport React adapter (depends only on `@orpc-ws/client`). Hooks: `useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`. | `react` peer |
-| [`@orpc-ws/oidc-react`](./packages/orpc-ws-oidc-react) | OIDC-auth React adapter (depends only on `@orpc-ws/oidc-pkce`). Hooks: `useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`. Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router-dom`) |
+| [`@orpc-ws/oidc-react`](./packages/orpc-ws-oidc-react) | OIDC-auth React adapter (depends only on `@orpc-ws/oidc-pkce`). Hooks: `useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`. Optional `./react-router` sub-path adds the `OidcCallback` `<Route>`. | `react` peer (+ optional `react-router`) |
 | [`@orpc-ws/server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
 | [`@orpc-ws/server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
 | [`@orpc-ws/shared`](./packages/orpc-ws-shared) | Shared seam types (Logger / Clock / Rng / heartbeat wire shape). Published — it's a runtime dependency of the cores. | none |
@@ -161,7 +161,7 @@ ESM + CommonJS** (built with [tshy](https://github.com/isaacs/tshy)) —
 module-level React `createContext` makes a dual build a
 dual-package-identity hazard).
 
-**CommonJS consumers need Node ≥ 20.19 or ≥ 22.12.** The CJS builds keep
+**CommonJS consumers need Node ≥ 20.19 or ≥ 22.22.** The CJS builds keep
 their dependencies external, and `@orpc/*` / `jose` are ESM-only; loading
 them via `require()` of an ESM module is only supported on those Node
 versions. ESM consumers have no such floor.

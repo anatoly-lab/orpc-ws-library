@@ -95,7 +95,7 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   bindings only: `useAuthState`, `useUser`, `useOidcCallback`,
   `RequireAuth`. Depends only on `@orpc-ws/oidc-pkce` (no longer on the
   client core). Optional `./react-router` sub-path adds the `OidcCallback`
-  `<Route>` drop-in (`react-router-dom` optional peer). Does NOT re-export
+  `<Route>` drop-in (`react-router` optional peer). Does NOT re-export
   the core — consumers import `@orpc-ws/oidc-pkce` directly.
 - `@orpc-ws/server-nestjs` — NestJS adapter. `OrpcWsModule.forRootAsync`
   + injectable `OrpcWsService`; wraps core lifecycle in Nest hooks.
@@ -248,7 +248,7 @@ not aspirational:
 | ------------------------------------ | ------------------------------------------------------------------------- | ------------------ |
 | `@orpc-ws/client`               | **Client core.** Vanilla TS, fully framework-free. Reconnect, heartbeat, sleep detect, etc. No React sub-path. | none               |
 | `@orpc-ws/react`                | **WS-transport React adapter.** Hosts the WS connection-state hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) only. Depends only on `@orpc-ws/client`. Does **not** re-export the core. No sub-paths. | `react` peer |
-| `@orpc-ws/oidc-react`           | **OIDC-auth React adapter.** Hosts the OIDC auth hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`) only. Depends only on `@orpc-ws/oidc-pkce`. Does **not** re-export the core. Also exposes an optional `./react-router` sub-path (see prose below). | `react` peer (+ optional `react-router-dom` on the sub-path) |
+| `@orpc-ws/oidc-react`           | **OIDC-auth React adapter.** Hosts the OIDC auth hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`) only. Depends only on `@orpc-ws/oidc-pkce`. Does **not** re-export the core. Also exposes an optional `./react-router` sub-path (see prose below). | `react` peer (+ optional `react-router` on the sub-path) |
 | `@orpc-ws/server`               | **Server core.** Pure Node + `ws` + `@orpc/server`. Verifier-pluggable.   | none               |
 | `@orpc-ws/server-nestjs`        | NestJS adapter (separate package — decorator metadata can't share a sub-path with vanilla TS without bundler pain). | `@nestjs/common` peer |
 
@@ -341,11 +341,13 @@ because both conditions fail.
   other heavier framework dependency. A binding that needs more than
   `react` lives at a *second* entry point — e.g. the `OidcCallback`
   drop-in React-Router `<Route>` component at
-  `@orpc-ws/oidc-react/react-router`, which adds `react-router-dom`
-  as an **optional** peer (`peerDependenciesMeta.optional: true`). The
-  sub-path is declared as a second `exports` entry and built by the same
-  `tsc` pass (`src/react-router/` → `dist/react-router/`).
-  `react-router-dom` resolves only when a consumer imports the sub-path.
+  `@orpc-ws/oidc-react/react-router`, which adds `react-router`
+  as an **optional** peer (`peerDependenciesMeta.optional: true`, range
+  `>=7.0.0`; React Router v7 merged the former `react-router-dom` DOM
+  bindings into `react-router`, and v8 removes the `react-router-dom`
+  shim). The sub-path is declared as a second `exports` entry and built by
+  the same `tsc` pass (`src/react-router/` → `dist/react-router/`).
+  `react-router` resolves only when a consumer imports the sub-path.
   **Why:** keeps the main entry's dependency surface minimal and the
   heavier framework-router coupling opt-in, while *reusing* the
   router-free `useOidcCallback` hook (`OidcCallback` only adds
@@ -379,7 +381,7 @@ core the single source of its own public surface.)
   `express`, `fastify`. CI fails on violation. The two React adapters are
   also lint-scoped: `@orpc-ws/react` (browser-only, WS-transport only) is
   additionally forbidden from importing the OIDC auth core
-  (`@orpc-ws/oidc-pkce`), `react-router-dom`, server cores, Node-only deps,
+  (`@orpc-ws/oidc-pkce`), `react-router`, server cores, Node-only deps,
   and other UI frameworks — keeping it free of any OIDC or router coupling.
 - **No framework lifecycle leakage.** The server core owns its own
   lifecycle (`start`, `stop`, `attach(httpServer)`). The NestJS adapter

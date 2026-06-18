@@ -41,7 +41,7 @@ This package exports the OIDC-auth React bindings only:
 The optional `./react-router` sub-path adds:
 
 - **`OidcCallback`** — a drop-in callback route component for React
-  Router apps. Requires `react-router-dom` as an **optional** peer.
+  Router apps. Requires `react-router` as an **optional** peer.
 
 ## Handling the OIDC callback
 
@@ -59,7 +59,7 @@ router — or none:
 ```tsx
 import { useOidcCallback } from "@orpc-ws/oidc-react";
 import { formatCallbackError } from "@orpc-ws/oidc-pkce";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 function CallbackPage() {
   const navigate = useNavigate();
@@ -123,9 +123,11 @@ import { formatCallbackError } from "@orpc-ws/oidc-pkce";
 
 …or switch on `e.type` to render fully custom, localized strings instead.
 
-Importing this sub-path pulls in `react-router-dom`, which is an
+Importing this sub-path pulls in `react-router`, which is an
 **optional** peer dependency — you only need it installed if you import
 `@orpc-ws/oidc-react/react-router`. The main entry never touches it.
+(React Router v7 merged the former `react-router-dom` DOM bindings into
+`react-router`; the peer range `>=7.0.0` covers both v7 and v8.)
 
 ## Gating protected UI — `RequireAuth` (main entry)
 
@@ -171,7 +173,7 @@ The callback flow ships as two surfaces on purpose:
 | --- | --- | --- |
 | Glue you write | One `<Route>` line | ~10 lines (navigate + UI) |
 | Router | React Router only | Any router, or none |
-| Extra dependency | `react-router-dom` (optional peer) | none |
+| Extra dependency | `react-router` (optional peer) | none |
 | Import | `…/react-router` | main entry |
 
 **Why the split.** The hook is the honest framework-agnostic primitive: it

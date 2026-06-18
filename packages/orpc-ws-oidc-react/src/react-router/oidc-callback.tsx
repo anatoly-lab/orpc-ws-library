@@ -3,18 +3,22 @@
 // The ergonomic Tier-2 surface: a 1-line `<Route element={<OidcCallback
 // client={authClient} />} />` that handles the redirect-back exchange and
 // navigates home on success. It REUSES `useOidcCallback` for all logic —
-// this file only adds react-router-dom's `useNavigate` wiring and minimal
+// this file only adds react-router's `useNavigate` wiring and minimal
 // default UI. No exchange logic lives here, so the hook and the component
 // can never diverge.
 //
-// react-router-dom is an OPTIONAL peer of this package: it is dragged in only
+// react-router is an OPTIONAL peer of this package: it is dragged in only
 // when a consumer imports `@orpc-ws/oidc-react/react-router`. The main
 // entry (the `useOidcCallback` hook) stays router-free. Keeping the binding
 // in a sub-path is what lets the core stay honestly framework-agnostic
 // (CLAUDE.md sub-path rule: same browser runtime + peer-only dependency).
+//
+// react-router v7 merged the former react-router-dom DOM bindings into the
+// main `react-router` package (react-router-dom is a deprecated shim that v8
+// removes); `useNavigate` is a general API exported from `react-router`.
 
 import type { ReactElement, ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { formatCallbackError, type CallbackError, type OidcAuth } from "@orpc-ws/oidc-pkce";
 

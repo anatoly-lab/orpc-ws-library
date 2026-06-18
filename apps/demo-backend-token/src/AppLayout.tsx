@@ -19,7 +19,7 @@
 
 import { useEffect, useState, type ReactElement } from "react";
 
-import { Outlet } from "react-router-dom";
+import { Outlet } from "react-router";
 
 import { bootstrap } from "./lib/auth.js";
 import { wsClient } from "./lib/ws-client.js";

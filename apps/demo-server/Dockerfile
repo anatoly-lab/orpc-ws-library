@@ -10,7 +10,7 @@
 #   out/pnpm-lock.yaml → the pruned lockfile (pnpm)
 
 # ── base ──────────────────────────────────────────────────────────────
-FROM node:22-alpine AS base
+FROM node:22.22-alpine AS base
 # corepack provisions the pnpm version pinned in package.json "packageManager".
 # Alpine's bundled corepack predates the npm signing-key rotation and fails
 # "Cannot find matching keyid" on recent pnpm releases — update it first.
@@ -44,7 +44,7 @@ RUN turbo run build --filter=@demo/server
 # The demo-server entry is dist/main-pkce.js (plain `tsc` → ./dist, see its
 # tsconfig outDir). Only the PKCE mode is containerized for e2e — the
 # backend-token / cookie-bff mains are dev-only.
-FROM node:22-alpine AS runner
+FROM node:22.22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
