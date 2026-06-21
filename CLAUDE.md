@@ -20,7 +20,7 @@ All tasks run through Turborepo from the repo root. First-time setup:
 
 | Task | Command | Notes |
 |---|---|---|
-| Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for the two React adapters `@orpc-ws/react` and `@orpc-ws/oidc-react` (both ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps. Topo-ordered via `^build`. |
+| Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for the two React adapters `@orpc-ws/react` and `@orpc-ws/oidc-react` (both ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps (three self-contained apps, each contract/server/client). Topo-ordered via `^build`. |
 | Typecheck all | `pnpm typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
 | Lint all | `pnpm lint` | ESLint flat config; enforces framework-free cores. Note: `lint` `dependsOn: ["build"]` in `turbo.json` — tshy writes a temporary `package.json` mid-build that the ESLint import resolver would otherwise race (commit `edec802`). |
 | Unit tests all | `pnpm test` | Vitest, per package. **User runs tests — assistant does not.** |
@@ -39,28 +39,33 @@ Regression tests for the design-doc bugs are greppable by filename
 (`bug-01-...`, `bug-06-...`, `bug-08-...`) — one named test per fixed bug
 (see "Tests from day 0").
 
-Demo (each demo is two separate processes — a Vite SPA + the NestJS server
-run in the matching mode; **user runs these**). Three auth-model demos share
-one multi-mode demo-server:
+Demo. Three auth-model demos, each a **self-contained app** under
+`apps/demo-<mode>/` with its own `contract/` + `server/` + `client/` package.
+Each demo runs as two separate processes — a Vite SPA (`client/`) + a
+single-mode NestJS server (`server/`, entry `src/main.ts`) on its own port;
+**user runs these**. The command names are unchanged (they just repoint to
+the new per-app package names, e.g. `@demo/pkce-server` / `@demo/pkce-client`):
 - **pkce** (server on 18081): `pnpm dev:server:pkce` + `pnpm dev:pkce`
   (or `pnpm dev:demo` for the default pair).
 - **backend-token** (server on 18082): `pnpm dev:server:backend-token` +
   `pnpm dev:backend-token`.
 - **cookie-bff** (server on 18083): `pnpm dev:server:cookie-bff` +
   `pnpm dev:cookie-bff`.
-- Build all four demo apps: `pnpm build:demo`. Preview a built SPA:
+- Build every demo package: `pnpm build:demo`. Preview a built SPA:
   `pnpm preview:demo:pkce` / `:backend-token` / `:cookie-bff` (4173 / 4174 /
   4175). The bare `pnpm dev:server` aliases the pkce mode.
-- needs **both** the SPA's `.env` (build-time `VITE_*` vars — every SPA needs
-  `VITE_WS_URL`; the two backend modes also need `VITE_SERVER_ORIGIN`; pkce
-  additionally needs `VITE_OIDC_*` + `VITE_UPLOAD_URL`) and
-  `apps/demo-server/.env` (shared `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID`; the
-  per-mode ports `PORT_PKCE` / `PORT_BACKEND_TOKEN` / `PORT_COOKIE_BFF` and
-  SPA-origin / session-cookie vars for the backend modes — loaded via Node
-  `--env-file-if-exists`) — each copied from its own `.env.example` — plus a
-  running OIDC IdP. Preferred IdP is the hosted Keycloak at
-  `keycloak.anatoly.dev` (`orpc-ws-demo` realm). The two backend modes need
-  their callback redirect URIs (`http://localhost:18082/auth/callback`,
+- needs **both** the SPA's `client/.env` (build-time `VITE_*` vars — every
+  SPA needs `VITE_WS_URL`; the two backend modes also need
+  `VITE_SERVER_ORIGIN`; pkce additionally needs `VITE_OIDC_*` +
+  `VITE_UPLOAD_URL`) and the matching `server/.env` (single-mode:
+  `PORT` — defaults pkce 18081 / backend-token 18082 / cookie-bff 18083 —
+  plus `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID`, and SPA-origin / session-cookie
+  vars for the backend modes; each server loads its OWN `.env` from its
+  package dir via Node `--env-file-if-exists`) — each copied from its own
+  `.env.example` — plus a running OIDC IdP. Preferred IdP is the hosted
+  Keycloak at `keycloak.anatoly.dev` (`orpc-ws-demo` realm). The two backend
+  modes need their callback redirect URIs
+  (`http://localhost:18082/auth/callback`,
   `http://localhost:18083/auth/callback`) registered on that realm's client,
   which acts as a **public PKCE client** (no secret) for the server-side flow.
 
@@ -105,24 +110,32 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 - `@orpc-ws/oidc-verifier-jose` — Node JWT verifier (depends on `jose`); a
   sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
 
-Apps (under `apps/`): `@demo/contract` (shared ORPC contract); a single
-**multi-mode** NestJS `@demo/server` with three bootstraps (`main-pkce` /
-`main-backend-token` / `main-cookie-bff`), each run as its **own process** on
-its own port (pkce 18081 / backend-token 18082 / cookie-bff 18083) because the
-library's `OrpcWsModule` is single-instance per Nest app, so one mode = one
-app = one process; and three React + Vite SPAs, one per auth model:
-- `@demo/pkce` — browser PKCE (imports `@orpc-ws/oidc-pkce` +
+Apps (under `apps/`): three **self-contained** demo apps, one per auth model,
+each a directory `apps/demo-<mode>/` holding its own `contract/` + `server/` +
+`client/` package — nine demo packages total (`@demo/<mode>-contract`,
+`@demo/<mode>-server`, `@demo/<mode>-client` for each of pkce / backend-token /
+cookie-bff). There is no shared `@demo/contract` or `@demo/server` anymore: the
+ORPC contract is **copied per app** (`@demo/<mode>-contract`, shared only by
+that app's own server + client — an intentional cross-app DRY violation, single
+source within an app). Each `server/` is a **single-mode** NestJS app, entry
+`src/main.ts` (built to `dist/main.js`), on its own port (pkce 18081 /
+backend-token 18082 / cookie-bff 18083). The library's `OrpcWsModule` is
+single-instance per Nest app, so the one-mode-per-process constraint is now
+satisfied **by construction** — one mode = one server package = one app = one
+process. The three React + Vite SPAs (`client/`), one per auth model:
+- `@demo/pkce-client` — browser PKCE (imports `@orpc-ws/oidc-pkce` +
   `@orpc-ws/oidc-react` + `@orpc-ws/react`); dev 5173 / e2e preview 4173.
-- `@demo/backend-token` — custom `TokenProvider`, server-minted access token
-  passed via WS `?token=` (imports only `@orpc-ws/client` + `@orpc-ws/react`,
-  no oidc packages — the WS-only consumer path); dev 5174 / preview 4174.
-- `@demo/cookie-bff` — httpOnly `sid` session cookie authenticates the WS
-  handshake automatically, no `?token=` (imports only `@orpc-ws/client` +
+- `@demo/backend-token-client` — custom `TokenProvider`, server-minted access
+  token passed via WS `?token=` (imports only `@orpc-ws/client` +
+  `@orpc-ws/react`, no oidc packages — the WS-only consumer path); dev 5174 /
+  preview 4174.
+- `@demo/cookie-bff-client` — httpOnly `sid` session cookie authenticates the
+  WS handshake automatically, no `?token=` (imports only `@orpc-ws/client` +
   `@orpc-ws/react`, no `tokenProvider`); dev 5175 / preview 4175.
 
 `@repo/tests-e2e` is **not** under `apps/` — it is a
 top-level workspace dir (`pnpm-workspace.yaml` globs: `packages/*`,
-`apps/*`, `tests-e2e`).
+`apps/*/*`, `tests-e2e`).
 
 Two cross-package mechanisms to know before editing:
 - **Heartbeat is a "stealth procedure"**, not in the consumer's contract. The
@@ -638,7 +651,7 @@ Why pnpm:
 Details of the setup:
 
 - **Package manager: pnpm workspaces.** Workspace globs live in
-  `pnpm-workspace.yaml` (`packages/*`, `apps/*`, `tests-e2e`), NOT in a
+  `pnpm-workspace.yaml` (`packages/*`, `apps/*/*`, `tests-e2e`), NOT in a
   root-`package.json` `"workspaces"` array (that field is removed). pnpm
   is provisioned via Corepack — `corepack enable`, version pinned by the
   root `package.json` `packageManager` field (`pnpm@11.6.0`). No yarn.
@@ -648,8 +661,8 @@ Details of the setup:
   overrides) and put `linkWorkspacePackages: true`, `saveExact: true`,
   `engineStrict: true` in `pnpm-workspace.yaml`.
 - **Cross-dependency convention:** **all** internal `@orpc-ws/*` deps
-  (and the private `@demo/contract` dep) use the **`workspace:*`**
-  protocol. `pnpm publish` (invoked by `changeset publish`) rewrites
+  (and each app's private `@demo/<mode>-contract` dep) use the
+  **`workspace:*`** protocol. `pnpm publish` (invoked by `changeset publish`) rewrites
   `workspace:*` → the exact just-published version, so registry metadata
   is always correct. `linkWorkspacePackages: true` is now
   belt-and-suspenders — `workspace:*` links locally regardless.

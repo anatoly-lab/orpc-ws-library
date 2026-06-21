@@ -66,8 +66,8 @@ const KEYCLOAK_IMAGE = "quay.io/keycloak/keycloak:26.5.5";
 const SERVER_IMAGE = "orpc-ws-e2e/server";
 const SPA_IMAGE = "orpc-ws-e2e/spa";
 
-const SERVER_DOCKERFILE = "apps/demo-server/Dockerfile";
-const SPA_DOCKERFILE = "apps/demo-pkce/Dockerfile";
+const SERVER_DOCKERFILE = "apps/demo-pkce/server/Dockerfile";
+const SPA_DOCKERFILE = "apps/demo-pkce/client/Dockerfile";
 
 // ── realm / ports ─────────────────────────────────────────────────────────
 const KEYCLOAK_REALM = "orpc-ws-demo";

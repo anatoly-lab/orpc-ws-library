@@ -57,17 +57,17 @@ importers:
         specifier: 4.1.8
         version: 4.1.8(@types/node@25.9.3)(happy-dom@20.10.3)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
 
-  apps/demo-backend-token:
+  apps/demo-backend-token/client:
     dependencies:
-      '@demo/contract':
+      '@demo/backend-token-contract':
         specifier: workspace:*
-        version: link:../demo-contract
+        version: link:../contract
       '@orpc-ws/client':
         specifier: workspace:*
-        version: link:../../packages/orpc-ws-client
+        version: link:../../../packages/orpc-ws-client
       '@orpc-ws/react':
         specifier: workspace:*
-        version: link:../../packages/orpc-ws-react
+        version: link:../../../packages/orpc-ws-react
       react:
         specifier: 19.2.7
         version: 19.2.7
@@ -97,7 +97,7 @@ importers:
         specifier: 8.0.16
         version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
 
-  apps/demo-contract:
+  apps/demo-backend-token/contract:
     dependencies:
       '@orpc/contract':
         specifier: 1.14.6
@@ -113,97 +113,11 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
-  apps/demo-cookie-bff:
+  apps/demo-backend-token/server:
     dependencies:
-      '@demo/contract':
+      '@demo/backend-token-contract':
         specifier: workspace:*
-        version: link:../demo-contract
-      '@orpc-ws/client':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-client
-      '@orpc-ws/react':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-react
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      react-router:
-        specifier: 8.0.1
-        version: 8.0.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-    devDependencies:
-      '@types/react':
-        specifier: 19.2.17
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: 19.2.3
-        version: 19.2.3(@types/react@19.2.17)
-      '@vitejs/plugin-react':
-        specifier: 6.0.2
-        version: 6.0.2(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
-      rimraf:
-        specifier: 6.1.3
-        version: 6.1.3
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vite:
-        specifier: 8.0.16
-        version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
-
-  apps/demo-pkce:
-    dependencies:
-      '@demo/contract':
-        specifier: workspace:*
-        version: link:../demo-contract
-      '@orpc-ws/client':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-client
-      '@orpc-ws/oidc-pkce':
-        specifier: workspace:*
-        version: link:../../packages/oidc-pkce
-      '@orpc-ws/oidc-react':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-oidc-react
-      '@orpc-ws/react':
-        specifier: workspace:*
-        version: link:../../packages/orpc-ws-react
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: 19.2.7
-        version: 19.2.7(react@19.2.7)
-      react-router:
-        specifier: 8.0.1
-        version: 8.0.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-    devDependencies:
-      '@types/react':
-        specifier: 19.2.17
-        version: 19.2.17
-      '@types/react-dom':
-        specifier: 19.2.3
-        version: 19.2.3(@types/react@19.2.17)
-      '@vitejs/plugin-react':
-        specifier: 6.0.2
-        version: 6.0.2(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
-      rimraf:
-        specifier: 6.1.3
-        version: 6.1.3
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vite:
-        specifier: 8.0.16
-        version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
-
-  apps/demo-server:
-    dependencies:
-      '@demo/contract':
-        specifier: workspace:*
-        version: link:../demo-contract
+        version: link:../contract
       '@nestjs/common':
         specifier: 11.1.26
         version: 11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -215,10 +129,220 @@ importers:
         version: 11.1.26(@nestjs/common@11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.26)
       '@orpc-ws/oidc-verifier-jose':
         specifier: workspace:*
-        version: link:../../packages/oidc-verifier-jose
+        version: link:../../../packages/oidc-verifier-jose
       '@orpc-ws/server-nestjs':
         specifier: workspace:*
-        version: link:../../packages/orpc-ws-server-nestjs
+        version: link:../../../packages/orpc-ws-server-nestjs
+      '@orpc/server':
+        specifier: 1.14.6
+        version: 1.14.6(ws@8.21.0)
+      express:
+        specifier: 5.2.1
+        version: 5.2.1
+      reflect-metadata:
+        specifier: 0.2.2
+        version: 0.2.2
+    devDependencies:
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: 25.9.3
+        version: 25.9.3
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      tsx:
+        specifier: 4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  apps/demo-cookie-bff/client:
+    dependencies:
+      '@demo/cookie-bff-contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@orpc-ws/client':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-client
+      '@orpc-ws/react':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-react
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: 8.0.1
+        version: 8.0.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      '@vitejs/plugin-react':
+        specifier: 6.0.2
+        version: 6.0.2(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.0.16
+        version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
+
+  apps/demo-cookie-bff/contract:
+    dependencies:
+      '@orpc/contract':
+        specifier: 1.14.6
+        version: 1.14.6
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  apps/demo-cookie-bff/server:
+    dependencies:
+      '@demo/cookie-bff-contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@nestjs/common':
+        specifier: 11.1.26
+        version: 11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: 11.1.26
+        version: 11.1.26(@nestjs/common@11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.26)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/platform-express':
+        specifier: 11.1.26
+        version: 11.1.26(@nestjs/common@11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.26)
+      '@orpc-ws/oidc-verifier-jose':
+        specifier: workspace:*
+        version: link:../../../packages/oidc-verifier-jose
+      '@orpc-ws/server-nestjs':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-server-nestjs
+      '@orpc/server':
+        specifier: 1.14.6
+        version: 1.14.6(ws@8.21.0)
+      express:
+        specifier: 5.2.1
+        version: 5.2.1
+      reflect-metadata:
+        specifier: 0.2.2
+        version: 0.2.2
+    devDependencies:
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: 25.9.3
+        version: 25.9.3
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      tsx:
+        specifier: 4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  apps/demo-pkce/client:
+    dependencies:
+      '@demo/pkce-contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@orpc-ws/client':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-client
+      '@orpc-ws/oidc-pkce':
+        specifier: workspace:*
+        version: link:../../../packages/oidc-pkce
+      '@orpc-ws/oidc-react':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-oidc-react
+      '@orpc-ws/react':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-react
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+      react-router:
+        specifier: 8.0.1
+        version: 8.0.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      '@vitejs/plugin-react':
+        specifier: 6.0.2
+        version: 6.0.2(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.0.16
+        version: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
+
+  apps/demo-pkce/contract:
+    dependencies:
+      '@orpc/contract':
+        specifier: 1.14.6
+        version: 1.14.6
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  apps/demo-pkce/server:
+    dependencies:
+      '@demo/pkce-contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@nestjs/common':
+        specifier: 11.1.26
+        version: 11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: 11.1.26
+        version: 11.1.26(@nestjs/common@11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.26)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/platform-express':
+        specifier: 11.1.26
+        version: 11.1.26(@nestjs/common@11.1.26(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.26)
+      '@orpc-ws/oidc-verifier-jose':
+        specifier: workspace:*
+        version: link:../../../packages/oidc-verifier-jose
+      '@orpc-ws/server-nestjs':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-server-nestjs
       '@orpc/server':
         specifier: 1.14.6
         version: 1.14.6(ws@8.21.0)

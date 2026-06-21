@@ -1,7 +1,7 @@
 // Demo SPA home page object.
 //
 // Selectors are all `data-testid` because the SPA was deliberately built
-// with that affordance (apps/demo-pkce/src/pages/Home.tsx). No class
+// with that affordance (apps/demo-pkce/client/src/pages/Home.tsx). No class
 // chains or role lookups — those add brittleness without buying
 // anything when the dev controls both sides.
 

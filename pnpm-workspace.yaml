@@ -6,7 +6,7 @@
 # apps under apps/*, and the Playwright e2e suite as a top-level dir.
 packages:
   - "packages/*"
-  - "apps/*"
+  - "apps/*/*"
   - "tests-e2e"
 
 # ALL cross-package @orpc-ws/* deps use the pnpm `workspace:*` protocol (the
