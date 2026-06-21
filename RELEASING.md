@@ -3,7 +3,8 @@
 How to cut and publish a release of the eight `@orpc-ws/*` packages. The
 monorepo is **lockstep-versioned** via [Changesets](https://github.com/changesets/changesets):
 every published package shares one identical version and they all publish
-together.
+together. Publishing is **tag-triggered** — Changesets is kept purely as a
+local versioning + changelog tool; pushing an `v*` tag is what ships to npm.
 
 ## Prerequisites
 
@@ -17,21 +18,11 @@ together.
 - Steady-state publishing needs **no npm token**: CI authenticates via npm
   OIDC trusted publishing (see [Authentication](#authentication--publishing)).
   A token is only needed for the one-time bootstrap of a brand-new package.
-- **One-time GitHub setting (required once):** enable **"Allow GitHub Actions
-  to create and approve pull requests."** Without it, `changesets/action`
-  cannot open the "Version Packages" PR.
-  - **Org-governed for this repo.** `orpc-ws-library` lives under the
-    `anatoly-lab` **organization**, so this toggle is governed at the org
-    level — the per-repo checkbox (Settings → Actions → General → Workflow
-    permissions) is **greyed out / unselectable**. Enable it instead at
-    **Organization Settings → Actions → General → Workflow permissions**
-    (`https://github.com/organizations/anatoly-lab/settings/actions`).
-  - **Least-privilege alternative.** Rather than flipping the org-wide
-    toggle, mint a **fine-grained PAT** scoped to just this repo
-    (Contents: write + Pull requests: write), store it as a repo secret, and
-    pass it as the `GITHUB_TOKEN` env on the `changesets/action` step. That
-    bypasses the "Actions can't create PRs" restriction without touching
-    org-wide policy.
+- **No special GitHub PR-creation permission is needed.** The release flow no
+  longer opens a "Version Packages" bot PR (the `changesets/action` is gone),
+  so the org/repo "Allow GitHub Actions to create and approve pull requests"
+  toggle is **not** required for releases. Versioning runs locally; CI only
+  publishes on a tag.
 
 ## Lockstep versioning model
 
@@ -48,12 +39,18 @@ a unit:
 - `@orpc-ws/oidc-verifier-jose`
 
 Lockstep is enforced by the Changesets `fixed` group in `.changeset/config.json`
-— a release of any one package bumps all seven to the same version. Internal
-cross-package deps use the **`workspace:*`** protocol; `pnpm publish` (invoked
-by `changeset publish`) rewrites each to the exact just-published version, so an
-adapter never drifts from the core version it was built against.
+— a release of any one package bumps all eight to the same version. Internal
+cross-package deps use the **`workspace:*`** protocol; `pnpm publish` rewrites
+each to the exact just-published version, so an adapter never drifts from the
+core version it was built against.
 
 ## Cutting a release (the normal path)
+
+Releases are **tag-triggered**: `.github/workflows/npm-publish.yml` runs **only**
+on a pushed `v*` tag and publishes via `pnpm -r publish`. Pushing or merging to
+`main` **never** publishes — push to `main` as freely as you like; pending
+`.changeset/*.md` files simply accumulate there until you decide to cut a
+release.
 
 ### 1. Add a changeset with each PR
 
@@ -64,33 +61,56 @@ pnpm changeset
 ```
 
 Pick the bump type (patch / minor / major) and write a one-line summary. Because
-of the `fixed` group you only need to select one package — all seven move
+of the `fixed` group you only need to select one package — all eight move
 together — but the summary is what lands in the CHANGELOGs. Commit the generated
 `.changeset/*.md` file alongside your change. (A PR with no user-facing change
-needs no changeset.)
+needs no changeset.) Merge to `main` as usual; nothing publishes yet.
 
-### 2. Merge to `main`
+### 2. Version the packages (locally)
 
-On every push to `main`, the `npm-publish.yml` workflow runs `changesets/action`.
-If there are pending `.changeset/*.md` files, it opens (or updates) a **"Version
-Packages" PR**. That PR runs `pnpm changeset version`, which:
+When you're ready to release, consume the pending changesets:
+
+```bash
+pnpm version-packages   # = `changeset version`
+```
+
+This:
 
 - bumps all eight packages in lockstep,
 - rewrites internal `workspace:*` deps,
 - folds the changeset summaries into each `CHANGELOG.md`,
 - and deletes the consumed `.changeset/*.md` files.
 
-### 3. Merge the "Version Packages" PR → CI publishes
+### 3. Commit the bump and push to `main`
 
-Merging that PR triggers the workflow again; this time there are no pending
-changesets, so the action runs `pnpm changeset publish`, which:
+```bash
+git commit -am "release: vX.Y.Z"
+git push
+```
 
-- publishes every bumped package via npm OIDC trusted publishing + provenance
-  (resolving `workspace:*` to the exact new version),
-- pushes the git tags,
-- and creates the GitHub Releases (the action's `createGithubReleases` default).
+(Substitute the version that `version-packages` just produced — read it off any
+bumped `package.json`.) This lands the version bumps and CHANGELOGs on `main`;
+it still does **not** publish.
 
-No manual tagging, no `git push --tags`, no version-stamp script.
+### 4. Tag the release → CI publishes
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+The tag push is the publish trigger. `npm-publish.yml` checks out the tagged
+commit, builds, and runs `pnpm -r publish --no-git-checks`, which:
+
+- publishes every package whose version is not yet on the registry via npm OIDC
+  trusted publishing + provenance (resolving `workspace:*` to the exact new
+  version),
+- skips the private `@demo/*` apps,
+- and is a safe no-op if re-run on the same tag (already-published versions are
+  skipped).
+
+GitHub Releases are not created automatically anymore; cut one by hand from the
+tag if you want release notes (the CHANGELOGs already carry the detail).
 
 ## Prereleases & snapshots
 
@@ -102,9 +122,10 @@ pnpm changeset pre enter beta   # start prerelease mode
 pnpm changeset pre exit         # back to stable releases
 ```
 
-While in prerelease mode the Version PR produces `-beta.N` versions and
-`changeset publish` ships them under the `beta` dist-tag. Commit the
-`.changeset/pre.json` that `pre enter` creates.
+While in prerelease mode `pnpm version-packages` produces `-beta.N` versions;
+tagging and pushing `vX.Y.Z-beta.N` then ships them (pnpm publishes a
+prerelease version under the `beta` dist-tag when the version carries a
+`-beta` suffix). Commit the `.changeset/pre.json` that `pre enter` creates.
 
 **One-off snapshot release** (ephemeral, e.g. for testing a PR build):
 
@@ -114,7 +135,9 @@ pnpm changeset publish --tag snapshot
 ```
 
 This publishes a throwaway `0.0.0-snapshot-*` version under the `snapshot`
-dist-tag without touching `main` history.
+dist-tag without touching `main` history. (The root `release` script was
+removed — invoke `changeset publish` via `pnpm exec changeset publish` for this
+one-off local path; steady-state releases never call it, CI publishes on tag.)
 
 ## Authentication & publishing
 
@@ -126,7 +149,9 @@ automatic.
 
 > **Do not rename `npm-publish.yml`.** The npmjs.org trusted-publisher bindings
 > for all eight packages are keyed to this exact workflow filename; renaming it
-> breaks OIDC authorization.
+> breaks OIDC authorization. (The binding matches on repo + workflow filename,
+> **not** on branch/ref — which is why moving the trigger from `push: main` to
+> `push: tags: v*` authorizes identically, no re-registration needed.)
 
 ## One-time setup for a brand-NEW package
 

@@ -695,29 +695,53 @@ pay off as the dependency surface and CI matrix grow. Corepack keeps the
 entry barrier near-zero ("anyone with a recent Node can `corepack enable`
 and `pnpm install`").
 
-### Versioning & release: Changesets (lockstep)
+### Versioning & release: Changesets (local) + tag-triggered publish
 
 **This supersedes the earlier custom-script release decision**
 (`scripts/sync-version.mjs` + `scripts/publish-all.sh` + a tag-push
 `npm-publish.yml` / GH-release `release.yml`, all now removed, along with
-the `release:version` root script).
+the `release:version` root script). **It also REVERSES the interim
+"merge the Version Packages PR to publish" model** — publishing is no
+longer coupled to merging a bot PR on `push: main`; it is now triggered
+by pushing a `v*` git tag. Changesets is retained **only** as a local
+tool — for the `fixed` lockstep bump and the CHANGELOGs — not for CI
+publishing.
 
 - **Tool: [Changesets](https://github.com/changesets/changesets)**
-  (`@changesets/cli`, root devDep; config in `.changeset/config.json`).
+  (`@changesets/cli`, root devDep; config in `.changeset/config.json`),
+  used **locally only** (versioning + changelogs).
 - **Lockstep via the `fixed` group** — all eight published packages are
   listed in one `fixed` array, so any release bumps them all to the same
-  version (`fixed` does **not** support globs; list each package).
-- **Internal deps are `workspace:*`** — `pnpm publish` (driven by
-  `changeset publish`) rewrites them to the exact published version.
+  version (`fixed` does **not** support globs; list each package):
+  `@orpc-ws/shared`, `oidc-pkce`, `client`, `server`, `oidc-react`,
+  `react`, `server-nestjs`, `oidc-verifier-jose`.
+- **Internal deps are `workspace:*`** — `pnpm -r publish` rewrites them
+  to the exact published version at publish time.
 - **Changelog:** the bundled `@changesets/cli/changelog` (no extra dep).
-- **CI flow:** one `changesets/action@v1` workflow on `push: main`
-  (`.github/workflows/npm-publish.yml` — name fixed by the npm
-  trusted-publisher binding). Push to main with pending changesets → a
-  "Version Packages" PR; merge it → publish via OIDC + provenance + GH
-  releases. No npm token in steady state.
-- **Day-to-day:** `pnpm changeset` per behavior-changing PR. Root
-  scripts: `changeset` / `version-packages` (`changeset version`) / `release`
-  (`changeset publish`). Full runbook in RELEASING.md.
+- **Publish is tag-triggered.** `.github/workflows/npm-publish.yml` runs
+  **only** on a pushed `v*` tag (`on: push: tags: ['v*']`) — pushing or
+  merging to `main` NEVER publishes; pending `.changeset/*.md` files just
+  accumulate on `main` until a release. The tagged run builds, then runs
+  `pnpm -r publish --no-git-checks` (publishes every non-private package
+  not yet on the registry — so re-tagging is a safe no-op — skips the
+  private `@demo/*` apps). Auth is npm OIDC trusted publishing (no token
+  in steady state; provenance automatic). There is **no** `changesets/action`
+  and **no** "Version Packages" bot PR anymore, so the org-level "Allow
+  GitHub Actions to create and approve PRs" toggle is no longer needed
+  for releases.
+- **DO NOT rename `npm-publish.yml`.** The npm trusted-publisher binding
+  for all eight packages is keyed to repo + this exact workflow filename
+  (NOT branch/ref — which is why moving the trigger from `push: main` to a
+  `v*` tag authorizes identically, no re-registration).
+- **Release recipe (manual, local):** `pnpm version-packages`
+  (= `changeset version`, consumes `.changeset/*.md`, bumps all eight,
+  rewrites `workspace:*`, writes CHANGELOGs) → commit + push the bump to
+  `main` (`git commit -am "release: vX.Y.Z" && git push`) → `git tag
+  vX.Y.Z && git push origin vX.Y.Z` (the tag push is what publishes).
+- **Day-to-day:** `pnpm changeset` per behavior-changing PR. Root scripts:
+  `changeset` / `version-packages` (`changeset version`) only — the
+  `release` (`changeset publish`) script was removed (publishing is
+  CI-on-tag). Full runbook in RELEASING.md.
 
 ### Test runner: vitest
 
