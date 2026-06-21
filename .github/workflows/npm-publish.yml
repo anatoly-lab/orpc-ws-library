@@ -1,60 +1,62 @@
-# Lockstep publish for the @orpc-ws/* family, driven by Changesets.
+# Tag-triggered lockstep publish for the @orpc-ws/* family.
 #
-# Two-phase flow (changesets/action):
-#   1. Push to main with unreleased .changeset/*.md files → the action opens (or
-#      updates) a "Version Packages" PR that runs `changeset version`: it bumps
-#      all seven packages in lockstep (config `fixed`), rewrites internal
-#      `workspace:*` deps, and updates each CHANGELOG.md.
-#   2. Merge that PR → the action's `publish` step runs `changeset publish`,
-#      which delegates to `pnpm publish` per package (resolving `workspace:*`
-#      to the exact just-bumped version), publishes via npm OIDC trusted
-#      publishing + provenance, pushes git tags, and creates GitHub Releases.
+# Publishing happens ONLY when a version tag (`v*`, e.g. `v0.2.0`) is pushed.
+# Pushing/merging to `main` NEVER publishes — push to main as much as you want.
 #
-# DO NOT RENAME THIS FILE. npmjs.org trusted-publisher bindings for all seven
+# To cut a release (all 8 packages move together — see `fixed` in
+# .changeset/config.json):
+#   1. pnpm version-packages      # = `changeset version`: consumes .changeset/*.md,
+#                                  #   bumps all 8 in lockstep, rewrites workspace:*
+#                                  #   deps, writes CHANGELOG.md
+#   2. git commit -am "release: vX.Y.Z" && git push        # land bumps on main
+#   3. git tag vX.Y.Z && git push origin vX.Y.Z            # <-- THIS publishes
+#
+# DO NOT RENAME THIS FILE. npmjs.org trusted-publisher bindings for all eight
 # packages are bound to the workflow filename `npm-publish.yml`; renaming it
-# breaks OIDC authorization and publishes will 404.
+# breaks OIDC authorization and publishes will 404. (The trusted-publisher
+# check matches on repo + workflow filename, NOT on branch/ref, so a
+# tag-triggered run authorizes exactly like the old branch-triggered one.)
 
 name: Publish to npm (@orpc-ws)
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
-  contents: write        # commit the Version Packages PR, git tags, GH releases
-  pull-requests: write   # open/update the Version Packages PR
-  id-token: write        # npm OIDC trusted publishing
+  contents: read       # checkout the tagged commit
+  id-token: write      # npm OIDC trusted publishing
 
 jobs:
-  release:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # changesets needs full history vs baseBranch
 
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22'   # floor now ≥22.22: react-router v8 (engines.node >=22.22.0) on top of the OIDC (>=22.14) and undici/testcontainers (>=22.19) floors
-          cache: 'pnpm'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "22.22" # floor ≥22.22 (react-router v8 engines.node >=22.22.0)
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
 
       - run: pnpm install --frozen-lockfile
 
       - name: Build before publish
         run: pnpm exec turbo run build
 
-      - name: Create Release PR or Publish
-        uses: changesets/action@v1
-        with:
-          version: pnpm changeset version
-          publish: pnpm changeset publish
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Deliberately NO NPM_TOKEN / NODE_AUTH_TOKEN. Leaving it UNSET is what
-          # selects npm OIDC trusted publishing (a present-but-empty token would
-          # bypass OIDC and 404). Provenance is automatic under trusted publishing.
+      - name: Publish to npm (lockstep, OIDC trusted publishing)
+        # `pnpm -r publish` publishes every non-private workspace package whose
+        # version is not yet on the registry (so re-running a tag is a safe
+        # no-op), rewrites workspace:* -> the exact published version, and skips
+        # the private @demo/* demo apps. Each package carries
+        # publishConfig.access=public. --no-git-checks: CI runs on a detached
+        # tag checkout, so pnpm's default clean-tree/branch checks don't apply.
+        run: pnpm -r publish --no-git-checks
+        # Deliberately NO NPM_TOKEN / NODE_AUTH_TOKEN: leaving it unset is what
+        # selects npm OIDC trusted publishing (a present-but-empty token would
+        # bypass OIDC and 404). Provenance is automatic under trusted publishing.
