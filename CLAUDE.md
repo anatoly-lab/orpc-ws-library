@@ -43,17 +43,15 @@ Demo. Three auth-model demos, each a **self-contained app** under
 `apps/demo-<mode>/` with its own `contract/` + `server/` + `client/` package.
 Each demo runs as two separate processes — a Vite SPA (`client/`) + a
 single-mode NestJS server (`server/`, entry `src/main.ts`) on its own port;
-**user runs these**. The command names are unchanged (they just repoint to
-the new per-app package names, e.g. `@demo/pkce-server` / `@demo/pkce-client`):
-- **pkce** (server on 18081): `pnpm dev:server:pkce` + `pnpm dev:pkce`
-  (or `pnpm dev:demo` for the default pair).
-- **backend-token** (server on 18082): `pnpm dev:server:backend-token` +
-  `pnpm dev:backend-token`.
-- **cookie-bff** (server on 18083): `pnpm dev:server:cookie-bff` +
-  `pnpm dev:cookie-bff`.
-- Build every demo package: `pnpm build:demo`. Preview a built SPA:
-  `pnpm preview:demo:pkce` / `:backend-token` / `:cookie-bff` (4173 / 4174 /
-  4175). The bare `pnpm dev:server` aliases the pkce mode.
+**user runs these**. Each demo starts with a SINGLE command that launches
+both its server and its client together (turbo runs the two `@demo/*-server` /
+`@demo/*-client` packages in parallel):
+- **pkce** (server on 18081, client dev 5173): `pnpm dev:pkce`.
+- **backend-token** (server on 18082, client dev 5174): `pnpm dev:backend-token`.
+- **cookie-bff** (server on 18083, client dev 5175): `pnpm dev:cookie-bff`.
+- Build every demo package: `pnpm build:demo`. Preview a built SPA via its
+  own package, e.g. `pnpm --filter @demo/pkce-client preview` (4173 / 4174 /
+  4175).
 - needs **both** the SPA's `client/.env` (build-time `VITE_*` vars — every
   SPA needs `VITE_WS_URL`; the two backend modes also need
   `VITE_SERVER_ORIGIN`; pkce additionally needs `VITE_OIDC_*` +

@@ -90,21 +90,20 @@ const { pong } = await wsClient.rpc.ping(); // fully typed
 ## Demo
 
 Three runnable demos cover three auth models, each a React SPA paired with
-the multi-mode NestJS [`apps/demo-server`](./apps/demo-server) run in the
-matching mode. SPA and server are always **two separate processes** (mirrors
-a real deploy — SPA on a CDN / static host, API on its own process), so each
-demo is "server script + SPA script". The single demo-server has three
-bootstraps because the library's `OrpcWsModule` is single-instance per Nest
-app, so one auth mode = one app = one process on its own port.
+a single-mode NestJS server. SPA and server are always **two separate
+processes** (mirrors a real deploy — SPA on a CDN / static host, API on its
+own process), but each demo now starts **both** with one command: a single
+`pnpm dev:<mode>` launches that app's server and client together (turbo runs
+the two processes in parallel).
 
 | Demo | Auth model | Library packages imported | Run (server + SPA) | Ports (server / dev / preview) |
 |---|---|---|---|---|
-| [`apps/demo-pkce`](./apps/demo-pkce) | Browser OIDC + PKCE | `@orpc-ws/oidc-pkce` + `@orpc-ws/oidc-react` + `@orpc-ws/react` | `pnpm dev:server:pkce` + `pnpm dev:pkce` (or `pnpm dev:demo`) | 18081 / 5173 / 4173 |
-| [`apps/demo-backend-token`](./apps/demo-backend-token) | Custom `TokenProvider` — server mints a short-lived access token the browser pulls and passes via WS `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages — the WS-only consumer path) | `pnpm dev:server:backend-token` + `pnpm dev:backend-token` | 18082 / 5174 / 4174 |
-| [`apps/demo-cookie-bff`](./apps/demo-cookie-bff) | httpOnly `sid` session cookie — authenticates the WS handshake automatically, no `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages, no `tokenProvider`) | `pnpm dev:server:cookie-bff` + `pnpm dev:cookie-bff` | 18083 / 5175 / 4175 |
+| [`apps/demo-pkce`](./apps/demo-pkce) | Browser OIDC + PKCE | `@orpc-ws/oidc-pkce` + `@orpc-ws/oidc-react` + `@orpc-ws/react` | `pnpm dev:pkce` | 18081 / 5173 / 4173 |
+| [`apps/demo-backend-token`](./apps/demo-backend-token) | Custom `TokenProvider` — server mints a short-lived access token the browser pulls and passes via WS `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages — the WS-only consumer path) | `pnpm dev:backend-token` | 18082 / 5174 / 4174 |
+| [`apps/demo-cookie-bff`](./apps/demo-cookie-bff) | httpOnly `sid` session cookie — authenticates the WS handshake automatically, no `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages, no `tokenProvider`) | `pnpm dev:cookie-bff` | 18083 / 5175 / 4175 |
 
-Build all demo apps with `pnpm build:demo`; preview a built SPA with
-`pnpm preview:demo:pkce` / `:backend-token` / `:cookie-bff`.
+Build all demo apps with `pnpm build:demo`; preview a built SPA via its own
+package, e.g. `pnpm --filter @demo/pkce-client preview`.
 
 The two **backend** modes run the OIDC Authorization-Code flow server-side as
 a **public PKCE client** (no client secret — the code exchange sends a PKCE
