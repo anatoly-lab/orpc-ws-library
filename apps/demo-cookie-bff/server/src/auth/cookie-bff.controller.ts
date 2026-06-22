@@ -31,10 +31,9 @@ import { getOidcEndpoints } from "../shared/keycloak-urls.js";
 // type position, but they must be VALUE imports: with `emitDecoratorMetadata`
 // Nest reads `design:paramtypes` at runtime to resolve DI, and a `type`
 // import would be elided (verbatimModuleSyntax) → metadata becomes `Object`
-// → DI fails. So `consistent-type-imports` is disabled for these two lines.
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+// → DI fails. (consistent-type-imports recognizes the decorator-metadata
+// usage and does not flag them, so no disable directive is needed.)
 import { OidcCodeExchange } from "../shared/oidc-code-exchange.js";
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
 import { SessionStore } from "../shared/session-store.js";
 
 @Controller("auth")
