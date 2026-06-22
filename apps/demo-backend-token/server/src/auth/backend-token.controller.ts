@@ -27,12 +27,14 @@ import {
 } from "../shared/oauth-state-cookie.js";
 import { decodeIdTokenClaims } from "../shared/oidc-code-exchange.js";
 import { getOidcEndpoints } from "../shared/keycloak-urls.js";
-// `OidcCodeExchange` + `SessionStore` are used ONLY in constructor-param
-// type position, but they must be VALUE imports: with `emitDecoratorMetadata`
-// Nest reads `design:paramtypes` at runtime to resolve DI, and a `type`
-// import would be elided (verbatimModuleSyntax) → metadata becomes `Object`
-// → DI fails. (consistent-type-imports recognizes the decorator-metadata
-// usage and does not flag them, so no disable directive is needed.)
+// `OidcCodeExchange` + `SessionStore` are injected via EXPLICIT @Inject
+// tokens in the constructor (not type-based DI), so they must be VALUE
+// imports — the class IS the runtime token; a `type` import would be elided
+// under verbatimModuleSyntax and the token would resolve to `undefined`.
+// Why explicit rather than type-based: the `dev` runner is tsx/esbuild,
+// which does NOT emit `emitDecoratorMetadata`, so Nest can't read the param
+// type to find the provider and silently injects `undefined`. Only the
+// `tsc` build emits that metadata — explicit @Inject works under both.
 import { OidcCodeExchange } from "../shared/oidc-code-exchange.js";
 import { SessionStore } from "../shared/session-store.js";
 
@@ -40,8 +42,8 @@ import { SessionStore } from "../shared/session-store.js";
 export class BackendTokenController {
   constructor(
     @Inject(APP_ENV_CONFIG) private readonly config: AppEnvConfig,
-    private readonly exchange: OidcCodeExchange,
-    private readonly store: SessionStore,
+    @Inject(OidcCodeExchange) private readonly exchange: OidcCodeExchange,
+    @Inject(SessionStore) private readonly store: SessionStore,
   ) {}
 
   private callbackUri(req: Request): string {
