@@ -83,10 +83,30 @@ export class OrpcWsService
     // class — we cast to the erased `AnyOrpcWsServer` (the DI surface
     // can't carry the per-mode narrowing; `closeUser` on an authless
     // server no-ops, see the pass-through below).
-    this.server =
-      this.options.mode === "authless"
-        ? (createAuthlessOrpcWsServer(this.options) as AnyOrpcWsServer)
-        : createOrpcWsServer(this.options);
+    // Exhaustive dispatch: pairing `undefined`/`"authenticated"` keeps the
+    // back-compat default (absent mode ⇒ authenticated). The `never` guard
+    // makes a future mode a COMPILE error and a bad runtime value (typo via
+    // the type-erased DI factory, e.g. `"authles"`) fail loud HERE — not
+    // silently fall through to the authenticated factory and surface later
+    // as a misleading "missing verifyClient" error.
+    switch (this.options.mode) {
+      case undefined:
+      case "authenticated":
+        this.server = createOrpcWsServer(this.options);
+        break;
+      case "authless":
+        this.server = createAuthlessOrpcWsServer(this.options) as AnyOrpcWsServer;
+        break;
+      default: {
+        const _exhaustive: never = this.options;
+        void _exhaustive;
+        throw new Error(
+          `OrpcWsModule: unknown mode ${JSON.stringify(
+            (this.options as { mode?: unknown }).mode,
+          )} (expected "authenticated", "authless", or omitted).`,
+        );
+      }
+    }
   }
 
   /**

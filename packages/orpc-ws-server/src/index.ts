@@ -263,25 +263,30 @@ export class OrpcWsServer<TUser, TContract extends object> {
     };
     this.logger = opts.logger ?? noopLogger;
     // Authless safety net: a user/token is required for session
-    // replacement (4005) and the token-expiry watchdog. If a consumer
-    // somehow set either knob on an authless server, force it off and
-    // warn once — the 4005 path would otherwise key on `undefined` and
-    // the expiry watchdog has no `expiresAt` to act on.
+    // replacement (4005) and the token-expiry watchdog, so both knobs are
+    // forced OFF in authless mode (the 4005 path would otherwise key on
+    // `undefined`, and the expiry watchdog has no `expiresAt` to act on).
+    // Warn ONLY when the consumer *explicitly* set a knob — the typed
+    // authless factory omits both, but the raw class / NestJS DI path can
+    // still pass them. Inferring "stray config" from the *merged* value
+    // would fire the warning on every authless boot (the defaults are
+    // `singleConnectionPerUser: true`, `enforceTokenExpiry: false`), so we
+    // gate on `opts.connection`, not on `this.connectionConfig`.
     if (this.authless) {
-      if (this.connectionConfig.singleConnectionPerUser) {
+      if (opts.connection?.singleConnectionPerUser) {
         this.logger.warn(
           "orpc-ws-server: singleConnectionPerUser ignored in authless mode " +
             "(no user identity to replace a session by)",
         );
-        this.connectionConfig.singleConnectionPerUser = false;
       }
-      if (this.connectionConfig.enforceTokenExpiry) {
+      this.connectionConfig.singleConnectionPerUser = false;
+      if (opts.connection?.enforceTokenExpiry) {
         this.logger.warn(
           "orpc-ws-server: enforceTokenExpiry ignored in authless mode " +
             "(no token to expire)",
         );
-        this.connectionConfig.enforceTokenExpiry = false;
       }
+      this.connectionConfig.enforceTokenExpiry = false;
     }
     this.heartbeatConfig = {
       ...DEFAULT_HEARTBEAT_CONFIG,
