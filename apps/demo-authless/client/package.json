@@ -1,0 +1,30 @@
+{
+  "name": "@demo/authless-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vite + React AUTHLESS demo for the orpc-ws-library. No auth at all: `createOrpcWsClient` with NO tokenProvider and NO oidc packages. Imports ONLY @orpc-ws/client + @orpc-ws/react. Runs standalone (dev: vite on 5176, preview on 4176).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5176 --strictPort",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --port 4176 --strictPort",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@demo/authless-contract": "workspace:*",
+    "@orpc-ws/client": "workspace:*",
+    "@orpc-ws/react": "workspace:*",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "rimraf": "6.1.3",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
+  }
+}

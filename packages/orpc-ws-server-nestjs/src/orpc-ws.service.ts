@@ -35,7 +35,11 @@ import {
 } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 
-import { OrpcWsServer } from "@orpc-ws/server";
+import {
+  type OrpcWsServer,
+  createAuthlessOrpcWsServer,
+  createOrpcWsServer,
+} from "@orpc-ws/server";
 
 import { ORPC_WS_OPTIONS } from "./orpc-ws.module-builder.js";
 import type { OrpcWsModuleOptions } from "./orpc-ws.options.js";
@@ -71,7 +75,18 @@ export class OrpcWsService
     // documented in CLAUDE.md "Heartbeat ownership — stealth procedure
     // pattern": consumers see the error during Nest bootstrap, not on
     // first WS connection minutes later.
-    this.server = new OrpcWsServer(this.options);
+    //
+    // Mode dispatch: `mode: "authless"` routes to the authless factory
+    // (no verifyClient, accepts every upgrade, empty context); absent or
+    // `"authenticated"` uses the authed factory. The authless factory's
+    // return type omits `closeUser`, but at runtime it's the same core
+    // class — we cast to the erased `AnyOrpcWsServer` (the DI surface
+    // can't carry the per-mode narrowing; `closeUser` on an authless
+    // server no-ops, see the pass-through below).
+    this.server =
+      this.options.mode === "authless"
+        ? (createAuthlessOrpcWsServer(this.options) as AnyOrpcWsServer)
+        : createOrpcWsServer(this.options);
   }
 
   /**

@@ -13,21 +13,37 @@
 // composition (`forRootAsync`'s `useFactory` return type rarely needs
 // the narrow `TUser`).
 
-import type { OrpcWsServerOptions } from "@orpc-ws/server";
+import type {
+  AuthenticatedOrpcWsServerOptions,
+  AuthlessOrpcWsServerOptions,
+} from "@orpc-ws/server";
 
 /**
- * Options accepted by `OrpcWsModule.forRoot` / `forRootAsync`. Mirrors
- * `OrpcWsServerOptions` from the core verbatim — the NestJS adapter
- * adds no transport-level config of its own.
+ * Options accepted by `OrpcWsModule.forRoot` / `forRootAsync`.
  *
- * Because this is a verbatim alias, every core field threads through 1:1
- * without any adapter code — including `uploads.beforeUpload` (the
- * pre-body-buffer upload gate). `OrpcWsService` constructs the core with
- * `new OrpcWsServer(this.options)`, so the consumer's `beforeUpload`
- * reaches the HTTP upload handler unchanged; there is intentionally no
- * Nest-only duplicate of it here.
+ * A discriminated union on an OPTIONAL `mode`:
+ *   - `mode` ABSENT or `"authenticated"` → the full authenticated surface
+ *     (`verifyClient` required, uploads / token-expiry / per-user close
+ *     available). `mode` absent is the back-compat default, so existing
+ *     consumers that pass `verifyClient` and no `mode` keep working
+ *     UNCHANGED.
+ *   - `mode: "authless"` → the authless surface (NO `verifyClient`, NO
+ *     `uploads`, NO `enforceTokenExpiry`). Every upgrade is accepted; the
+ *     consumer's procedures run with an empty ORPC context.
+ *
+ * `OrpcWsService` reads `mode` and dispatches to `createOrpcWsServer` vs
+ * `createAuthlessOrpcWsServer`. The authenticated public options thread
+ * through to the core 1:1 (including `uploads.beforeUpload`).
+ *
+ * Both generic params default so consumers can write
+ * `OrpcWsModuleOptions` with no type args during composition.
  */
 export type OrpcWsModuleOptions<
   TUser = unknown,
   TContract extends object = object,
-> = OrpcWsServerOptions<TUser, TContract>;
+> =
+  | ({ mode?: "authenticated" } & AuthenticatedOrpcWsServerOptions<
+      TUser,
+      TContract
+    >)
+  | ({ mode: "authless" } & AuthlessOrpcWsServerOptions<TContract>);

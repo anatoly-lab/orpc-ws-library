@@ -37,7 +37,7 @@
       "dependsOn": ["build"],
       "inputs": [
         "src/**",
-        "tsconfig.json",
+        "tsconfig*.json",
         "package.json",
         "../../tsconfig.base.json"
       ],

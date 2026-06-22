@@ -40,7 +40,6 @@ import type { WebSocket } from "ws";
 import {
   type Clock,
   type Logger,
-  type TimerHandle,
   noopLogger,
   systemClock,
 } from "@orpc-ws/shared";
@@ -50,32 +49,38 @@ import type { ConnectionRegistry } from "../state/connection-registry.js";
 import type { WsPingPong } from "../heartbeat/ws-ping-pong.js";
 
 import { extractClientIp, extractToken } from "./request-helpers.js";
+import { armTokenExpiryWatchdog } from "./token-expiry-watchdog.js";
 import type {
   VerifyClientOrchestrator,
   VerifyClientResult,
 } from "./verify-client-orchestrator.js";
 
 /**
- * Node's timer delay is a signed 32-bit int: any `setTimeout` delay above
- * 2^31 - 1 ms (~24.8 days) is clamped to 1ms and fires almost immediately.
- * For the API-4 expiry watchdog that's catastrophic, not cosmetic — a
- * 30-day token would be "expired" right after open, the client refreshes
- * and reconnects, gets closed again inside its storm window, and ends in
- * terminal logout. So the watchdog never schedules past this ceiling: it
- * sleeps at most MAX_TIMER_DELAY_MS, re-checks the clock on wake, and
- * re-arms until the expiry instant is genuinely reached.
+ * The ORPC context this handler hands to `upgrade()`.
+ *
+ * Two shapes, one per mode:
+ *   - AUTHENTICATED — `{ user, token }` (the verified principal + the raw
+ *     `?token=` literal the client sent).
+ *   - AUTHLESS — `Record<never, never>` (the empty object `{}`): there is
+ *     no authenticated principal, so the consumer's procedures receive an
+ *     empty context. See `state/no-auth.ts` for WHY there is no user.
  */
-const MAX_TIMER_DELAY_MS = 2_147_483_647;
+export type AuthedContext<TUser> = { user: TUser; token: string | null };
+export type AuthlessContext = Record<never, never>;
 
 /**
  * Minimal structural type for the `RPCHandler` `upgrade` method. We
  * type-check just the bits we use — keeping `RPCHandler<TContext>`'s full
  * shape out of this file lets it stay framework-free of ORPC internals.
+ *
+ * The context is `AuthedContext<TUser> | AuthlessContext` so the SAME
+ * handler bridge serves both modes; the connection handler picks which
+ * one it builds based on whether a `verifyOrchestrator` was injected.
  */
 export interface RpcHandlerLike<TUser> {
   upgrade(
     ws: WebSocket,
-    opts: { context: { user: TUser; token: string | null } },
+    opts: { context: AuthedContext<TUser> | AuthlessContext },
   ): void | Promise<unknown>;
 }
 
@@ -91,7 +96,22 @@ export interface ConnectionHandlerHooks<TUser> {
 }
 
 export interface ConnectionHandlerDeps<TUser> {
-  verifyOrchestrator: VerifyClientOrchestrator<TUser>;
+  /**
+   * Pre-101 auth orchestrator. Present in AUTHENTICATED mode, ABSENT in
+   * AUTHLESS mode. When absent, the handler skips all auth-result
+   * retrieval / guards / token plumbing and upgrades with an empty
+   * context — see the file header and `handleAuthless`.
+   */
+  verifyOrchestrator?: VerifyClientOrchestrator<TUser>;
+  /**
+   * AUTHLESS-only: produces a UNIQUE registry key per connection. The
+   * composition root injects a monotonic counter (not `Math.random`/
+   * `Date.now` — CLAUDE.md seam rule). REQUIRED whenever
+   * `verifyOrchestrator` is absent: authless connections carry no user,
+   * so without a unique key every connection would collapse to one map
+   * entry and kick each other (the registry foot-gun).
+   */
+  authlessKey?: () => string;
   registry: ConnectionRegistry;
   pingPong: WsPingPong;
   rpcHandler: RpcHandlerLike<TUser>;
@@ -113,7 +133,8 @@ export interface ConnectionHandlerDeps<TUser> {
 }
 
 export class ConnectionHandler<TUser> {
-  private readonly verifyOrchestrator: VerifyClientOrchestrator<TUser>;
+  private readonly verifyOrchestrator: VerifyClientOrchestrator<TUser> | undefined;
+  private readonly authlessKey: (() => string) | undefined;
   private readonly registry: ConnectionRegistry;
   private readonly pingPong: WsPingPong;
   private readonly rpcHandler: RpcHandlerLike<TUser>;
@@ -125,6 +146,7 @@ export class ConnectionHandler<TUser> {
 
   constructor(deps: ConnectionHandlerDeps<TUser>) {
     this.verifyOrchestrator = deps.verifyOrchestrator;
+    this.authlessKey = deps.authlessKey;
     this.registry = deps.registry;
     this.pingPong = deps.pingPong;
     this.rpcHandler = deps.rpcHandler;
@@ -137,9 +159,15 @@ export class ConnectionHandler<TUser> {
 
   /**
    * The `'connection'` event handler body. See file header for the sync
-   * contract.
+   * contract. Branches on mode: AUTHLESS (no orchestrator) skips every
+   * auth step and upgrades with an empty context; AUTHENTICATED runs the
+   * full verify-result retrieval / guards / token-plumbing pipeline.
    */
   handle(ws: WebSocket, req: IncomingMessage): void {
+    if (!this.verifyOrchestrator) {
+      this.handleAuthless(ws);
+      return;
+    }
     const auth = this.verifyOrchestrator.getAuthForRequest(req);
 
     // Defensive: this shouldn't be possible if the WSS was constructed
@@ -204,49 +232,115 @@ export class ConnectionHandler<TUser> {
     // verifyClient accepted it, so `exp` skew is the verifier's call,
     // not ours to second-guess.
     //
-    // The timer is per-connection (closure-captured) and cleared in the
-    // 'close' handler below — the same teardown path that unregisters
-    // ping/pong — so a normally-closed connection never leaks a timer.
-    // Re-armed segments (see MAX_TIMER_DELAY_MS) reassign the SAME
-    // `expiryTimer` binding, so the 'close' handler clears whichever
-    // segment is currently pending — a closed/replaced connection never
-    // sees a late close from a leftover segment.
-    let expiryTimer: TimerHandle | null = null;
-    if (this.enforceTokenExpiry && typeof auth.expiresAt === "number") {
-      const expiresAt = auth.expiresAt;
-      const armExpiryTimer = (): void => {
-        const msUntilExpiry = Math.max(0, expiresAt - this.clock.now());
-        const delay = Math.min(msUntilExpiry, MAX_TIMER_DELAY_MS);
-        expiryTimer = this.clock.setTimeout(() => {
-          expiryTimer = null;
-          if (this.clock.now() < expiresAt) {
-            // Woke early — the delay was clamped to the 32-bit ceiling,
-            // not the real expiry. Re-arm for the remainder; only a wake
-            // at/past `expiresAt` closes.
-            armExpiryTimer();
-            return;
-          }
-          this.logger.info("connection-handler: token expired, closing", {
-            connectionKey,
-          });
-          try {
-            ws.close(this.authFailedCloseCode, "Token expired");
-          } catch (err) {
-            this.logger.warn(
-              "connection-handler: ws.close() on token expiry threw",
-              { error: err instanceof Error ? err.message : String(err) },
-            );
-          }
-        }, delay);
-      };
-      armExpiryTimer();
+    // `armTokenExpiryWatchdog` owns the 32-bit-ceiling re-arm logic (see
+    // that module). The canceller it returns is threaded into
+    // `wireLifecycle` as `clearExpiryTimer`, so the 'close' handler — the
+    // same teardown path that unregisters ping/pong — clears whichever
+    // (possibly re-armed) segment is currently pending. When the watchdog
+    // is off, `clearExpiryTimer` stays the no-op below.
+    const clearExpiryTimer =
+      this.enforceTokenExpiry && typeof auth.expiresAt === "number"
+        ? armTokenExpiryWatchdog(
+            {
+              clock: this.clock,
+              authFailedCloseCode: this.authFailedCloseCode,
+              logger: this.logger,
+            },
+            { ws, expiresAt: auth.expiresAt, connectionKey },
+          )
+        : () => {
+            // No expiry watchdog armed — nothing to clear.
+          };
+
+    this.wireLifecycle({
+      ws,
+      connectionKey,
+      user,
+      clientIp,
+      clearExpiryTimer,
+    });
+  }
+
+  /**
+   * AUTHLESS connection path. Mirrors `handle` but with NO auth: no
+   * verify-result lookup, no token plumbing, no expiry watchdog. The
+   * ORPC context is the EMPTY object `{}` (see `state/no-auth.ts`).
+   *
+   * The registry key comes from the injected unique-key seam so authless
+   * connections never collide — without it `singleConnectionPerUser`
+   * would collapse every authless socket to one entry and they'd kick
+   * each other. (`singleConnectionPerUser` is also forced off for
+   * authless at the composition root, so the kick branch is unreachable
+   * regardless; the unique key is belt-and-suspenders + a meaningful
+   * registry key for `entries()`/diagnostics.)
+   *
+   * The same sync contract as `handle` applies up to `upgrade()`.
+   */
+  private handleAuthless(ws: WebSocket): void {
+    // The unique-key seam is REQUIRED in authless mode (the composition
+    // root always injects it). We do NOT fall back to a `Date.now()`/
+    // random key — that would (a) violate the injected-seam rule
+    // (CLAUDE.md "Zero `Date.now()` … outside an injected seam") and
+    // (b) reopen the collision foot-gun under a clock with low
+    // resolution. A missing seam is a wiring bug: fail loud.
+    if (!this.authlessKey) {
+      this.logger.error(
+        "connection-handler: authless mode without an authlessKey seam",
+      );
+      try {
+        ws.close(1011, "Internal server error");
+      } catch {
+        // best-effort
+      }
+      return;
     }
+    const connectionKey = this.authlessKey();
+
+    // No authenticated user — the registry stores `undefined` under a
+    // unique key purely for bookkeeping. `NoAuth` (uninhabited) is the
+    // STATIC type the lifecycle hooks see; at runtime there is no user.
+    const noUser = undefined as unknown as TUser;
+
+    this.registry.register(connectionKey, ws, noUser);
+
+    // Empty context — the consumer's procedures run with `{}`. Same
+    // non-awaited upgrade as the authed path (promise resolves on
+    // disconnect; the 'close' handler does cleanup).
+    void this.rpcHandler.upgrade(ws, { context: {} });
+
+    this.pingPong.register(ws, noUser);
+
+    this.wireLifecycle({
+      ws,
+      connectionKey,
+      user: noUser,
+      clientIp: undefined,
+      clearExpiryTimer: () => {
+        // No expiry watchdog in authless mode — nothing to clear.
+      },
+    });
+  }
+
+  /**
+   * Shared `'close'` / `'error'` wiring + the connect log + `onConnected`
+   * hook, used by BOTH the authed and authless paths. Kept synchronous
+   * (no `await`) so it respects the file-header sync contract when called
+   * from `handle` before the message pump is drained.
+   *
+   * `clearExpiryTimer` is the only mode-specific bit — the authed path
+   * passes a real clear, authless passes a no-op.
+   */
+  private wireLifecycle(args: {
+    ws: WebSocket;
+    connectionKey: string;
+    user: TUser;
+    clientIp: string | undefined;
+    clearExpiryTimer: () => void;
+  }): void {
+    const { ws, connectionKey, user, clientIp, clearExpiryTimer } = args;
 
     ws.on("close", (code, reason: Buffer) => {
-      if (expiryTimer) {
-        this.clock.clearTimeout(expiryTimer);
-        expiryTimer = null;
-      }
+      clearExpiryTimer();
       // `reason` arrives as a Buffer from `ws`; decode for human-readable
       // log output. Empty buffer → `undefined` so structured-log viewers
       // render the field as absent rather than an ambiguous empty string

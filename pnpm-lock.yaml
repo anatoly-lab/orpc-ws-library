@@ -57,6 +57,102 @@ importers:
         specifier: 4.1.9
         version: 4.1.9(@types/node@26.0.0)(happy-dom@20.10.6)(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
 
+  apps/demo-authless/client:
+    dependencies:
+      '@demo/authless-contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@orpc-ws/client':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-client
+      '@orpc-ws/react':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-react
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      '@vitejs/plugin-react':
+        specifier: 6.0.2
+        version: 6.0.2(vite@8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: 8.0.16
+        version: 8.0.16(@types/node@26.0.0)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
+
+  apps/demo-authless/contract:
+    dependencies:
+      '@orpc/contract':
+        specifier: 1.14.6
+        version: 1.14.6
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  apps/demo-authless/server:
+    dependencies:
+      '@demo/authless-contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@nestjs/common':
+        specifier: 11.1.27
+        version: 11.1.27(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: 11.1.27
+        version: 11.1.27(@nestjs/common@11.1.27(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@11.1.27)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/platform-express':
+        specifier: 11.1.27
+        version: 11.1.27(@nestjs/common@11.1.27(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.27)
+      '@orpc-ws/server-nestjs':
+        specifier: workspace:*
+        version: link:../../../packages/orpc-ws-server-nestjs
+      '@orpc/server':
+        specifier: 1.14.6
+        version: 1.14.6(ws@8.21.0)
+      express:
+        specifier: 5.2.1
+        version: 5.2.1
+      reflect-metadata:
+        specifier: 0.2.2
+        version: 0.2.2
+    devDependencies:
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: 26.0.0
+        version: 26.0.0
+      rimraf:
+        specifier: 6.1.3
+        version: 6.1.3
+      tsx:
+        specifier: 4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   apps/demo-backend-token/client:
     dependencies:
       '@demo/backend-token-contract':

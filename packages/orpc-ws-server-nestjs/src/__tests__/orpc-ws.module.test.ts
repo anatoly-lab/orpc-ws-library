@@ -29,7 +29,9 @@ import type { OrpcWsModuleOptions } from "../orpc-ws.options.js";
 // so the order is unambiguous if a test runs this file in isolation.
 import "reflect-metadata";
 
-const trivialOptions = (): OrpcWsModuleOptions => ({
+// Authenticated arm explicitly (so `.verifyClient` is statically present
+// — the union default would hide it behind the `mode` discriminant).
+const trivialOptions = (): Extract<OrpcWsModuleOptions, { verifyClient: unknown }> => ({
   router: {},
   verifyClient: async () => ({
     ok: true,
@@ -63,7 +65,11 @@ describe("OrpcWsModule.forRoot()", () => {
     // The options token is bound to the value we passed.
     const resolvedOptions = moduleRef.get<OrpcWsModuleOptions>(ORPC_WS_OPTIONS);
     expect(resolvedOptions).toBe(opts);
-    expect(resolvedOptions.verifyClient).toBe(opts.verifyClient);
+    // `mode` absent → authenticated arm; narrow before reading verifyClient
+    // (it only exists on the authenticated union member).
+    if (resolvedOptions.mode !== "authless") {
+      expect(resolvedOptions.verifyClient).toBe(opts.verifyClient);
+    }
 
     await moduleRef.close();
   });
@@ -137,7 +143,9 @@ describe("OrpcWsModule.forRootAsync()", () => {
     // Options token holds whatever the factory returned.
     const resolvedOptions = moduleRef.get<OrpcWsModuleOptions>(ORPC_WS_OPTIONS);
     expect(resolvedOptions).toBeDefined();
-    expect(typeof resolvedOptions.verifyClient).toBe("function");
+    if (resolvedOptions.mode !== "authless") {
+      expect(typeof resolvedOptions.verifyClient).toBe("function");
+    }
 
     // Service still resolves.
     const service = moduleRef.get(OrpcWsService);

@@ -71,6 +71,29 @@ exists, so there is no exception filter to translate a thrown
 `UnauthorizedException` into an HTTP status. `code` is a WebSocket
 close code (`4001` is the adapter default for "auth failed").
 
+## Authless mode
+
+The module options are a discriminated union on an **optional** `mode`.
+Omit it (or pass `mode: "authenticated"`) for the authenticated form
+above — existing modules are unchanged. Pass `mode: "authless"` to accept
+every WS upgrade with no `verifyClient`:
+
+```ts
+OrpcWsModule.forRoot({
+  mode: "authless",
+  router: appRouter,
+  // No verifyClient / uploads / enforceTokenExpiry in this arm.
+  // connection / heartbeat / hooks / logger still apply.
+});
+```
+
+`OrpcWsService` reads `mode` and dispatches to the core's
+`createAuthlessOrpcWsServer`. Procedures run with an empty ORPC context
+(no `user`/`token`), anonymous connections coexist without
+session-replacement, and there's no `closeUser`. See
+[`@orpc-ws/server` → Authless mode](../orpc-ws-server/README.md#authless-mode)
+for the full behavior contract.
+
 ## OIDC verifier
 
 For OIDC against any spec-compliant IdP (Keycloak, Auth0, Okta,

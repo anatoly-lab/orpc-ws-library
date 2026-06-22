@@ -35,7 +35,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
+    "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },
   "devDependencies": {
     "@types/node": "26.0.0",

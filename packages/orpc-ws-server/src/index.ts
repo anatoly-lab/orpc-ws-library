@@ -23,7 +23,6 @@ import type { Server as HttpServer } from "http";
 import { RPCHandler } from "@orpc/server/ws";
 import {
   WebSocketServer,
-  type WebSocket,
   type Server as WebSocketServerType,
 } from "ws";
 
@@ -44,6 +43,7 @@ import {
 } from "./config/heartbeat-config.js";
 
 import { ConnectionRegistry } from "./state/connection-registry.js";
+import { createAuthlessKeyFactory } from "./state/authless-key.js";
 
 import { HeartbeatPublisher } from "./heartbeat/publisher.js";
 import { WsPingPong } from "./heartbeat/ws-ping-pong.js";
@@ -70,6 +70,10 @@ import {
   createHttpUploadHandler,
 } from "./upload/http-handler.js";
 
+import type {
+  AuthenticatedHooks,
+} from "./composition/server-options.js";
+
 // ----- Public re-exports -----
 
 export type {
@@ -89,6 +93,20 @@ export type {
 } from "./lifecycle/verify-client-orchestrator.js";
 
 export type { HeartbeatEvent } from "@orpc-ws/shared";
+
+// ----- AUTHLESS mode: factories, option/hook shapes, and the absent-user type -----
+export {
+  createOrpcWsServer,
+  createAuthlessOrpcWsServer,
+  type AuthlessOrpcWsServer,
+} from "./composition/factories.js";
+export type {
+  AuthenticatedOrpcWsServerOptions,
+  AuthlessOrpcWsServerOptions,
+  AuthenticatedHooks,
+  AuthlessHooks,
+} from "./composition/server-options.js";
+export type { NoAuth } from "./state/no-auth.js";
 
 // Logger seam + universal/Node-friendly bridges, re-exported so consumers
 // stay on one import surface. `fromNestShape` lives only in the nestjs
@@ -118,27 +136,16 @@ export { extractBearerToken } from "./upload/http-verify.js";
 // ----- Hook bundle -----
 
 /**
- * Lifecycle hooks consumers wire into the server. All optional; all
- * receive typed `TUser` payloads.
+ * Lifecycle hooks consumers wire into the AUTHENTICATED server. Alias of
+ * `AuthenticatedHooks<TUser>` (the canonical name lives in
+ * `composition/server-options.ts` next to the authless `AuthlessHooks`);
+ * kept here under the historical name for back-compat.
  *
  * `onConnected` / `onDisconnected` are connection-lifecycle. `onKicked`
  * fires from the registry when a session is replaced. `onZombieTerminated`
  * fires from the ws-ping-pong watchdog.
  */
-export interface OrpcWsServerHooks<TUser> {
-  onConnected?: (user: TUser, ws: WebSocket) => void;
-  onDisconnected?: (user: TUser, code: number, ws: WebSocket) => void;
-  /**
-   * `user` is the kicked user; `replacedBy` is the new live WS that
-   * caused the kick.
-   */
-  onKicked?: (user: TUser, replacedBy: WebSocket) => void;
-  /**
-   * Fires after the watchdog terminates a zombie. `user` is the user
-   * whose connection was terminated.
-   */
-  onZombieTerminated?: (user: TUser) => void;
-}
+export type OrpcWsServerHooks<TUser> = AuthenticatedHooks<TUser>;
 
 // ----- Options -----
 
@@ -155,8 +162,16 @@ export interface OrpcWsServerOptions<TUser, TContract extends object> {
    * `VerifyClientOrchestrator` for the contract. Returns a discriminated
    * union: `{ok: true, user, connectionKey?}` to accept,
    * `{ok: false, code, reason}` to reject pre-upgrade.
+   *
+   * OPTIONAL at the class level: when ABSENT the class constructs in
+   * AUTHLESS mode (no verifyClient on the WSS → every upgrade accepted,
+   * empty ORPC context). The PUBLIC factories enforce the right shape —
+   * `createOrpcWsServer` requires it, `createAuthlessOrpcWsServer`
+   * forbids it. Use the factories; constructing the class directly with
+   * no `verifyClient` is the authless escape hatch (the NestJS adapter
+   * and tests use it).
    */
-  verifyClient: VerifyClient<TUser>;
+  verifyClient?: VerifyClient<TUser>;
   /** Partial connection config overlay. */
   connection?: Partial<ConnectionConfig>;
   /** Partial heartbeat config overlay. */
@@ -173,6 +188,7 @@ export interface OrpcWsServerOptions<TUser, TContract extends object> {
    * the NestJS adapter to mount it).
    *
    * Disabled by default. CLAUDE.md "Library scope" pins opt-in semantics.
+   * Ignored in authless mode (no auth → no Bearer-authenticated uploads).
    *
    * Generic over the same `TUser` the rest of the options thread, so the
    * optional `beforeUpload` gate receives the authenticated principal.
@@ -198,7 +214,14 @@ export class OrpcWsServer<TUser, TContract extends object> {
    */
   private readonly clock: Clock;
 
-  private readonly verifyOrchestrator: VerifyClientOrchestrator<TUser>;
+  /**
+   * Present in AUTHENTICATED mode, `null` in AUTHLESS mode. Drives the
+   * mode branch: a non-null orchestrator wires `ws`'s `verifyClient`;
+   * null means accept every upgrade with an empty context.
+   */
+  private readonly verifyOrchestrator: VerifyClientOrchestrator<TUser> | null;
+  /** `true` when constructed with no `verifyClient`. */
+  private readonly authless: boolean;
   private readonly registry: ConnectionRegistry;
   private readonly publisher: HeartbeatPublisher;
   private readonly pingPong: WsPingPong;
@@ -228,25 +251,50 @@ export class OrpcWsServer<TUser, TContract extends object> {
   private disposed = false;
 
   constructor(opts: OrpcWsServerOptions<TUser, TContract>) {
+    // ----- 0. Mode -----
+    // AUTHLESS when no verifyClient was supplied. The factories enforce
+    // the public shape; here we just read presence.
+    this.authless = opts.verifyClient === undefined;
+
     // ----- 1. Resolve config / seams -----
     this.connectionConfig = {
       ...DEFAULT_CONNECTION_CONFIG,
       ...opts.connection,
     };
+    this.logger = opts.logger ?? noopLogger;
+    // Authless safety net: a user/token is required for session
+    // replacement (4005) and the token-expiry watchdog. If a consumer
+    // somehow set either knob on an authless server, force it off and
+    // warn once — the 4005 path would otherwise key on `undefined` and
+    // the expiry watchdog has no `expiresAt` to act on.
+    if (this.authless) {
+      if (this.connectionConfig.singleConnectionPerUser) {
+        this.logger.warn(
+          "orpc-ws-server: singleConnectionPerUser ignored in authless mode " +
+            "(no user identity to replace a session by)",
+        );
+        this.connectionConfig.singleConnectionPerUser = false;
+      }
+      if (this.connectionConfig.enforceTokenExpiry) {
+        this.logger.warn(
+          "orpc-ws-server: enforceTokenExpiry ignored in authless mode " +
+            "(no token to expire)",
+        );
+        this.connectionConfig.enforceTokenExpiry = false;
+      }
+    }
     this.heartbeatConfig = {
       ...DEFAULT_HEARTBEAT_CONFIG,
       ...opts.heartbeat,
     };
-    this.logger = opts.logger ?? noopLogger;
     const clock: Clock = opts.clock ?? systemClock;
     this.clock = clock;
     const hooks = opts.hooks ?? {};
 
-    // ----- 2. Verify orchestrator -----
-    this.verifyOrchestrator = new VerifyClientOrchestrator<TUser>(
-      opts.verifyClient,
-      this.logger,
-    );
+    // ----- 2. Verify orchestrator (AUTHENTICATED only) -----
+    this.verifyOrchestrator = opts.verifyClient
+      ? new VerifyClientOrchestrator<TUser>(opts.verifyClient, this.logger)
+      : null;
 
     // ----- 3. Connection registry -----
     // onKicked from registry → forwarded with TUser cast. The registry
@@ -314,21 +362,30 @@ export class OrpcWsServer<TUser, TContract extends object> {
       mergedUploads.bodyLimitBytes = DEFAULT_UPLOAD_HTTP_CONFIG.bodyLimitBytes;
     }
     this.uploadConfig = mergedUploads;
-    this.httpUploadHandler = this.uploadConfig.enabled
-      ? createHttpUploadHandler<TUser>({
-          composedRouter,
-          verifyClient: opts.verifyClient,
-          config: this.uploadConfig,
-          logger: this.logger,
-        })
-      : null;
+    // Uploads require a verifyClient (the HTTP transport authenticates via
+    // the same Bearer the WS does). Authless has none, so the handler is
+    // never built even if `uploads.enabled` slipped through — the public
+    // authless options type doesn't expose `uploads`, this is the runtime
+    // guard mirroring it.
+    this.httpUploadHandler =
+      this.uploadConfig.enabled && opts.verifyClient
+        ? createHttpUploadHandler<TUser>({
+            composedRouter,
+            verifyClient: opts.verifyClient,
+            config: this.uploadConfig,
+            logger: this.logger,
+          })
+        : null;
 
     // ----- 7. Connection handler -----
     const handlerHooks: ConnectionHandlerHooks<TUser> = {};
     if (hooks.onConnected) handlerHooks.onConnected = hooks.onConnected;
     if (hooks.onDisconnected) handlerHooks.onDisconnected = hooks.onDisconnected;
     this.connectionHandler = new ConnectionHandler<TUser>({
-      verifyOrchestrator: this.verifyOrchestrator,
+      // Undefined in authless mode → the handler takes its authless path.
+      verifyOrchestrator: this.verifyOrchestrator ?? undefined,
+      // Unique-key seam, used only on the authless path.
+      authlessKey: this.authless ? createAuthlessKeyFactory() : undefined,
       registry: this.registry,
       pingPong: this.pingPong,
       // Bridge to the structural shape connection-handler expects.
@@ -361,11 +418,29 @@ export class OrpcWsServer<TUser, TContract extends object> {
       throw new Error("[orpc-ws-server] already attached");
     }
 
-    this.wss = new WebSocketServer({
-      server: httpServer,
-      path: this.connectionConfig.path,
-      verifyClient: this.verifyOrchestrator.buildWsVerifyClient(),
-    });
+    // AUTHLESS: omit `verifyClient` entirely so `ws` accepts every
+    // upgrade. AUTHENTICATED: wire the orchestrator's pre-101 verify.
+    if (this.authless) {
+      this.logger.info(
+        "orpc-ws-server started in AUTHLESS mode — connections are not authenticated",
+        { path: this.connectionConfig.path },
+      );
+      this.wss = new WebSocketServer({
+        server: httpServer,
+        path: this.connectionConfig.path,
+      });
+    } else {
+      // Non-null in authenticated mode — `this.authless` is false iff the
+      // orchestrator was built.
+      const orchestrator = this.verifyOrchestrator;
+      this.wss = new WebSocketServer({
+        server: httpServer,
+        path: this.connectionConfig.path,
+        verifyClient: orchestrator
+          ? orchestrator.buildWsVerifyClient()
+          : undefined,
+      });
+    }
 
     this.wss.on("connection", (ws, req) => {
       this.connectionHandler.handle(ws, req);

@@ -39,19 +39,22 @@ Regression tests for the design-doc bugs are greppable by filename
 (`bug-01-...`, `bug-06-...`, `bug-08-...`) — one named test per fixed bug
 (see "Tests from day 0").
 
-Demo. Three auth-model demos, each a **self-contained app** under
-`apps/demo-<mode>/` with its own `contract/` + `server/` + `client/` package.
-Each demo runs as two separate processes — a Vite SPA (`client/`) + a
-single-mode NestJS server (`server/`, entry `src/main.ts`) on its own port;
-**user runs these**. Each demo starts with a SINGLE command that launches
-both its server and its client together (turbo runs the two `@demo/*-server` /
-`@demo/*-client` packages in parallel):
+Demo. Four auth-model demos (three authenticated + one authless), each a
+**self-contained app** under `apps/demo-<mode>/` with its own `contract/` +
+`server/` + `client/` package. Each demo runs as two separate processes — a
+Vite SPA (`client/`) + a single-mode NestJS server (`server/`, entry
+`src/main.ts`) on its own port; **user runs these**. Each demo starts with a
+SINGLE command that launches both its server and its client together (turbo
+runs the two `@demo/*-server` / `@demo/*-client` packages in parallel):
 - **pkce** (server on 18081, client dev 5173): `pnpm dev:pkce`.
 - **backend-token** (server on 18082, client dev 5174): `pnpm dev:backend-token`.
 - **cookie-bff** (server on 18083, client dev 5175): `pnpm dev:cookie-bff`.
+- **authless** (server on 18084, client dev 5176): `pnpm dev:authless`. The
+  library in `mode: "authless"` — NO IdP, NO secrets, NO auth `.env` (just an
+  optional `VITE_WS_URL`, defaulted): the **simplest demo to run**.
 - Build every demo package: `pnpm build:demo`. Preview a built SPA via its
   own package, e.g. `pnpm --filter @demo/pkce-client preview` (4173 / 4174 /
-  4175).
+  4175 / authless 4176).
 - needs **both** the SPA's `client/.env` (build-time `VITE_*` vars — every
   SPA needs `VITE_WS_URL`; the two backend modes also need
   `VITE_SERVER_ORIGIN`; pkce additionally needs `VITE_OIDC_*` +
@@ -84,10 +87,17 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   `createOrpcWsClient<TContract>(opts): OrpcWsClient`. One-concept-each
   modules: `state/`, `client/`, `lifecycle/`, `reconnect/`, `heartbeat/`,
   `sleep/`, `auth/`, `upload/`, `config/`. Tests in per-module `__tests__/`.
-- `@orpc-ws/server` — Node core. `src/index.ts` exports the
-  `OrpcWsServer<TUser, TContract>` class (`start` / `stop` / `attach`).
-  Modules: `lifecycle/`, `router/`, `heartbeat/`, `state/`, `upload/`,
-  `config/`.
+- `@orpc-ws/server` — Node core. The public construction API is the two
+  factories `createOrpcWsServer` (authenticated) /
+  `createAuthlessOrpcWsServer` (authless) from `composition/` — see
+  "Authless mode (first-class)" under resolved decisions. `src/index.ts`
+  still exports the underlying `OrpcWsServer<TUser, TContract>` class
+  (`attach` / `dispose` / `closeUser`) as the advanced/internal entry.
+  Modules: `composition/` (the factories + their public option/hook
+  shapes in `server-options.ts`), `lifecycle/`, `router/`, `heartbeat/`,
+  `state/` (incl. `no-auth.ts` — the branded uninhabited `NoAuth` type —
+  and `authless-key.ts` — the per-connection unique-key factory),
+  `upload/`, `config/`.
 - `@orpc-ws/react` — the WS-transport React adapter; hosts the React
   bindings for the WS client core only: `useConnectionState`,
   `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs` (+ types
@@ -108,19 +118,21 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 - `@orpc-ws/oidc-verifier-jose` — Node JWT verifier (depends on `jose`); a
   sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
 
-Apps (under `apps/`): three **self-contained** demo apps, one per auth model,
-each a directory `apps/demo-<mode>/` holding its own `contract/` + `server/` +
-`client/` package — nine demo packages total (`@demo/<mode>-contract`,
-`@demo/<mode>-server`, `@demo/<mode>-client` for each of pkce / backend-token /
-cookie-bff). There is no shared `@demo/contract` or `@demo/server` anymore: the
+Apps (under `apps/`): four **self-contained** demo apps, one per auth model
+(three authenticated + one authless), each a directory `apps/demo-<mode>/`
+holding its own `contract/` + `server/` + `client/` package — twelve demo
+packages total (`@demo/<mode>-contract`, `@demo/<mode>-server`,
+`@demo/<mode>-client` for each of pkce / backend-token / cookie-bff /
+authless). There is no shared `@demo/contract` or `@demo/server` anymore: the
 ORPC contract is **copied per app** (`@demo/<mode>-contract`, shared only by
 that app's own server + client — an intentional cross-app DRY violation, single
 source within an app). Each `server/` is a **single-mode** NestJS app, entry
 `src/main.ts` (built to `dist/main.js`), on its own port (pkce 18081 /
-backend-token 18082 / cookie-bff 18083). The library's `OrpcWsModule` is
-single-instance per Nest app, so the one-mode-per-process constraint is now
-satisfied **by construction** — one mode = one server package = one app = one
-process. The three React + Vite SPAs (`client/`), one per auth model:
+backend-token 18082 / cookie-bff 18083 / authless 18084). The library's
+`OrpcWsModule` is single-instance per Nest app, so the one-mode-per-process
+constraint is now satisfied **by construction** — one mode = one server package
+= one app = one process. The four React + Vite SPAs (`client/`), one per auth
+model:
 - `@demo/pkce-client` — browser PKCE (imports `@orpc-ws/oidc-pkce` +
   `@orpc-ws/oidc-react` + `@orpc-ws/react`); dev 5173 / e2e preview 4173.
 - `@demo/backend-token-client` — custom `TokenProvider`, server-minted access
@@ -130,6 +142,13 @@ process. The three React + Vite SPAs (`client/`), one per auth model:
 - `@demo/cookie-bff-client` — httpOnly `sid` session cookie authenticates the
   WS handshake automatically, no `?token=` (imports only `@orpc-ws/client` +
   `@orpc-ws/react`, no `tokenProvider`); dev 5175 / preview 4175.
+- `@demo/authless-client` — NO auth at all: no `?token=`, no cookie, no IdP
+  (imports only `@orpc-ws/client` + `@orpc-ws/react`, no `tokenProvider`).
+  Its `@demo/authless-server` runs the library in `mode: "authless"`; the
+  `@demo/authless-contract` is a plain echo RPC + `increment` (shared mutable
+  counter) + a `ticks` AsyncIterable. Fully self-contained — no Keycloak,
+  secrets, or auth `.env` (just an optional `VITE_WS_URL`); the simplest demo
+  to run. dev 5176 / preview 4176; server 18084.
 
 `@repo/tests-e2e` is **not** under `apps/` — it is a
 top-level workspace dir (`pnpm-workspace.yaml` globs: `packages/*`,
@@ -486,6 +505,48 @@ to one client object.
   means "no token, browser handles auth via cookies if any." Cookie
   auth is therefore supported without library changes; it's a
   consumer decision, not a library feature.
+
+### Authless mode (first-class)
+
+Authless is a **real, first-class server mode** — NOT an always-accept
+`verifyClient` (that would still thread a fake `TUser` through the typed
+surface). It complements, does not replace, the "Auth flow contract"
+above.
+
+- **Two named factories, authed name is the safe default.** The server
+  core exposes `createOrpcWsServer<TUser, TContract>({ router,
+  verifyClient, … })` (AUTHENTICATED — the everyday path, the explicit
+  name for today's behavior) and `createAuthlessOrpcWsServer<TContract>({
+  router, … })` (AUTHLESS). The bare `OrpcWsServer` class stays exported
+  as the advanced/internal entry; the factories are the documented public
+  construction API. Two named factories (not one factory with an optional
+  `verifyClient`) so the everyday name carries the safe authed path and
+  authless is opt-in-by-name.
+- **Authless behavior:** no verifier runs (every WS upgrade accepted);
+  ORPC procedure context is empty `{}` (no `user`, no `token`); each
+  connection gets a unique internal registry key
+  (`state/authless-key.ts`, a deterministic monotonic counter — not
+  `Math.random()`/`Date.now()`) so single-session enforcement is OFF
+  (no `4005` session-replace, anonymous connections coexist); NO uploads,
+  NO token-expiry, NO `closeUser`. One info log line at attach notes
+  authless mode. `AuthlessOrpcWsServerOptions` has no `verifyClient` /
+  `uploads` / `enforceTokenExpiry`; `AuthlessHooks` drops the `user`
+  params and `onKicked`. The return type is `Omit<OrpcWsServer<NoAuth>,
+  "closeUser">`.
+- **No uploads in authless is deliberate** (the HTTP upload transport
+  authenticates via the same Bearer token the WS uses, which authless has
+  none of). Adding it later is purely additive — no public API change.
+- **`NoAuth` branded type.** The "absent user" is modeled as a branded,
+  structurally-uninhabited type (`state/no-auth.ts`) — not `undefined` /
+  `unknown` / `any`. So an authless consumer never declares or sees a
+  `TUser`, and reaching for a `.user` in authless code is a compile-time
+  error, not a runtime `undefined`.
+- **NestJS: discriminated union on an OPTIONAL `mode`.** `mode` absent
+  (or `"authenticated"`) ⇒ the authenticated arm (existing modules
+  unchanged — back-compat default); `mode: "authless"` ⇒ the authless
+  arm. `OrpcWsService` reads `mode` and dispatches to the matching
+  factory. Use `OrpcWsModule.forRoot/forRootAsync({ mode: "authless",
+  router })`.
 
 ### Reactive auth seam — observable `@orpc-ws/oidc-pkce`
 

@@ -38,7 +38,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
+    "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },
   "dependencies": {
     "@orpc-ws/server": "workspace:*",

@@ -19,7 +19,7 @@ npm install @orpc-ws/server
 
 ```ts
 import { createServer } from "http";
-import { OrpcWsServer } from "@orpc-ws/server";
+import { createOrpcWsServer } from "@orpc-ws/server";
 import type { VerifyClientContext } from "@orpc-ws/server";
 import { os } from "@orpc/server";
 
@@ -38,7 +38,7 @@ const verifyClient = async (ctx: VerifyClientContext) => {
 
 // 3. Compose, attach, listen.
 const httpServer = createServer();
-const wsServer = new OrpcWsServer({
+const wsServer = createOrpcWsServer({
   router: appRouter,
   verifyClient,
   // Optional knobs (all have sensible defaults):
@@ -53,6 +53,12 @@ httpServer.listen(3000);
 //   await wsServer.dispose();
 //   httpServer.close();
 ```
+
+> **Construction API.** `createOrpcWsServer(...)` is the documented entry
+> point for the authenticated server (and `createAuthlessOrpcWsServer(...)`
+> for the [authless mode](#authless-mode) below). Both are thin factories
+> over the underlying `OrpcWsServer` class, which is still exported as an
+> advanced/internal entry — prefer the factories.
 
 ## `verifyClient`
 
@@ -107,6 +113,68 @@ to. If you terminate `/ws` behind nginx, an ALB, Cloudflare, etc.:
    `tokenProvider` on the client and use **cookie auth** instead — the
    browser attaches cookies to the upgrade request, and your
    `verifyClient` reads them off `ctx.req`.
+
+## Authless mode
+
+Not every service authenticates. For internal tools, public read-only
+feeds, or a localhost demo, you want the WS transport (RPC +
+AsyncIterable subscriptions + heartbeat) with **no auth at all**. That's
+a first-class mode — not an "always-accept" `verifyClient`.
+
+Pick the factory that matches:
+
+| Factory | Auth | Use when |
+|---|---|---|
+| `createOrpcWsServer({ router, verifyClient, … })` | authenticated | you need a principal — the everyday path |
+| `createAuthlessOrpcWsServer({ router, … })` | none | every upgrade accepted, no principal |
+
+```ts
+import { createServer } from "http";
+import { createAuthlessOrpcWsServer } from "@orpc-ws/server";
+import { os } from "@orpc/server";
+
+const appRouter = {
+  feed: { latest: os.handler(async () => readPublicFeed()) },
+};
+
+const httpServer = createServer();
+const wsServer = createAuthlessOrpcWsServer({
+  router: appRouter,
+  // No verifyClient — every WS upgrade is accepted.
+  // connection / heartbeat / hooks / logger / clock still apply.
+});
+wsServer.attach(httpServer);
+httpServer.listen(3000);
+```
+
+What's different from the authenticated path:
+
+- **Empty ORPC context.** Procedures run with `{}` — there is no `user`
+  and no `token` on the context. (The option/return types make this a
+  compile-time fact: an authless build never declares or sees a `TUser`.)
+- **No single-session enforcement.** Each connection gets a unique
+  internal registry key, so anonymous connections never kick each other
+  — no `4005` session-replace. Many clients coexist freely.
+- **No uploads, no token-expiry, no `closeUser`.** The HTTP upload
+  transport authenticates with the same Bearer token the WS uses, which
+  authless has none of; `enforceTokenExpiry` has no token to expire; and
+  with no per-user identity there's nothing for `closeUser` to target —
+  so the returned type omits it. (Authless having no uploads is
+  deliberate; it can be added later without an API change.)
+- **Smaller hooks.** `onConnected(ws)` / `onDisconnected(code, ws)` /
+  `onZombieTerminated()` — none take a `user`, and there's no `onKicked`
+  (nothing is ever kicked).
+
+Heartbeat still runs (it's pre-auth liveness — see [Heartbeat](#heartbeat)).
+
+> **Use the factory.** `createAuthlessOrpcWsServer` is the supported
+> authless entry point. The bare `OrpcWsServer` class is the
+> advanced/internal entry; authless consumers should not construct it
+> directly.
+
+On NestJS, the same mode is reached with
+`OrpcWsModule.forRoot({ mode: "authless", router })` — see
+[`@orpc-ws/server-nestjs`](../orpc-ws-server-nestjs/README.md#authless-mode).
 
 ## OIDC verifier
 

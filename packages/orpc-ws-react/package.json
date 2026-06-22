@@ -35,7 +35,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist .turbo *.tsbuildinfo"
+    "clean": "rimraf dist .turbo .tsbuildinfo *.tsbuildinfo"
   },
   "dependencies": {
     "@orpc-ws/client": "workspace:*",

@@ -39,7 +39,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
+    "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },
   "dependencies": {
     "@orpc-ws/server": "workspace:*",

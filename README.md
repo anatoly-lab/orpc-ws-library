@@ -89,18 +89,19 @@ const { pong } = await wsClient.rpc.ping(); // fully typed
 
 ## Demo
 
-Three runnable demos cover three auth models, each a React SPA paired with
-a single-mode NestJS server. SPA and server are always **two separate
-processes** (mirrors a real deploy — SPA on a CDN / static host, API on its
-own process), but each demo now starts **both** with one command: a single
-`pnpm dev:<mode>` launches that app's server and client together (turbo runs
-the two processes in parallel).
+Four runnable demos cover four auth models (three authenticated + one
+authless), each a React SPA paired with a single-mode NestJS server. SPA and
+server are always **two separate processes** (mirrors a real deploy — SPA on a
+CDN / static host, API on its own process), but each demo now starts **both**
+with one command: a single `pnpm dev:<mode>` launches that app's server and
+client together (turbo runs the two processes in parallel).
 
 | Demo | Auth model | Library packages imported | Run (server + SPA) | Ports (server / dev / preview) |
 |---|---|---|---|---|
 | [`apps/demo-pkce`](./apps/demo-pkce) | Browser OIDC + PKCE | `@orpc-ws/oidc-pkce` + `@orpc-ws/oidc-react` + `@orpc-ws/react` | `pnpm dev:pkce` | 18081 / 5173 / 4173 |
 | [`apps/demo-backend-token`](./apps/demo-backend-token) | Custom `TokenProvider` — server mints a short-lived access token the browser pulls and passes via WS `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages — the WS-only consumer path) | `pnpm dev:backend-token` | 18082 / 5174 / 4174 |
 | [`apps/demo-cookie-bff`](./apps/demo-cookie-bff) | httpOnly `sid` session cookie — authenticates the WS handshake automatically, no `?token=` | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages, no `tokenProvider`) | `pnpm dev:cookie-bff` | 18083 / 5175 / 4175 |
+| [`apps/demo-authless`](./apps/demo-authless) | **None** — library `mode: "authless"`, every WS upgrade accepted; no IdP, no secrets, no `.env` beyond an optional `VITE_WS_URL` (the simplest demo to run) | `@orpc-ws/client` + `@orpc-ws/react` (no OIDC packages, no `tokenProvider`) | `pnpm dev:authless` | 18084 / 5176 / 4176 |
 
 Build all demo apps with `pnpm build:demo`; preview a built SPA via its own
 package, e.g. `pnpm --filter @demo/pkce-client preview`.
@@ -124,7 +125,7 @@ push.
 
 ```
 packages/         # 8 packages (6 transport + 2 OIDC helpers)
-apps/             # demo-contract, demo-{pkce,backend-token,cookie-bff}, demo-server (multi-mode)
+apps/             # demo-{pkce,backend-token,cookie-bff,authless}/ — each self-contained {contract,server,client}
 tests-e2e/        # Playwright + Testcontainers Keycloak
 docs/             # implementation-plan, migration guide, mermaid diagrams
 ```
@@ -137,10 +138,11 @@ For any demo, copy **both** env templates — the SPA's and the server's. Each
 SPA reads its `VITE_*` vars at build time and fails loudly if they're missing:
 `apps/demo-pkce/.env` needs `VITE_OIDC_ISSUER_URL`, `VITE_OIDC_CLIENT_ID`,
 `VITE_WS_URL`, `VITE_UPLOAD_URL`; the two backend SPAs need `VITE_WS_URL` +
-`VITE_SERVER_ORIGIN`. `apps/demo-server/.env` carries the shared
-`OIDC_ISSUER_URL` / `OIDC_CLIENT_ID`, the per-mode ports
-(`PORT_PKCE` / `PORT_BACKEND_TOKEN` / `PORT_COOKIE_BFF`), and the backend
-modes' SPA-origin + session-cookie vars (see its `.env.example`). A local
+`VITE_SERVER_ORIGIN`. Each demo's server loads its own
+`apps/demo-<mode>/server/.env` (e.g., `apps/demo-backend-token/server/.env`),
+which carries `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID`, the server port, and
+any auth-specific vars like SPA-origin or session-cookie settings (see its
+`.env.example`). A local
 Keycloak (or any OIDC IdP) must be running separately; the e2e suite spins
 one up in a Testcontainer.
 

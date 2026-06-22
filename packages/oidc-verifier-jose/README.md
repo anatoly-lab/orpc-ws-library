@@ -20,7 +20,7 @@ npm install @orpc-ws/oidc-verifier-jose
 
 ```ts
 import { createOidcVerifyClient } from "@orpc-ws/oidc-verifier-jose";
-import { OrpcWsServer } from "@orpc-ws/server";
+import { createOrpcWsServer } from "@orpc-ws/server";
 
 const verifyClient = createOidcVerifyClient({
   issuerUrl: "https://auth.example.com/realms/demo",
@@ -28,7 +28,7 @@ const verifyClient = createOidcVerifyClient({
   expectedClientId: "spa",
 });
 
-const server = new OrpcWsServer({
+const server = createOrpcWsServer({
   router: appRouter,
   verifyClient,
   connection: { path: "/ws" },

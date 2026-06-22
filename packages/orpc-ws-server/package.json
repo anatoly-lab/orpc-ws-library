@@ -35,10 +35,10 @@
   "scripts": {
     "build": "tshy",
     "prepublishOnly": "tshy",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test-types.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "clean": "rimraf dist .turbo .tshy-build *.tsbuildinfo"
+    "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },
   "dependencies": {
     "@orpc-ws/shared": "workspace:*",
