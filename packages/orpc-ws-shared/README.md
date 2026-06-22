@@ -14,11 +14,12 @@ contributors.
 
 ## Why a separate package
 
-Three of the four packages need the same `Logger` shape and the same
-`HEARTBEAT_PATH` constant. Inlining them in either core would force a
-client → server (or server → client) dependency just for type
-definitions. A workspace-internal package keeps the dependency graph
-honest: both cores depend on a non-published leaf.
+The client core, the server core, and the NestJS adapter all need the
+same `Logger` shape and the same `HEARTBEAT_PATH` constant. Inlining them
+in either core would force a client → server (or server → client)
+dependency just for type definitions. A shared leaf package keeps the
+dependency graph honest: each core depends on a small shared package
+rather than on the other core.
 
 ## What's in it
 
