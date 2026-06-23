@@ -1,5 +1,11 @@
 # @orpc-ws/react
 
+## 0.3.0
+
+### Patch Changes
+
+- @orpc-ws/client@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @orpc-ws/oidc-react
 
+## 0.3.0
+
+### Patch Changes
+
+- @orpc-ws/oidc-pkce@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes
