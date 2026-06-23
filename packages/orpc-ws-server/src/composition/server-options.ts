@@ -14,6 +14,10 @@
 import type { Clock, Logger } from "@orpc-ws/shared";
 import type { WebSocket } from "ws";
 
+import type {
+  OrpcWsInterceptors,
+  OrpcWsRootInterceptors,
+} from "../index.js";
 import type { ConnectionConfig } from "../config/connection-config.js";
 import type { HeartbeatConfig } from "../config/heartbeat-config.js";
 import type { VerifyClient } from "../lifecycle/verify-client-orchestrator.js";
@@ -93,6 +97,25 @@ export interface AuthenticatedOrpcWsServerOptions<
   clock?: Clock;
   /** Opt-in HTTP transport for file uploads. */
   uploads?: Partial<UploadHttpConfig<TUser>>;
+  /**
+   * ORPC handler-level interceptors, forwarded to BOTH internally-built
+   * RPCHandlers (WS + the optional HTTP upload handler). The common use is a
+   * single central error logger that covers EVERY procedure — including
+   * sub-routers spread in unwrapped:
+   *   interceptors: [ onError((e) => logger.error({ err: e }, "orpc error")) ]
+   * (import `onError` from "@orpc/server"). See `OrpcWsServerOptions` in the
+   * core for the full coverage caveats (no mid-stream errors, no pre-ORPC
+   * upload rejects, heartbeat runs with empty context).
+   */
+  interceptors?: OrpcWsInterceptors;
+  /**
+   * ORPC ROOT interceptors (the outer layer), forwarded to both handlers. By
+   * the time these run a thrown procedure error has ALREADY been encoded into
+   * a response, so a rootInterceptor `onError` will NOT fire on a procedure
+   * throw — use `interceptors` to log thrown errors, `rootInterceptors` for
+   * whole-response shaping / top-level tracing.
+   */
+  rootInterceptors?: OrpcWsRootInterceptors;
 }
 
 /**
@@ -126,4 +149,21 @@ export interface AuthlessOrpcWsServerOptions<TContract extends object> {
   logger?: Logger;
   /** Test seam — fake clock. */
   clock?: Clock;
+  /**
+   * ORPC handler-level interceptors, forwarded to the WS RPCHandler. The
+   * common use is a single central error logger covering EVERY procedure —
+   * including sub-routers spread in unwrapped:
+   *   interceptors: [ onError((e) => logger.error({ err: e }, "orpc error")) ]
+   * (import `onError` from "@orpc/server"). Authless has no HTTP upload
+   * transport, so these wrap only the WS handler. The interceptor sees the
+   * empty `{}` authless context (no `user`/`token`).
+   */
+  interceptors?: OrpcWsInterceptors;
+  /**
+   * ORPC ROOT interceptors (the outer layer), forwarded to the WS handler.
+   * Procedure throws are already encoded into a response by the time these
+   * run — use `interceptors` to log thrown errors, `rootInterceptors` for
+   * whole-response shaping / top-level tracing.
+   */
+  rootInterceptors?: OrpcWsRootInterceptors;
 }

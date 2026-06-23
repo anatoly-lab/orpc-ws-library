@@ -101,6 +101,8 @@ export function createAuthlessOrpcWsServer<TContract extends object>(
   if (opts.heartbeat) internalOpts.heartbeat = opts.heartbeat;
   if (opts.logger) internalOpts.logger = opts.logger;
   if (opts.clock) internalOpts.clock = opts.clock;
+  if (opts.interceptors) internalOpts.interceptors = opts.interceptors;
+  if (opts.rootInterceptors) internalOpts.rootInterceptors = opts.rootInterceptors;
 
   // The class returns the full surface; the narrowed return type hides
   // `closeUser` from authless consumers (it would no-op anyway — no user

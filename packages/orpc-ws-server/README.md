@@ -272,6 +272,66 @@ uploads: {
 
 Threads through the NestJS adapter unchanged — it's part of `uploads`.
 
+## Interceptors / error logging
+
+Two optional passthrough options forward ORPC
+[handler interceptors](https://github.com/unnoq/orpc) to the
+library's internally-built `RPCHandler`(s) — the WS handler always, and
+the HTTP upload handler too when `uploads` is configured. Both are
+accepted on `createOrpcWsServer` **and** `createAuthlessOrpcWsServer`
+(authless has no upload transport, so they wrap only its WS handler).
+
+The headline use is a **single central error logger** that covers every
+procedure regardless of how you composed your router — including
+sub-routers spread in unwrapped (that's the whole point):
+
+```ts
+import { onError } from "@orpc/server";
+
+createOrpcWsServer({
+  router,
+  verifyClient,
+  interceptors: [
+    onError((e) => logger.error({ err: e }, "orpc procedure error")),
+  ],
+});
+```
+
+### `interceptors` vs `rootInterceptors`
+
+The footgun is wiring your error logger to the wrong layer:
+
+- **`interceptors`** wrap the **procedure execution** and see the
+  **thrown error**. Use them for error logging.
+- **`rootInterceptors`** are the **outer** layer — they wrap the whole
+  handle **including** ORPC's error→response mapping. By the time a
+  `rootInterceptor` runs, a thrown procedure error has already been
+  caught and encoded into a response, so a `rootInterceptors` `onError`
+  **will NOT fire on a procedure throw**. Use `rootInterceptors` for
+  whole-response shaping, top-level tracing spans, or short-circuiting —
+  **not** for logging thrown errors.
+
+### Coverage caveats
+
+`interceptors` are not a catch-all. Three honest gaps:
+
+1. **Mid-stream AsyncIterable errors are invisible.** They fire for
+   unary procedure failures and subscription **setup** failures, but
+   NOT for errors thrown mid-stream from an AsyncIterable — ORPC's
+   `handle()` has already resolved by then. A subscription that yields
+   fine and then throws minutes later never reaches the interceptor.
+2. **HTTP upload pre-ORPC rejects are invisible.** On the upload
+   transport, `verifyClient` / `beforeUpload` reject **before** the
+   `RPCHandler` runs, so those failures don't reach the interceptor.
+   (The WS transport is the clean case — no pre-handler gate.)
+3. **Heartbeat runs with empty context.** Interceptors also wrap the
+   library's internal heartbeat procedure, which runs with an empty
+   `{}` context — an interceptor reading `context.user` gets
+   `undefined` there.
+
+Both options are accepted on the NestJS adapter too — see
+[`@orpc-ws/server-nestjs`](../orpc-ws-server-nestjs/README.md#interceptors--error-logging).
+
 ## Gotchas
 
 1. **`verifyClient` runs in `ws`'s upgrade callback, before any

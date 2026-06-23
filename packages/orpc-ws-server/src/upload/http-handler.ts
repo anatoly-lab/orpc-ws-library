@@ -104,11 +104,28 @@ function isWellFormedBeforeUploadResult(v: unknown): v is BeforeUploadResult {
  * @param config - Resolved HTTP upload config (path + body limit).
  * @param logger - Structured logger; defaults to noop.
  */
+// ORPC handler-interceptor types, DERIVED from the Node `RPCHandler`
+// constructor (mirrors the WS handler's derivation in index.ts). We avoid
+// importing `Interceptor` from `@orpc/shared` — not a dependency of this
+// package — by reading them off the constructor's option bag.
+type NodeHandlerCtx = Record<string, unknown>;
+type NodeRpcHandlerOptions = NonNullable<
+  ConstructorParameters<typeof RPCHandler<NodeHandlerCtx>>[1]
+>;
+
 export function createHttpUploadHandler<TUser>(deps: {
   composedRouter: Record<string, unknown>;
   verifyClient: VerifyClient<TUser>;
   config: UploadHttpConfig<TUser>;
   logger?: Logger;
+  /**
+   * Handler-level interceptors, forwarded from `OrpcWsServerOptions` so the
+   * same central error logger covers HTTP-upload procedures too. Optional —
+   * `undefined` is a no-op.
+   */
+  interceptors?: NonNullable<NodeRpcHandlerOptions["interceptors"]>;
+  /** ROOT interceptors, forwarded from `OrpcWsServerOptions`. */
+  rootInterceptors?: NonNullable<NodeRpcHandlerOptions["rootInterceptors"]>;
 }): HttpUploadHandler {
   const logger = deps.logger ?? noopLogger;
 
@@ -132,7 +149,7 @@ export function createHttpUploadHandler<TUser>(deps: {
   // the WS handler in `OrpcWsServer` makes. The cast names the seam.
   const rpcHandler = new RPCHandler<Record<string, unknown>>(
     deps.composedRouter as never,
-    { plugins },
+    { plugins, interceptors: deps.interceptors, rootInterceptors: deps.rootInterceptors },
   );
 
   /**

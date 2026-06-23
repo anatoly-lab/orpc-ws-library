@@ -162,6 +162,36 @@ from the core; see
 Client side: `client.upload(file, { procedure: ["files","upload"] })`
 — see [`@orpc-ws/client`](../orpc-ws-client/README.md#uploads--opt-in-http-transport).
 
+## Interceptors / error logging
+
+`interceptors` and `rootInterceptors` are accepted on
+`OrpcWsModule.forRoot` / `forRootAsync` options in **both** `mode`s
+(authenticated and authless) and thread straight through to the core
+factory — no Nest-side remap.
+
+```ts
+import { onError } from "@orpc/server";
+
+OrpcWsModule.forRootAsync({
+  inject: [AuthService],
+  useFactory: (auth) => ({
+    router: appRouter,
+    verifyClient: async (ctx) => auth.verifyWsToken(ctx),
+    interceptors: [
+      onError((e) => logger.error({ err: e }, "orpc procedure error")),
+    ],
+  }),
+});
+```
+
+`interceptors` wrap procedure execution and see the thrown error (use
+them for a central error logger); `rootInterceptors` are the outer layer
+and won't fire on a procedure throw. The full semantics — that
+distinction plus the three coverage caveats (mid-stream AsyncIterable
+errors, HTTP upload pre-ORPC rejects, and the empty-context heartbeat) —
+live in
+[`@orpc-ws/server` → Interceptors / error logging](../orpc-ws-server/README.md#interceptors--error-logging).
+
 ## HTTP adapter
 
 **Express only on v1.** `HttpAdapterHost.httpAdapter.getHttpServer()`

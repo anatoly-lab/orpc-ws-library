@@ -149,6 +149,24 @@ export type OrpcWsServerHooks<TUser> = AuthenticatedHooks<TUser>;
 
 // ----- Options -----
 
+// ORPC handler-interceptor types, DERIVED from the already-imported
+// `RPCHandler` constructor rather than imported. The honest interceptor
+// type (`Interceptor`) lives in `@orpc/shared`, which is NOT a dependency
+// of this package — importing it would trip the no-extraneous-dependencies
+// lint rule. `StandardHandlerInterceptorOptions` / `StandardHandleResult`
+// aren't re-exported from `@orpc/server` either. So we read the option bag
+// straight off the constructor's second parameter and pluck the two fields.
+type HandlerCtx = Record<string, unknown>;
+type RpcHandlerOptions = NonNullable<
+  ConstructorParameters<typeof RPCHandler<HandlerCtx>>[1]
+>;
+/** ORPC handler-level interceptors (see `OrpcWsServerOptions.interceptors`). */
+export type OrpcWsInterceptors = NonNullable<RpcHandlerOptions["interceptors"]>;
+/** ORPC ROOT interceptors (see `OrpcWsServerOptions.rootInterceptors`). */
+export type OrpcWsRootInterceptors = NonNullable<
+  RpcHandlerOptions["rootInterceptors"]
+>;
+
 export interface OrpcWsServerOptions<TUser, TContract extends object> {
   /**
    * The consumer's ORPC router (plain object — top-level keys are
@@ -194,6 +212,34 @@ export interface OrpcWsServerOptions<TUser, TContract extends object> {
    * optional `beforeUpload` gate receives the authenticated principal.
    */
   uploads?: Partial<UploadHttpConfig<TUser>>;
+  /**
+   * ORPC handler-level interceptors, forwarded to BOTH internally-built
+   * RPCHandlers (WS + the optional HTTP upload handler). The common use is a
+   * single central error logger that covers EVERY procedure regardless of how
+   * the consumer composed their router (sub-routers spread in unwrapped are
+   * still covered — that's the whole point):
+   *   interceptors: [ onError((e) => logger.error({ err: e }, "orpc error")) ]
+   * (import `onError` from "@orpc/server").
+   *
+   * COVERAGE CAVEATS (be honest in docs): fires for unary procedure failures
+   * and AsyncIterable subscription *setup* failures; does NOT see errors thrown
+   * mid-stream from an AsyncIterable (handle() has already resolved), and does
+   * NOT see the HTTP upload transport's pre-ORPC rejects (verifyClient /
+   * beforeUpload reject before the RPCHandler runs). Also wraps the library's
+   * internal heartbeat procedure, which runs with an empty `{}` context — an
+   * interceptor reading `context.user` will get `undefined` there.
+   */
+  interceptors?: OrpcWsInterceptors;
+  /**
+   * ORPC ROOT interceptors (the outer layer). Forwarded to both handlers.
+   * NOTE the semantic difference from `interceptors`: rootInterceptors wrap the
+   * whole handle INCLUDING ORPC's error→response mapping, so by the time they
+   * run a thrown procedure error has ALREADY been caught and encoded into a
+   * response — a rootInterceptor `onError` will NOT fire on a procedure throw.
+   * Use `interceptors` (above) to log thrown errors; use `rootInterceptors` for
+   * whole-response shaping, top-level tracing spans, or short-circuiting.
+   */
+  rootInterceptors?: OrpcWsRootInterceptors;
 }
 
 /**
@@ -346,6 +392,13 @@ export class OrpcWsServer<TUser, TContract extends object> {
       // intentionally to keep the consumer's `TContract` clean of
       // library-internals.
       composedRouter as never,
+      // Forward the consumer's handler interceptors. Both fields are
+      // optional — passing `undefined` is a no-op, so a server built with
+      // neither behaves exactly as before.
+      {
+        interceptors: opts.interceptors,
+        rootInterceptors: opts.rootInterceptors,
+      },
     );
 
     // ----- 6b. Optional HTTP upload handler -----
@@ -379,6 +432,10 @@ export class OrpcWsServer<TUser, TContract extends object> {
             verifyClient: opts.verifyClient,
             config: this.uploadConfig,
             logger: this.logger,
+            // Same interceptors as the WS handler — one central error
+            // logger covers BOTH transports' procedure failures.
+            interceptors: opts.interceptors,
+            rootInterceptors: opts.rootInterceptors,
           })
         : null;
 

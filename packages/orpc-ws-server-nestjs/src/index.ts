@@ -34,6 +34,8 @@ export type {
   BeforeUploadHook,
   BeforeUploadResult,
   HttpUploadHandler,
+  OrpcWsInterceptors,
+  OrpcWsRootInterceptors,
 } from "@orpc-ws/server";
 export {
   DEFAULT_UPLOAD_HTTP_CONFIG,

@@ -35,6 +35,10 @@ import type {
  * `createAuthlessOrpcWsServer`. The authenticated public options thread
  * through to the core 1:1 (including `uploads.beforeUpload`).
  *
+ * Both arms inherit `interceptors` / `rootInterceptors` from the core option
+ * types they intersect — the central-`onError`-logger passthrough — so they
+ * flow to the dispatched factory with no Nest-side remap.
+ *
  * Both generic params default so consumers can write
  * `OrpcWsModuleOptions` with no type args during composition.
  */
