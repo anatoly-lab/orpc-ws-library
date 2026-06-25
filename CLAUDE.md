@@ -75,7 +75,7 @@ e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
 
 ## Codebase map (as built)
 
-Ten packages under `packages/` (the "Package layout (locked)" section below
+Eleven packages under `packages/` (the "Package layout (locked)" section below
 states intent; this is the current tree), plus demo apps under `apps/`. Every
 non-adapter package is framework-free; the boundary is lint-enforced.
 
@@ -142,6 +142,18 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   `endpoints` is an inert no-op (fixed controller prefix — use
   `setGlobalPrefix` / `connection.path`). Depends on `@orpc-ws/cookie-bff` +
   `@orpc-ws/server-nestjs`; `@nestjs/*` peers.
+- `@orpc-ws/cookie-bff-client` — framework-free BROWSER core for the cookie-BFF
+  `/auth/*` client protocol glue, so the consumer doesn't reimplement the
+  security-sensitive CSRF/cookie protocol. `createCookieBffAuthClient<TUser>({
+  serverOrigin, basePath?, fetch? })` gives `me()` (typed GET /auth/me →
+  enriched user, refreshes the in-memory synchronizer-CSRF token, null on 401),
+  a CSRF-aware `mutate()` (the ONE place `X-CSRF-Token` + `credentials:"include"`
+  are attached; `path` is origin-relative), `loginUrl()` (pure string), and
+  `logout()` (POSTs, RETURNS `endSessionUrl` — does NOT navigate). The CSRF token
+  lives ONLY in JS memory (not localStorage/cookie). Navigation (`window.location`)
+  stays in the consumer; NO WS coupling (the consumer makes its own
+  `createOrpcWsClient` with no `tokenProvider`). Zero runtime deps (global
+  `fetch`); browser-only. See `docs/cookie-bff-server-design.md`.
 
 Apps (under `apps/`): four **self-contained** demo apps, one per auth model
 (three authenticated + one authless), each a directory `apps/demo-<mode>/`
@@ -799,13 +811,13 @@ publishing.
 - **Tool: [Changesets](https://github.com/changesets/changesets)**
   (`@changesets/cli`, root devDep; config in `.changeset/config.json`),
   used **locally only** (versioning + changelogs).
-- **Lockstep via the `fixed` group** — all ten published packages are
+- **Lockstep via the `fixed` group** — all eleven published packages are
   listed in one `fixed` array, so any release bumps them all to the same
   version (`fixed` does **not** support globs; list each package):
   `@orpc-ws/shared`, `oidc-pkce`, `client`, `server`, `oidc-react`,
   `react`, `server-nestjs`, `oidc-verifier-jose`, `cookie-bff`,
-  `cookie-bff-nestjs` (the last two appended when the cookie-BFF packages
-  landed).
+  `cookie-bff-nestjs`, `cookie-bff-client` (the last three appended when the
+  cookie-BFF packages landed).
 - **Internal deps are `workspace:*`** — `pnpm -r publish` rewrites them
   to the exact published version at publish time.
 - **Changelog:** the bundled `@changesets/cli/changelog` (no extra dep).

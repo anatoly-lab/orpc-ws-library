@@ -34,6 +34,25 @@ const CLIENT_CORE_FORBIDDEN_PACKAGES = [
 ];
 
 /**
+ * Packages forbidden in the framework-free BROWSER cookie-BFF client
+ * (`@orpc-ws/cookie-bff-client`). The client-core framework bans PLUS the
+ * Node-only / server-side cores it must never reach (it's the HTTP `/auth/*`
+ * control plane only — no WS, no server packages, no `jose`).
+ */
+const COOKIE_BFF_CLIENT_FORBIDDEN_PACKAGES = [
+  ...CLIENT_CORE_FORBIDDEN_PACKAGES,
+  "express",
+  "fastify",
+  "ws",
+  "jose",
+  "@orpc-ws/server",
+  "@orpc-ws/server-nestjs",
+  "@orpc-ws/cookie-bff",
+  "@orpc-ws/cookie-bff-nestjs",
+  "@orpc-ws/oidc-verifier-jose",
+];
+
+/**
  * Framework packages forbidden in the framework-free server cores. Shared by
  * `@orpc-ws/server` and `@orpc-ws/cookie-bff` (the cookie-BFF core is just as
  * framework-free — its NestJS wiring lives in `@orpc-ws/cookie-bff-nestjs`).
@@ -208,6 +227,23 @@ export default tseslint.config(
       "no-restricted-imports": restrictedImportRule(
         SERVER_CORE_FORBIDDEN_PACKAGES,
         "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.).",
+      ),
+    },
+  },
+
+  // ---- Cookie-BFF client core: browser-only, framework-free ----
+  //
+  // `@orpc-ws/cookie-bff-client` is the browser `/auth/*` control-plane core
+  // (typed /auth/me, in-memory synchronizer-CSRF token, mutate() wrapper,
+  // login-URL builder). Like the WS client core it must stay UI-framework-free,
+  // and additionally must never reach a server core / Node-only dep / `jose` /
+  // `ws` — it's a pure browser HTTP client over global `fetch`.
+  {
+    files: ["packages/orpc-ws-cookie-bff-client/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": restrictedImportRule(
+        COOKIE_BFF_CLIENT_FORBIDDEN_PACKAGES,
+        "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
       ),
     },
   },

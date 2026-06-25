@@ -43,7 +43,7 @@ sections below expand on the load-bearing ones.
 | 11 | Session lifetime | **30 days**, mirroring Keycloak's Remember-Me SSO session exactly (`ssoSessionMaxLifespanRememberMe = ssoSessionIdleTimeoutRememberMe = 2,592,000s`). Idle == max → 30-day rolling window capped at 30 days from login. | ✅ |
 | 12 | Lifetime is config, not hardcoded | **`sessionTtlSeconds` / `cookieMaxAge` (default 30d)** — one knob to retune if Keycloak changes. Do NOT mirror the **dev/E2E** realm (10h SSO / 7d RememberMe). | ✅ |
 | 13 | Not offline tokens | **SSO Remember-Me session**, scope `"openid profile email"` only. Keycloak stays the AUTHORITY — when its session ends, the next refresh fails terminally → our session ends. | ✅ |
-| 14 | **Package shape** | **TWO packages**: `@orpc-ws/cookie-bff` (framework-agnostic core) + `@orpc-ws/cookie-bff-nestjs` (thin adapter), mirroring `@orpc-ws/server` + `-nestjs`. | ✅ |
+| 14 | **Package shape** | **THREE packages**: `@orpc-ws/cookie-bff` (framework-agnostic core) + `@orpc-ws/cookie-bff-nestjs` (thin adapter) + `@orpc-ws/cookie-bff-client` (framework-free browser client core), mirroring `@orpc-ws/server` + `-nestjs`. (client core added later — reverses §K′ "client glue lives in the consumer", see §C/§K′.) | ✅ |
 | 15 | Connection lifetime | **WS connection follows the SESSION, not the access token.** Access-token expiry mid-connection is a **non-event**. Verifier `expiresAt` = session window. `enforceTokenExpiry` **off**. | ✅ |
 | 16 | Refresh strategy | **Lazy + event-driven**, single-flighted. Refresh only on-demand if a downstream call needs the user's Keycloak token (rare — API uses `USERS_SERVICE_SECRET`). `enforce-expiry` documented as an **opt-in fallback only**. | ✅ |
 | 17 | Revocation kick | **Best-effort** — `deleteByUser(sub)` + `closeUser(sub)` locally. Reconnect race ACCEPTED (no connect-time double-check, no kick-wins). | ✅ |
@@ -175,10 +175,12 @@ KICK (revocation / tier downgrade)
 
 ## C. Package shape — core + adapter (Decision #14)
 
-Two packages, mirroring `@orpc-ws/server` + `@orpc-ws/server-nestjs`. The core is
+Three packages, mirroring `@orpc-ws/server` + `@orpc-ws/server-nestjs`. The core is
 framework-free; the NestJS adapter is thin and is the **only** package that may
 import `@nestjs/*`. Future `-fastify` / `-express` adapters would wire the **same
-core**.
+core**. The third package, `@orpc-ws/cookie-bff-client`, is the framework-free
+**browser** client core owning the SPA-side `/auth/*` protocol glue — mirroring
+how `@orpc-ws/oidc-pkce` is a browser core sibling of the server-side OIDC pieces.
 
 ### C.1 What lives where
 
@@ -200,6 +202,11 @@ The core's `/auth/*` handlers are **transport-agnostic**: each returns an
 instruction object (e.g. `{ setCookies: CookieSpec[], setClearCookies: CookieSpec[], redirect?: string, body?: unknown, status: number }` — **AS BUILT** the field is `setClearCookies: CookieSpec[]` of pre-serialized clearing cookies, see §D.4)
 that an adapter translates to its HTTP framework. That is the seam that lets a
 future Fastify/Express adapter reuse 100% of the auth logic.
+
+The SPA-side client glue (`me` / `mutate` / the in-memory synchronizer-CSRF
+token / `loginUrl` / `logout`) lives in a THIRD package,
+`@orpc-ws/cookie-bff-client` (browser core). Navigation / `window.location` is
+NOT in the library — it stays in the consumer app.
 
 ### C.2 Where they sit in the monorepo
 
@@ -223,6 +230,11 @@ packages/
       cookie-bff.module.ts        ← forRoot / forRootAsync
       cookie-bff.service.ts       ← composes OrpcWsService; revokeUser
       auth.controller.ts          ← maps core handler instructions → @Res()
+    package.json  tsconfig.build.json  tshy …
+  orpc-ws-cookie-bff-client/      ← BROWSER CLIENT CORE (framework-free)
+    src/
+      index.ts
+      auth-client.ts              ← createCookieBffAuthClient (me/mutate/loginUrl/logout)
     package.json  tsconfig.build.json  tshy …
 ```
 
@@ -275,11 +287,12 @@ Both join the existing `packages/*` workspace glob.
 
 ### C.4 Versioning — the `.changeset` fixed group
 
-`.changeset/config.json` has a single `fixed` group. **AS BUILT** both new
-packages are now appended, so the group lists **10** `@orpc-ws/*` packages
-(was 8) — `@orpc-ws/cookie-bff` and `@orpc-ws/cookie-bff-nestjs` version in
-lockstep with `@orpc-ws/server` / `-nestjs` (which they depend on). Publishing
-bumps the whole library to the next minor.
+`.changeset/config.json` has a single `fixed` group. **AS BUILT** all THREE
+cookie-bff packages are now appended, so the group lists **11** `@orpc-ws/*`
+packages (was 8) — `@orpc-ws/cookie-bff`, `@orpc-ws/cookie-bff-nestjs`, and
+`@orpc-ws/cookie-bff-client` version in lockstep with `@orpc-ws/server` /
+`-nestjs` (which they depend on). Publishing bumps the whole library to the
+next minor.
 
 ---
 
@@ -1044,20 +1057,47 @@ and the ORPC router are **imported** into those single entry points, never
 re-inlined or re-scattered back across the app.
 
 **Client — one file (`apps/web/src/lib/auth.ts`).** The WS client (no
-`tokenProvider`), the ORPC client, and the thin auth-action helpers all live here;
-everything else reads auth state via `GET /auth/me`:
+`tokenProvider`), the ORPC client, and thin **navigation-policy** wrappers all
+live here; the security-sensitive protocol glue is delegated to
+`@orpc-ws/cookie-bff-client`. Everything else reads auth state via `me()`:
 
 ```ts
 import { createOrpcWsClient } from "@orpc-ws/client";
+import { createCookieBffAuthClient } from "@orpc-ws/cookie-bff-client";
 import { getWsUrl, getApiBaseUrl } from "./config";
+
+// WS transport — separate concern, no tokenProvider (cookie authenticates the handshake).
 export const wsClient   = createOrpcWsClient<AppContract>({ url: getWsUrl() });
 export const orpcClient = wsClient.rpc;
+
+// Protocol glue (typed /auth/me, in-memory synchronizer-CSRF token, CSRF-aware mutate)
+// now lives in the library — the app keeps ONLY navigation policy.
+const authClient = createCookieBffAuthClient<User>({
+  serverOrigin: getApiBaseUrl(),
+  loginPath: "/api/auth/login",
+  logoutPath: "/api/auth/logout",
+  mePath: "/api/auth/me",
+});
 export const auth = {
-  login:  () => { location.href = `${getApiBaseUrl()}/api/auth/login`; },
-  logout: () => fetch(`${getApiBaseUrl()}/api/auth/logout`, { method: "POST", credentials: "include" }),
-  me:     () => fetch(`${getApiBaseUrl()}/api/auth/me`, { credentials: "include" }),
+  me:     () => authClient.me(),
+  login:  () => { window.location.href = authClient.loginUrl(); },
+  logout: async () => {
+    const { endSessionUrl } = await authClient.logout();
+    window.location.href = endSessionUrl ?? "/";
+  },
 };
 ```
+
+This **reverses** the original "client glue lives in the consumer" stance of this
+section: the protocol glue (typed `/auth/me`, the in-memory synchronizer-CSRF
+token, the CSRF-aware `mutate`) is now the library's `@orpc-ws/cookie-bff-client`,
+so the consumer doesn't reimplement the security-sensitive CSRF/cookie protocol.
+The client takes **explicit** endpoint paths (`loginPath` / `logoutPath` / `mePath`,
+shown here under `/api/auth/*`) — there is no hidden `/auth` convention, which
+decouples the client from the server's path layout.
+Only navigation (`window.location`) stays app-side. The WS client line above
+(`createOrpcWsClient` with no `tokenProvider`) is unchanged — it is a separate
+concern from the `/auth/*` glue.
 
 **Server — one module (`apps/api/src/auth/cookie-auth.module.ts`).** A single
 module configures cookie-bff once; the `SessionStore` impl and the `SESSIONS`
@@ -1154,6 +1194,13 @@ Where the load-bearing decisions actually live, for a reader navigating the code
 | `/auth/*` controller — pure `AuthInstruction` → express `@Res` translator; fixed `@Controller("auth")` | `auth.controller.ts` |
 | `CookieBffService` — `revokeUser(sub)` / `closeUser(...)` / `getCore()` | `cookie-bff.service.ts` |
 
+### CLIENT CORE — `packages/orpc-ws-cookie-bff-client/src/`
+
+| Concern | File |
+| --- | --- |
+| Public surface | `index.ts` |
+| `createCookieBffAuthClient` — `me()` / CSRF-aware `mutate()` / in-memory synchronizer-CSRF token / `loginUrl()` / navigation-free `logout()` (reverses §K′ "client glue in the consumer") | `auth-client.ts` |
+
 ### DEMO — `apps/demo-cookie-bff/`
 
 The demo now **consumes the library** instead of hand-writing ~1000 lines of
@@ -1165,6 +1212,10 @@ store adapter + one revocation wire.
 | One config block — `CookieBffModule.forRootAsync<DemoUser>(...)` (localhost-relaxed cookies) | `server/src/auth/cookie-auth.module.ts` |
 | ~40-line `SessionStore` adapter (in-memory + companion `sub→[sid]` index) | `server/src/auth/session-store.ts` |
 | Revocation wire → `CookieBffService.revokeUser` | `server/src/auth/dev-revoke.controller.ts` |
+
+The demo client's `lib/auth.ts` now consumes `@orpc-ws/cookie-bff-client` and is
+navigation-only (it keeps just the `window.location` wrappers; the protocol glue
+moved into the library — §K′).
 
 No HTTP upload transport (the former `uploadImage` procedure was dropped — §D.6
 AS BUILT).

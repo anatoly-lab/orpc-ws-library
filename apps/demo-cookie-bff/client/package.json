@@ -15,6 +15,7 @@
   "dependencies": {
     "@demo/cookie-bff-contract": "workspace:*",
     "@orpc-ws/client": "workspace:*",
+    "@orpc-ws/cookie-bff-client": "workspace:*",
     "@orpc-ws/react": "workspace:*",
     "react": "19.2.7",
     "react-dom": "19.2.7",
