@@ -18,8 +18,10 @@
     "@nestjs/common": "11.1.27",
     "@nestjs/core": "11.1.27",
     "@nestjs/platform-express": "11.1.27",
-    "@orpc-ws/oidc-verifier-jose": "workspace:*",
+    "@orpc-ws/cookie-bff": "workspace:*",
+    "@orpc-ws/cookie-bff-nestjs": "workspace:*",
     "@orpc-ws/server-nestjs": "workspace:*",
+    "@orpc-ws/shared": "workspace:*",
     "@orpc/server": "1.14.6",
     "express": "5.2.1",
     "reflect-metadata": "0.2.2"

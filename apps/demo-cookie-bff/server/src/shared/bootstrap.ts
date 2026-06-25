@@ -89,6 +89,13 @@ export async function bootstrap(
     origin: opts.corsOrigins,
     methods: opts.methods ?? ["GET", "POST", "OPTIONS"],
     credentials: opts.credentials,
+    // The SPA echoes the synchronizer CSRF token in `X-CSRF-Token` on mutating
+    // requests (logout). A cross-origin credentialed request with a custom
+    // header needs that header listed in the CORS preflight's
+    // `Access-Control-Allow-Headers`, or the browser blocks it. `Authorization`
+    // is kept for the token-bearing modes' upload preflight. (Harmless on
+    // same-origin / localhost; required cross-subdomain — kept prod-correct.)
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
   });
 
   // Bind host is env-driven: loopback by default (the demo is a local-dev /

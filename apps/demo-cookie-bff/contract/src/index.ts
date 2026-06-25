@@ -80,25 +80,11 @@ export interface TickEvent {
 // returned value at runtime; the schema is the typing channel only.
 const tick = oc.output(z.custom<AsyncIterable<TickEvent>>());
 
-// Demo image upload over the library's opt-in HTTP transport. The input
-// object MUST key the file under `file` — the client's `orpc-http` upload
-// strategy hardcodes that multipart field name. Native zod-4 `z.file()`
-// (this package already depends on zod 4.x) carries the MIME allow-list to
-// both sides; the optional `name` rides alongside as a plain field.
-const uploadImage = oc
-  .input(
-    z.object({
-      file: z.file().mime(["image/png", "image/jpeg", "image/webp", "image/gif"]),
-      name: z.string().optional(),
-    }),
-  )
-  .output(
-    z.object({
-      ok: z.literal(true),
-      storedAs: z.string(),
-      size: z.number(),
-    }),
-  );
-
-export const appContract = oc.router({ ping, echo, getUser, tick, uploadImage });
+// NOTE: no `uploadImage` procedure here. cookie-BFF deliberately has NO HTTP
+// upload transport — the library's upload path authenticates via a Bearer
+// token, which cookie-BFF (cookie-only, no token in the browser) doesn't have.
+// A dead procedure with no route would just confuse a reader of this teaching
+// reference, so it's omitted. (The PKCE / backend-token demos, which DO carry a
+// token, keep their upload procedure.)
+export const appContract = oc.router({ ping, echo, getUser, tick });
 export type AppContract = typeof appContract;

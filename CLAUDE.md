@@ -75,7 +75,7 @@ e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
 
 ## Codebase map (as built)
 
-Eight packages under `packages/` (the "Package layout (locked)" section below
+Ten packages under `packages/` (the "Package layout (locked)" section below
 states intent; this is the current tree), plus demo apps under `apps/`. Every
 non-adapter package is framework-free; the boundary is lint-enforced.
 
@@ -117,6 +117,31 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   (`getAuthState` / `subscribe`) that the React hooks wrap.
 - `@orpc-ws/oidc-verifier-jose` — Node JWT verifier (depends on `jose`); a
   sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
+- `@orpc-ws/cookie-bff` — framework-free cookie-BFF server core (no token
+  ever reaches the browser; server holds tokens in a session store, browser
+  holds only an opaque httpOnly `sid`). Owns the seams a consumer plugs into:
+  `SessionStore`/`SessionData` (`session-store.ts`), `PkceStore` (`oidc/`,
+  in-memory default), the `Fetcher` HTTP seam, the at-rest AES-256-GCM token
+  cipher (`crypto/`), the cookie WS `createCookieVerifyClient` (Origin
+  allowlist + fail-closed + session-window slide, `verifier/`), server-side
+  PKCE code-exchange + lazy single-flight refresh (`oidc/`), the
+  transport-agnostic `/auth/*` handlers returning `AuthInstruction`
+  (`handlers/`, composed by `createCookieBffCore` in `composition/`), hardened
+  cookie / `oauth_state` / double-submit-CSRF helpers (`cookies/`), and
+  best-effort `revokeUser` (`revoke.ts`). Depends on `@orpc-ws/server` (for
+  `VerifyClient`) + `@orpc-ws/shared`. NO HTTP upload transport (uploads
+  authenticate via a Bearer token cookie-BFF doesn't have). See
+  `docs/cookie-bff-server-design.md`.
+- `@orpc-ws/cookie-bff-nestjs` — NestJS adapter for the cookie-BFF core.
+  `CookieBffModule.forRoot/forRootAsync` internally configures `OrpcWsModule`
+  and hands it the cookie verifier (the verifier→WS bridge is the adapter's
+  job — "Decision #23"), hosts the `/auth/*` `@Controller("auth")` (a pure
+  `AuthInstruction`→express `@Res` translator), and exposes `CookieBffService`
+  (`revokeUser(sub)` / `closeUser` / `getCore`). Install EXACTLY once (owns the
+  single `@Global` WS transport via the internal `OrpcWsModule`); Express-only;
+  `endpoints` is an inert no-op (fixed controller prefix — use
+  `setGlobalPrefix` / `connection.path`). Depends on `@orpc-ws/cookie-bff` +
+  `@orpc-ws/server-nestjs`; `@nestjs/*` peers.
 
 Apps (under `apps/`): four **self-contained** demo apps, one per auth model
 (three authenticated + one authless), each a directory `apps/demo-<mode>/`
@@ -141,7 +166,12 @@ model:
   preview 4174.
 - `@demo/cookie-bff-client` — httpOnly `sid` session cookie authenticates the
   WS handshake automatically, no `?token=` (imports only `@orpc-ws/client` +
-  `@orpc-ws/react`, no `tokenProvider`); dev 5175 / preview 4175.
+  `@orpc-ws/react`, no `tokenProvider`); dev 5175 / preview 4175. Its
+  `@demo/cookie-bff-server` now **consumes the library** — a single
+  `CookieBffModule.forRootAsync` config block (`server/src/auth/cookie-auth.module.ts`)
+  over `@orpc-ws/cookie-bff-nestjs` + a ~40-line `SessionStore` adapter +
+  one revocation wire, replacing the ~1000 lines of hand-written auth it used
+  to carry. No `uploadImage` procedure (cookie-BFF has no upload transport).
 - `@demo/authless-client` — NO auth at all: no `?token=`, no cookie, no IdP
   (imports only `@orpc-ws/client` + `@orpc-ws/react`, no `tokenProvider`).
   Its `@demo/authless-server` runs the library in `mode: "authless"`; the
@@ -769,11 +799,13 @@ publishing.
 - **Tool: [Changesets](https://github.com/changesets/changesets)**
   (`@changesets/cli`, root devDep; config in `.changeset/config.json`),
   used **locally only** (versioning + changelogs).
-- **Lockstep via the `fixed` group** — all eight published packages are
+- **Lockstep via the `fixed` group** — all ten published packages are
   listed in one `fixed` array, so any release bumps them all to the same
   version (`fixed` does **not** support globs; list each package):
   `@orpc-ws/shared`, `oidc-pkce`, `client`, `server`, `oidc-react`,
-  `react`, `server-nestjs`, `oidc-verifier-jose`.
+  `react`, `server-nestjs`, `oidc-verifier-jose`, `cookie-bff`,
+  `cookie-bff-nestjs` (the last two appended when the cookie-BFF packages
+  landed).
 - **Internal deps are `workspace:*`** — `pnpm -r publish` rewrites them
   to the exact published version at publish time.
 - **Changelog:** the bundled `@changesets/cli/changelog` (no extra dep).

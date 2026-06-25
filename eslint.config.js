@@ -33,7 +33,11 @@ const CLIENT_CORE_FORBIDDEN_PACKAGES = [
   "reflect-metadata",
 ];
 
-/** Framework packages forbidden in the framework-free server core. */
+/**
+ * Framework packages forbidden in the framework-free server cores. Shared by
+ * `@orpc-ws/server` and `@orpc-ws/cookie-bff` (the cookie-BFF core is just as
+ * framework-free — its NestJS wiring lives in `@orpc-ws/cookie-bff-nestjs`).
+ */
 const SERVER_CORE_FORBIDDEN_PACKAGES = [
   "@nestjs/common",
   "@nestjs/core",
@@ -188,6 +192,22 @@ export default tseslint.config(
       "no-restricted-imports": restrictedImportRule(
         SERVER_CORE_FORBIDDEN_PACKAGES,
         "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.).",
+      ),
+    },
+  },
+
+  // ---- Cookie-BFF core: framework-free ----
+  //
+  // Same framework-free discipline as the WS server core: `@orpc-ws/cookie-bff`
+  // is the framework-agnostic cookie-BFF core (session-store seam, token
+  // encryption, cookie/CSRF helpers). Its NestJS wiring lives in the sibling
+  // `@orpc-ws/cookie-bff-nestjs` adapter.
+  {
+    files: ["packages/orpc-ws-cookie-bff/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": restrictedImportRule(
+        SERVER_CORE_FORBIDDEN_PACKAGES,
+        "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.).",
       ),
     },
   },

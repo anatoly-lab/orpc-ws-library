@@ -1,36 +1,52 @@
-// Tiny client-side auth glue for the cookie-BFF mode.
+// Tiny client-side auth glue for the cookie-BFF mode (Decision #23: ONE file).
 //
 // The browser holds NO token — the httpOnly `sid` cookie is the only credential
 // and it is invisible to JS. So "am I signed in?" is answered by asking the
-// server: GET /auth/me (cookie-authed) returns the identity, or 401 if no
+// server: GET /auth/me (cookie-authed) returns the ENRICHED user, or 401 if no
 // session. This app imports no oidc package — that is the point of the demo.
 //
-//   - `me()` reads the current identity from the server session (or null).
-//   - `login()` navigates to the server's /auth/login, which 302s to Keycloak
-//     and (after /auth/callback) sets the `sid` cookie + 302s back to "/".
-//   - `logout()` POSTs /auth/logout (cookie-authed) to clear the server session,
-//     then navigates to the IdP end-session URL the server returns.
+// CSRF (synchronizer-token pattern): /auth/me returns the session's CSRF token
+// in its BODY. We keep it in an IN-MEMORY module variable — NOT localStorage,
+// NOT a cookie — so a sibling subdomain's JS can't read it (per-origin memory
+// isolation). A page reload re-fetches it via me() on mount. Every mutating
+// API call goes through the single `mutate()` wrapper, which auto-attaches the
+// `X-CSRF-Token` header + `credentials:"include"` — the header is NOT sprinkled
+// across call sites.
+//
+//   - `me()` reads the current identity (or null) and refreshes the in-memory token.
+//   - `login()` navigates to /auth/login → Keycloak → /auth/callback sets `sid` → "/".
+//   - `logout()` goes through `mutate()` (CSRF header auto-attached), then navigates.
 
 import { config } from "./config.js";
 
-/** Identity returned by GET /auth/me. */
+/** Identity returned (wrapped as `{ user }`) by GET /auth/me. */
 export interface Identity {
   sub: string;
   email?: string;
   name?: string;
+  /** Enriched field added by the server's `resolveUser` (Decision #22). */
+  role?: string;
 }
 
-function isIdentity(value: unknown): value is Identity {
+/** GET /auth/me body: the library wraps the enriched user + the CSRF token. */
+interface MeResponse {
+  user: Identity;
+  csrfToken: string;
+}
+
+function isMeResponse(value: unknown): value is MeResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  const user = v.user;
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Record<string, unknown>).sub === "string"
+    typeof user === "object" &&
+    user !== null &&
+    typeof (user as Record<string, unknown>).sub === "string" &&
+    typeof v.csrfToken === "string"
   );
 }
 
 interface LogoutResponse {
-  // The IdP end-session URL, or `null` when the server couldn't reach IdP
-  // discovery (the session is already destroyed server-side regardless).
   endSessionUrl: string | null;
 }
 
@@ -40,19 +56,46 @@ function isLogoutResponse(value: unknown): value is LogoutResponse {
   return typeof url === "string" || url === null;
 }
 
+// ── In-memory CSRF token (synchronizer-token) ──
+// Held only in JS memory, per-origin isolated. Lost on reload — me() refills it.
+let csrfToken: string | null = null;
+
+/**
+ * The single mutating-API wrapper. Auto-attaches `credentials:"include"` (the
+ * `sid` cookie) AND the `X-CSRF-Token` header from the in-memory token. EVERY
+ * mutating call (logout, any future authed POST) goes through here so the CSRF
+ * header is wired in ONE place, never sprinkled across callers.
+ */
+function mutate(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
+  return fetch(`${config.SERVER_ORIGIN}${path}`, {
+    method: "POST",
+    ...init,
+    credentials: "include",
+    headers,
+  });
+}
+
 /**
  * Read the current identity from the server session. Returns the identity if a
  * session exists (AppLayout then connects the WS), or `null` on 401 / failure
- * (AppLayout renders <SignIn />).
+ * (AppLayout renders <SignIn />). Refreshes the in-memory CSRF token as a side
+ * effect, so a subsequent `logout()` can echo it.
  */
 export async function me(): Promise<Identity | null> {
   try {
     const res = await fetch(`${config.SERVER_ORIGIN}/auth/me`, {
       credentials: "include",
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      csrfToken = null;
+      return null;
+    }
     const body: unknown = await res.json();
-    return isIdentity(body) ? body : null;
+    if (!isMeResponse(body)) return null;
+    csrfToken = body.csrfToken; // hold in memory for mutate()
+    return body.user;
   } catch {
     return null;
   }
@@ -68,27 +111,21 @@ export function login(): void {
 }
 
 /**
- * End the session. Clears the server session first; on success, the server's
+ * End the session. The POST goes through `mutate()` so the `X-CSRF-Token`
+ * header (synchronizer-token) is auto-attached. On success, the server's
  * `endSessionUrl` decides where we land:
- *   - non-empty string → navigate to the IdP end-session URL (RP-initiated
- *     logout, clears the IdP's own SSO cookie).
- *   - null / absent     → IdP discovery was unreachable, but the server session
- *     is ALREADY destroyed, so just reload the SPA root and let AppLayout land
- *     on the signed-out <SignIn /> screen. We must NOT bounce back through
- *     /auth/login here — the user just asked to sign out.
- * Only a failed POST (network error / non-2xx) falls back to /auth/login.
+ *   - non-empty string → navigate to the IdP end-session URL (RP-initiated logout).
+ *   - null / absent     → the server session is ALREADY destroyed, so land on
+ *     the signed-out SPA root. We must NOT bounce back through /auth/login.
+ * Only a failed POST (network error / non-2xx, incl. a 403 if me() never ran)
+ * falls back to /auth/login.
  */
 export async function logout(): Promise<void> {
   try {
-    const res = await fetch(`${config.SERVER_ORIGIN}/auth/logout`, {
-      method: "POST",
-      credentials: "include",
-    });
+    const res = await mutate("/auth/logout");
     if (res.ok) {
       const body: unknown = await res.json();
       const endSessionUrl = isLogoutResponse(body) ? body.endSessionUrl : null;
-      // Non-empty end-session URL → IdP logout; otherwise the session is
-      // already gone server-side, so land on the signed-out SPA root.
       window.location.href = endSessionUrl ?? "/";
       return;
     }

@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Explicit `types` — Node-only package. TS 6.0 defaults `types` to "all
+    // visible @types/*"; @types/node currently reaches us only transitively
+    // (via @types/ws / @types/express), so declaring it explicitly pins the
+    // dependency intent and guards against phantom-type drift. Mirrors
+    // @orpc-ws/server-nestjs.
+    "types": ["node"],
+    "rootDir": "./src",
+    "outDir": "./dist",
+    // Buildinfo at the package root, NOT inside `dist`: the typecheck pass
+    // (`tsc -p tsconfig.json --noEmit`, incremental) writes this file, and
+    // `files` ships `dist`, so `./dist/.tsbuildinfo` would get packed.
+    // Root `.tsbuildinfo` is gitignored and outside `files`.
+    "tsBuildInfoFile": "./.tsbuildinfo",
+    // NestJS adapter uses decorator metadata. Required by @nestjs/common.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/__tests__/**"]
+}

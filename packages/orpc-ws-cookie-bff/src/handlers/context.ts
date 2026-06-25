@@ -1,0 +1,48 @@
+// Resolved, defaults-applied collaborators the /auth/* handlers share.
+//
+// The composition root (createCookieBffCore) builds ONE of these from the
+// public `CookieBffOptions`, then each handler is a pure function over it.
+// Keeping it here (next to the handlers) avoids a circular import with the
+// composition root.
+
+import type { Clock, Logger } from "@orpc-ws/shared";
+
+import type { OidcCodeExchange } from "../oidc/code-exchange.js";
+import type { OidcDiscovery } from "../oidc/discovery.js";
+import type { IdTokenClaims } from "../oidc/claims.js";
+import type { OidcTokenSet } from "../oidc/code-exchange.js";
+import type { TokenCipher } from "../crypto/token-cipher.js";
+import type { SessionStore } from "../session-store.js";
+
+/** Cookie attributes resolved from config, shared by every Set-Cookie. */
+export interface ResolvedCookieConfig {
+  sessionCookieName: string;
+  sameSite: "lax" | "strict";
+  secure: boolean;
+  hostPrefix: boolean;
+  cookieMaxAge: number;
+}
+
+/** Everything the handlers need, fully resolved (no optionals). */
+export interface HandlerContext<TUser> {
+  store: SessionStore<TUser>;
+  cipher: TokenCipher;
+  exchange: OidcCodeExchange;
+  discovery: OidcDiscovery;
+  resolveUser: (
+    claims: IdTokenClaims,
+    tokens: OidcTokenSet,
+  ) => Promise<TUser>;
+  cookies: ResolvedCookieConfig;
+  /** oauth_state attributes (mirror the session cookie's sameSite/secure). */
+  stateCookie: { sameSite: "lax" | "strict"; secure: boolean };
+  sessionTtlSeconds: number;
+  /** Re-stamp `sessionExpiresAt` on `/me` (and verifier) — rolling window. */
+  slideSessionOnActivity: boolean;
+  spaRedirectUri: string;
+  postLogoutRedirectUri: string;
+  /** Discovery base (issuerUrl or its override) for end-session lookup. */
+  discoveryUrl: string;
+  clock: Clock;
+  logger: Logger;
+}

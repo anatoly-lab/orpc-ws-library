@@ -1,10 +1,12 @@
-// cookie-bff demo-app server env-config. Single source of truth — the main
-// entry, app-module, controller, and verify all read from `readEnvConfig()`.
+// cookie-bff demo-app server env-config. Single source of truth — `main.ts`
+// and `auth/cookie-auth.module.ts` (the one `CookieBffModule.forRootAsync`
+// config block) read from `readEnvConfig()`.
 //
-// This is the cookie-bff auth-mode server (port 18083): full BFF — the
-// server runs the OIDC flow, holds ALL tokens server-side, and the browser
-// only ever sees an httpOnly session cookie. The WS verify reads that cookie
-// — there is no `?token=` at all.
+// This is the cookie-bff auth-mode server (port 18083): full BFF — the library
+// (`@orpc-ws/cookie-bff-nestjs`) runs the OIDC flow, holds ALL tokens
+// server-side (encrypted at rest), and the browser only ever sees an httpOnly
+// session cookie. The library's cookie verifier reads that cookie on the WS
+// upgrade — there is no `?token=` at all.
 //
 // Defaults match the dev/Playwright Keycloak realm. Overriding the env
 // vars below swaps in a different IdP / port / origins without code changes.
@@ -52,11 +54,12 @@ export interface BackendOidcConfig {
   clientId: string;
   /**
    * SLOT for a confidential-client secret. This mode is deliberately a
-   * PUBLIC PKCE client (no secret) — the code-exchange sends
-   * `code_verifier`, not `client_secret`. If you register a CONFIDENTIAL
-   * client and set this, `oidc-code-exchange.ts` has a clearly-commented
-   * slot to forward it. Left `undefined` here so the public-client path
-   * stays the default.
+   * PUBLIC PKCE client (no secret) — the library's server-side code-exchange
+   * sends `code_verifier`, not `client_secret`. If you register a
+   * CONFIDENTIAL client and set this, it's forwarded to the library via
+   * `keycloak.clientSecret` (the library's code-exchange adds it to the token
+   * request). Left `undefined` here so the public-client path stays the
+   * default.
    */
   clientSecret?: string;
 }
@@ -89,6 +92,18 @@ export interface AppEnvConfig {
   spaOrigins: SpaOriginConfig;
   /** Name of the httpOnly session cookie set by this server. */
   sessionCookieName: string;
+  /**
+   * The API's own callback URL the IdP redirects back to. MUST be registered
+   * as a valid redirect URI in the realm. In cookie-BFF the callback is a
+   * SERVER endpoint (not the SPA) — the auth code never touches JS.
+   */
+  callbackUrl: string;
+  /**
+   * 32-byte AES-256-GCM key (base64) for at-rest token encryption (§E.3).
+   * The library encrypts the stored Keycloak tokens with this before they hit
+   * the session store. Read from `SESSION_ENC_KEY`.
+   */
+  sessionEncKey: string;
 }
 
 /**
@@ -119,9 +134,10 @@ export function readEnvConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): AppEnvConfig {
   const clientId = env.OIDC_CLIENT_ID ?? "orpc-ws-demo-spa";
+  const port = Number(env.PORT ?? 18083);
 
   return {
-    port: Number(env.PORT ?? 18083),
+    port,
     oidc: {
       issuerUrl:
         env.OIDC_ISSUER_URL ?? "http://localhost:18080/realms/orpc-ws-demo",
@@ -148,5 +164,16 @@ export function readEnvConfig(
         "http://localhost:5175,http://localhost:4175",
     ),
     sessionCookieName: env.SESSION_COOKIE_NAME ?? "sid",
+    // The API's own /auth/callback. Defaults to this server's loopback origin;
+    // MUST match a redirect URI registered in the realm.
+    callbackUrl:
+      env.OIDC_REDIRECT_URI ?? `http://localhost:${port}/auth/callback`,
+    // 32-byte base64 AES-256-GCM key. A FIXED dev default so the demo runs
+    // out-of-the-box; a real deployment MUST set SESSION_ENC_KEY to a secret
+    // (rotating it invalidates existing sessions — see the design doc §E.3).
+    sessionEncKey:
+      env.SESSION_ENC_KEY ??
+      // 32 bytes of 0x2a, base64 — DEMO ONLY, do not use in production.
+      "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=",
   };
 }

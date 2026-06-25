@@ -1,9 +1,8 @@
 // Server-side implementation of `@demo/cookie-bff-contract`.
 //
-// The library hands every procedure a context shaped like:
-//   { user: DemoUser, token: string | null }
-// (see `OrpcWsServer.connection-handler.ts` — the connection handler
-// calls `rpcHandler.upgrade(ws, { context: { user, token } })`).
+// In cookie-BFF the library's cookie verifier attaches the ENRICHED app user
+// as the procedure context `{ user: DemoUser }` (no per-procedure `token` —
+// the SPA never holds one; the server holds the tokens in the session store).
 //
 // We use ORPC's `implement(contract)` builder so the procedure handlers
 // inherit the contract's input/output types AND we get the context
@@ -11,22 +10,18 @@
 // would surface as a compile error here, not as a runtime "procedure
 // not found" — the whole point of the typed-end-to-end pitch.
 
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-
 import { implement } from "@orpc/server";
 
 import { appContract, type TickEvent } from "@demo/cookie-bff-contract";
-import type { OidcUser } from "@orpc-ws/oidc-verifier-jose";
+import type { DemoUser } from "./auth/demo-user.js";
 
-// The demo uses the library's default `OidcUser` shape verbatim —
-// no custom `mapUser` is wired in the auth app-modules
-// (`auth/<mode>/<mode>.app-module.ts`). If the demo ever
-// needs Keycloak-specific claims (roles, realm_access), swap this for
-// a local `DemoUser` interface and pass a `mapUser` to the verifier.
+// In cookie-BFF the library's cookie verifier attaches the ENRICHED app user
+// (`DemoUser` — the object `resolveUser` returned at /auth/callback, complete
+// with the demo's `role`) as `context.user` on every procedure. There is no
+// per-procedure `token` in this mode (the SPA never holds one; the server
+// holds the tokens in the session store), so the context is just `{ user }`.
 interface DemoContext {
-  user: OidcUser;
-  token: string | null;
+  user: DemoUser;
 }
 
 const os = implement(appContract).$context<DemoContext>();
@@ -93,27 +88,13 @@ const tick = os.tick.handler(
   },
 );
 
-// Image upload, arriving over the library's opt-in HTTP transport rather
-// than the WS. The HTTP upload path injects only `context: { user }` — NOT
-// `token` — so this handler must not read `context.token`; it doesn't need
-// to. ORPC has already decoded the multipart `file` field into a `File`.
-//
-// We write to `<cwd>/uploads`, sanitizing the supplied name into the stored
-// filename so a malicious `name` can't traverse out of the directory or
-// inject path separators.
-const uploadImage = os.uploadImage.handler(async ({ input }) => {
-  const dir = join(process.cwd(), "uploads");
-  await mkdir(dir, { recursive: true });
-  const safe = `${Date.now()}-${(input.name ?? "image").replace(/[^\w.-]/g, "_")}`;
-  const buf = Buffer.from(await input.file.arrayBuffer());
-  await writeFile(join(dir, safe), buf);
-  return { ok: true as const, storedAs: safe, size: buf.byteLength };
-});
+// No `uploadImage` handler: cookie-BFF has no HTTP upload transport (the
+// upload path authenticates via a Bearer token this mode doesn't hold), so the
+// procedure is omitted from the contract too — see contract/src/index.ts.
 
 export const appRouter = {
   ping,
   echo,
   getUser,
   tick,
-  uploadImage,
 };

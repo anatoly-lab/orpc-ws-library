@@ -6,7 +6,7 @@
 // origins allowed = this mode's SPA dev + preview origins
 // (`SPA_ORIGIN_COOKIE_BFF`, comma-separated).
 
-import { CookieBffAppModule } from "./auth/cookie-bff.app-module.js";
+import { CookieBffAppModule } from "./auth/cookie-auth.module.js";
 import { readEnvConfig } from "./config.js";
 import { bootstrap } from "./shared/bootstrap.js";
 

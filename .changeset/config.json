@@ -5,7 +5,8 @@
   "fixed": [[
     "@orpc-ws/shared", "@orpc-ws/oidc-pkce", "@orpc-ws/client",
     "@orpc-ws/server", "@orpc-ws/oidc-react", "@orpc-ws/react",
-    "@orpc-ws/server-nestjs", "@orpc-ws/oidc-verifier-jose"
+    "@orpc-ws/server-nestjs", "@orpc-ws/oidc-verifier-jose",
+    "@orpc-ws/cookie-bff", "@orpc-ws/cookie-bff-nestjs"
   ]],
   "linked": [],
   "access": "public",
