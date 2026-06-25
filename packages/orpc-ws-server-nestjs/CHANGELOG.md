@@ -1,5 +1,12 @@
 # @orpc-ws/server-nestjs
 
+## 0.5.0
+
+### Patch Changes
+
+- @orpc-ws/shared@0.5.0
+- @orpc-ws/server@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes
