@@ -73,6 +73,9 @@ export function createCookieBffCore<TUser>(
         : {}),
       redirectUri: opts.keycloak.redirectUri,
       ...(opts.keycloak.scope ? { scope: opts.keycloak.scope } : {}),
+      ...(opts.keycloak.authorizeParams
+        ? { authorizeParams: opts.keycloak.authorizeParams }
+        : {}),
     },
     { discovery, pkceStore, clock },
   );
@@ -86,6 +89,9 @@ export function createCookieBffCore<TUser>(
     exchange,
     discovery,
     resolveUser: opts.resolveUser,
+    // Always an object so handlers call `ctx.authEvents.onX?.()` without a
+    // null-check; the hooks themselves stay optional.
+    authEvents: opts.authEvents ?? {},
     cookies: {
       sessionCookieName: opts.cookies?.sessionCookieName ?? DEFAULT_SESSION_COOKIE,
       sameSite,

@@ -53,6 +53,58 @@ describe("OidcCodeExchange.createAuthorizationUrl", () => {
       .toString("base64url");
     expect(u.searchParams.get("code_challenge")).toBe(expectedChallenge);
   });
+
+  it("merges authorizeParams into the URL (F3)", async () => {
+    const exchange = new OidcCodeExchange(
+      {
+        ...config,
+        authorizeParams: { prompt: "select_account", ui_locales: "en" },
+      },
+      {
+        discovery: new OidcDiscovery(fakeFetcher({})),
+        pkceStore: new InMemoryPkceStore(fakeClock()),
+        clock: fakeClock(),
+      },
+    );
+    const { url } = await exchange.createAuthorizationUrl();
+    const u = new URL(url);
+    expect(u.searchParams.get("prompt")).toBe("select_account");
+    expect(u.searchParams.get("ui_locales")).toBe("en");
+    // The security params are still present + correct.
+    expect(u.searchParams.get("response_type")).toBe("code");
+    expect(u.searchParams.get("code_challenge_method")).toBe("S256");
+  });
+
+  it("a consumer authorizeParam CANNOT clobber the security-critical params (F3)", async () => {
+    const exchange = new OidcCodeExchange(
+      {
+        ...config,
+        authorizeParams: {
+          // Hostile/clumsy attempts to override the fixed params:
+          redirect_uri: "https://evil.example/steal",
+          code_challenge: "attacker-controlled",
+          code_challenge_method: "plain",
+          response_type: "token",
+          scope: "openid evil",
+          client_id: "someone-else",
+        },
+      },
+      {
+        discovery: new OidcDiscovery(fakeFetcher({})),
+        pkceStore: new InMemoryPkceStore(fakeClock()),
+        clock: fakeClock(),
+      },
+    );
+    const { url } = await exchange.createAuthorizationUrl();
+    const u = new URL(url);
+    // The library's fixed values win — the overrides are ignored.
+    expect(u.searchParams.get("redirect_uri")).toBe(config.redirectUri);
+    expect(u.searchParams.get("code_challenge")).not.toBe("attacker-controlled");
+    expect(u.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(u.searchParams.get("response_type")).toBe("code");
+    expect(u.searchParams.get("scope")).toBe("openid profile email");
+    expect(u.searchParams.get("client_id")).toBe("demo-client");
+  });
 });
 
 describe("OidcCodeExchange.exchangeCode", () => {

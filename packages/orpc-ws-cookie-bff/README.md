@@ -126,11 +126,29 @@ every default (cookie name `__Host-sid`, SameSite=Strict, Secure, host-prefix,
   OIDC discovery + token calls. Defaults to the global `fetch`; inject your own
   to add a timeout / proxy, or to fake it in tests.
 
-- **`resolveUser(claims, tokens) => Promise<TUser>`** — the findOrCreateUser
-  hook, run at `/callback` with the verified id-token claims and the token set.
+- **`resolveUser(claims, tokens, rawClaims) => Promise<TUser>`** — the
+  findOrCreateUser hook, run at `/callback` with the verified id-token `claims`
+  (the typed whitelist), the token set, and `rawClaims` — the **full decoded
+  id_token payload** as a `Record<string, unknown>`, so a trusted consumer can
+  read **any** claim (e.g. `groups`, `realm_access`) without a library release.
   Returns your **enriched** app user (DB id, role, …) — exactly what the
-  verifier attaches to the WS connection and what `/auth/me` echoes. `TUser`
-  threads through `SessionStore`, the verifier, and the handlers.
+  verifier attaches to the WS connection and what `/auth/me` echoes. The library
+  stores **only** what you return; `rawClaims` is read-only input, never
+  auto-spread into the session. `TUser` threads through `SessionStore`, the
+  verifier, and the handlers. (The exported `decodeIdToken(idToken)` helper
+  returns `{ claims, raw }` if you need the same split elsewhere.)
+
+- **`authEvents`** (optional) — fire-and-forget auth-flow metrics hooks the
+  `/auth/*` handlers call: `onLoginStart()` / `onCallbackSuccess(user)` /
+  `onCallbackFailure(reason)` / `onLogout(sub)`. Best-effort — a throwing hook
+  is logged via the injected `Logger` and **never** breaks the auth flow.
+
+- **`keycloak.authorizeParams`** (optional) — extra query params merged into the
+  authorize URL (`prompt`, `login_hint`, `max_age`, `acr_values`, …). Applied
+  first; the 7 security-critical params (`response_type`, `client_id`,
+  `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method`)
+  are set after and **always win**, so a consumer cannot clobber the
+  PKCE / state / redirect / scope params.
 
 ## Security notes
 
@@ -164,12 +182,16 @@ every default (cookie name `__Host-sid`, SameSite=Strict, Secure, host-prefix,
 ## `IdTokenClaims`
 
 A **fixed whitelist**, not a passthrough: `sub`, `email`, `emailVerified`,
-`name`, `givenName`, `familyName`, `preferredUsername`. Only these standard
-fields are copied out of the id-token payload before being handed to
-`resolveUser` — the raw IdP JSON is never spread in wholesale (an IdP or a
-tampered token could otherwise inject keys a downstream logger mistakes for
-vetted claims). A consumer needing another claim adds it explicitly to this
-whitelist in the library — there is no config knob for it.
+`name`, `givenName`, `familyName`, `preferredUsername`, `picture`. Only these
+standard fields are copied out of the id-token payload into the typed `claims`
+before being handed to `resolveUser` — the raw IdP JSON is never spread in
+wholesale (an IdP or a tampered token could otherwise inject keys a downstream
+logger mistakes for vetted claims). A consumer needing another claim no longer
+edits the library: `resolveUser` also receives the **full decoded id_token
+payload** as its third `rawClaims` arg, so you can read any claim (e.g.
+`groups`, `realm_access`) inside `resolveUser`. The security guarantee holds —
+the library stores only what `resolveUser` returns; it never auto-spreads
+`rawClaims` into the session.
 
 ## Module formats
 

@@ -53,6 +53,10 @@ const sessionStore = new DemoSessionStore();
           // SERVER endpoint (the auth code never touches JS).
           redirectUri: config.callbackUrl,
           scope: "openid profile email",
+          // Extra authorize params (F3) — `prompt=select_account` makes the
+          // IdP show the account chooser. These can't clobber the PKCE/state/
+          // redirect params (the library sets those after, and they win).
+          authorizeParams: { prompt: "select_account" },
         },
         // WS Origin allowlist (Decision #10) — the SPA origins.
         originAllowlist: config.spaOrigins.corsOrigins,
@@ -62,9 +66,11 @@ const sessionStore = new DemoSessionStore();
         sessionStore,
         // Where /auth/callback 302s the browser after setting the cookie.
         spaRedirectUri: config.spaOrigins.redirectOrigin,
-        // findOrCreateUser → ENRICHED user (Decision #22). The demo just adds a
-        // fixed `role`; a real app looks up its DB row here.
-        resolveUser: async (claims): Promise<DemoUser> => ({
+        // findOrCreateUser → ENRICHED user (Decision #22). The demo adds a
+        // fixed `role` and reads `picture` off the RAW id_token claims (F2 —
+        // the third `rawClaims` arg) to set an `avatar`; a real app looks up
+        // its DB row here.
+        resolveUser: async (claims, _tokens, rawClaims): Promise<DemoUser> => ({
           sub: claims.sub,
           ...(claims.email ? { email: claims.email } : {}),
           ...(claims.name
@@ -72,6 +78,11 @@ const sessionStore = new DemoSessionStore();
             : claims.preferredUsername
               ? { name: claims.preferredUsername }
               : {}),
+          // Read an arbitrary claim from the raw payload (here standard
+          // `picture`) — no library change needed for IdP-specific claims.
+          ...(typeof rawClaims.picture === "string"
+            ? { avatar: rawClaims.picture }
+            : {}),
           role: "demo-user",
         }),
         // ── LOCALHOST cookie config ──

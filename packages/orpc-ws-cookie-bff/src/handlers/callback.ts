@@ -17,7 +17,8 @@ import {
   clearOAuthStateCookie,
   oauthStateMatches,
 } from "../cookies/oauth-state.js";
-import { decodeIdTokenClaims } from "../oidc/claims.js";
+import { decodeIdToken } from "../oidc/claims.js";
+import { fireAuthEvent } from "./fire-auth-event.js";
 import type { SessionData } from "../session-store.js";
 import type { AuthInstruction, AuthRequest } from "./instruction.js";
 import type { HandlerContext } from "./context.js";
@@ -33,51 +34,59 @@ export async function handleCallback<TUser>(
     secure: ctx.stateCookie.secure,
   });
 
-  if (!code || !state) {
+  // Every failure path fires onCallbackFailure(reason) before returning a 400.
+  const fail = (reason: string): AuthInstruction => {
+    fireAuthEvent(ctx.logger, "onCallbackFailure", () =>
+      ctx.authEvents.onCallbackFailure?.(reason),
+    );
     return {
       status: 400,
       setClearCookies: [{ value: clearState }],
-      body: { error: "Missing code/state" },
+      body: { error: reason },
     };
-  }
+  };
+
+  if (!code || !state) return fail("Missing code/state");
 
   // Browser-binding (login-CSRF). Clear the cookie no matter what.
   if (!oauthStateMatches(req.cookieHeader, state)) {
-    return {
-      status: 400,
-      setClearCookies: [{ value: clearState }],
-      body: { error: "Invalid OAuth state (browser binding failed)" },
-    };
+    return fail("Invalid OAuth state (browser binding failed)");
   }
 
-  const tokens = await ctx.exchange.exchangeCode(code, state);
-  const claims = decodeIdTokenClaims(tokens.idToken);
-  if (!claims.sub) {
-    return {
-      status: 400,
-      setClearCookies: [{ value: clearState }],
-      body: { error: "id_token missing subject" },
+  // Exchange + resolveUser may throw (token-endpoint error, consumer hook) —
+  // treat any throw as a callback failure rather than letting it escape.
+  let session: SessionData<TUser>;
+  let user: TUser;
+  try {
+    const tokens = await ctx.exchange.exchangeCode(code, state);
+    const { claims, raw } = decodeIdToken(tokens.idToken);
+    if (!claims.sub) return fail("id_token missing subject");
+
+    // resolveUser gets the typed claims, the token set, AND the full raw
+    // payload (F2) so it can read any claim. The library stores ONLY what it
+    // returns.
+    user = await ctx.resolveUser(claims, tokens, raw);
+    const now = ctx.clock.now();
+    session = {
+      sub: claims.sub,
+      user,
+      // Synchronizer-token CSRF (§J / Decision #9): mint here and STORE in the
+      // session. `/auth/me` returns it in its body; logout validates the
+      // echoed header against it. NO CSRF cookie is set.
+      csrfToken: mintCsrfToken(),
+      enc: ctx.cipher.encryptTokenSet({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        idToken: tokens.idToken,
+      }),
+      accessTokenExpiresAt: now + tokens.expiresIn * 1000,
+      sessionExpiresAt: now + ctx.sessionTtlSeconds * 1000,
+      createdAt: now,
     };
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "code exchange failed");
   }
 
-  const user = await ctx.resolveUser(claims, tokens);
-  const now = ctx.clock.now();
-  const session: SessionData<TUser> = {
-    sub: claims.sub,
-    user,
-    // Synchronizer-token CSRF (§J / Decision #9): mint here and STORE in the
-    // session. `/auth/me` returns it in its body; logout validates the
-    // echoed header against it. NO CSRF cookie is set.
-    csrfToken: mintCsrfToken(),
-    enc: ctx.cipher.encryptTokenSet({
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      idToken: tokens.idToken,
-    }),
-    accessTokenExpiresAt: now + tokens.expiresIn * 1000,
-    sessionExpiresAt: now + ctx.sessionTtlSeconds * 1000,
-    createdAt: now,
-  };
   const sid = mintSid();
   await ctx.store.set(sid, session, { ttlSeconds: ctx.sessionTtlSeconds });
 
@@ -88,6 +97,11 @@ export async function handleCallback<TUser>(
     hostPrefix: ctx.cookies.hostPrefix,
     maxAge: ctx.cookies.cookieMaxAge,
   });
+
+  // Happy path — the enriched user that was just stored.
+  fireAuthEvent(ctx.logger, "onCallbackSuccess", () =>
+    ctx.authEvents.onCallbackSuccess?.(user),
+  );
 
   return {
     status: 302,

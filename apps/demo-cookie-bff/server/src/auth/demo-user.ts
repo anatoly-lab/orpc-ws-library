@@ -13,6 +13,13 @@ export interface DemoUser {
   email?: string;
   name?: string;
   /**
+   * Profile picture URL. Demonstrates reading a claim from the RAW id_token
+   * payload `resolveUser` now receives (the library passes `rawClaims` as a
+   * third arg) — here it's the standard `picture` claim, but it could be ANY
+   * IdP-specific claim without a library change.
+   */
+  avatar?: string;
+  /**
    * A field the id_token does NOT carry — added by `resolveUser` to prove the
    * verifier attaches the consumer's enriched user, not just raw claims. A
    * real app would resolve this from its own user store.

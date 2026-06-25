@@ -184,6 +184,7 @@ function toOrpcWsOptions(opts: CookieBffModuleOptions): OrpcWsModuleOptions {
     ...(opts.heartbeat ? { heartbeat: opts.heartbeat } : {}),
     ...(opts.interceptors ? { interceptors: opts.interceptors } : {}),
     ...(opts.rootInterceptors ? { rootInterceptors: opts.rootInterceptors } : {}),
+    ...(opts.hooks ? { hooks: opts.hooks } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),
   };
 }

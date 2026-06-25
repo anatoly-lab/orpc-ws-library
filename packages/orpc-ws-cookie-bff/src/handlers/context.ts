@@ -13,6 +13,7 @@ import type { IdTokenClaims } from "../oidc/claims.js";
 import type { OidcTokenSet } from "../oidc/code-exchange.js";
 import type { TokenCipher } from "../crypto/token-cipher.js";
 import type { SessionStore } from "../session-store.js";
+import type { AuthEvents } from "../composition/options.js";
 
 /** Cookie attributes resolved from config, shared by every Set-Cookie. */
 export interface ResolvedCookieConfig {
@@ -32,7 +33,10 @@ export interface HandlerContext<TUser> {
   resolveUser: (
     claims: IdTokenClaims,
     tokens: OidcTokenSet,
+    rawClaims: Record<string, unknown>,
   ) => Promise<TUser>;
+  /** Fire-and-forget auth-flow metrics hooks (best-effort; never break a flow). */
+  authEvents: AuthEvents<TUser>;
   cookies: ResolvedCookieConfig;
   /** oauth_state attributes (mirror the session cookie's sameSite/secure). */
   stateCookie: { sameSite: "lax" | "strict"; secure: boolean };

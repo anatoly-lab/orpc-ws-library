@@ -16,6 +16,7 @@ export type {
   EndpointOptions,
   CookieOptions,
   RefreshPolicy,
+  AuthEvents,
 } from "./composition/options.js";
 
 // ── Handler I/O (transport-agnostic instructions) ──
@@ -49,8 +50,8 @@ export { RefreshManager } from "./oidc/refresh.js";
 export type { RefreshResult, RefreshDeps } from "./oidc/refresh.js";
 export { InMemoryPkceStore } from "./oidc/pkce-store.js";
 export type { PkceStore } from "./oidc/pkce-store.js";
-export { decodeIdTokenClaims } from "./oidc/claims.js";
-export type { IdTokenClaims } from "./oidc/claims.js";
+export { decodeIdTokenClaims, decodeIdToken } from "./oidc/claims.js";
+export type { IdTokenClaims, DecodedIdToken } from "./oidc/claims.js";
 
 // ── sid minting ──
 export { mintSid } from "./crypto/sid.js";

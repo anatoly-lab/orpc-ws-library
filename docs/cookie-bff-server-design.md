@@ -517,6 +517,9 @@ wires one module; `enforceTokenExpiry` stays **off** by default (§F).
         encryptionKey: cfg.sessionEncKey,            // 32-byte key (§E.3)
         sessionTtlSeconds: 60 * 60 * 24 * 30,        // 30d window, slid on activity (Decision #11/#12)
         refresh: { strategy: "lazy" },               // §F (default)
+        hooks: {                                      // WS connection-lifecycle hooks, forwarded to OrpcWsModule (F1a)
+          onKicked: ({ user }) => metrics.sessionReplaced(user.id),
+        },
         resolveUser: (claims, tokens) =>             // = findOrCreateUser → ENRICHED user
           usersClient.findOrCreateUser(claims),
       }),
@@ -529,6 +532,16 @@ export class AppAuthModule {}
 A lower-magic escape hatch — `createCookieBffCore(...)` + `createCookieVerifyClient(...)`
 factories from the core, leaving the consumer to wire `OrpcWsModule` themselves —
 stays exported for advanced use.
+
+> **AS BUILT — `CookieBffModuleOptions<TUser>` adds `hooks?: AuthenticatedHooks<TUser>`.**
+> Alongside `router` and the WS passthroughs (`connection` / `heartbeat` /
+> `interceptors` / `rootInterceptors` / `logger`), the adapter options accept
+> optional WS connection-lifecycle hooks
+> (`onConnected` / `onDisconnected` / `onKicked` / `onZombieTerminated`),
+> forwarded verbatim to the internal `OrpcWsModule` (F1a). The core's
+> `authEvents` (the `/auth/*`-flow metrics hooks of §D.7) flows through
+> automatically — it is part of the resolved `CookieBffOptions` the adapter
+> passes straight to `createCookieBffCore`.
 
 > **AS BUILT — `endpoints.basePath` / `endpoints.ws` are inert no-ops in this
 > adapter.** The `/auth/*` controller is mounted under a **FIXED**
@@ -574,6 +587,7 @@ export interface CookieBffOptions<TUser> {
     clientSecret?: string;                          // present ⇒ confidential client
     redirectUri: string;                            // api.ankimcp.ai/auth/callback — trusted absolute URI
     scope?: string;                                 // default "openid profile email"
+    authorizeParams?: Record<string, string>;       // extra authorize params (prompt/login_hint/…); CANNOT clobber the 7 security params (§F3)
     postLogoutRedirectUri?: string;                 // defaults to spaRedirectUri (AS BUILT)
   };
 
@@ -601,8 +615,10 @@ export interface CookieBffOptions<TUser> {
 
   refresh?: RefreshPolicy;                          // §F; default { strategy: "lazy" }
 
-  resolveUser: (claims: IdTokenClaims, tokens: OidcTokenSet)
-    => Promise<TUser>;                              // findOrCreateUser hook; returns ENRICHED user (Decision #22)
+  authEvents?: AuthEvents<TUser>;                    // fire-and-forget auth-flow metrics hooks (onLoginStart/onCallbackSuccess/onCallbackFailure/onLogout); best-effort, never break the flow
+
+  resolveUser: (claims: IdTokenClaims, tokens: OidcTokenSet, rawClaims: Record<string, unknown>)
+    => Promise<TUser>;                              // findOrCreateUser hook; rawClaims = full id_token payload (read any claim); returns ENRICHED user (Decision #22)
 
   spaRedirectUri: string;                            // AS BUILT — REQUIRED. Where /callback 302s after setting the cookie;
                                                      //   also the default postLogoutRedirectUri.
@@ -636,6 +652,18 @@ export type RefreshPolicy =
 > of the library: no raw `Date.now()`, no `console.log` in core code). The
 > `logger` surfaces the best-effort slide-write warning (§L).
 
+> **AS BUILT — `authEvents` (fire-and-forget auth-flow hooks) + `keycloak.authorizeParams`.**
+> `authEvents?` carries optional `onLoginStart` / `onCallbackSuccess(user)` /
+> `onCallbackFailure(reason)` / `onLogout(sub)` metrics hooks the `/auth/*`
+> handlers call on each path. Every call is wrapped in try/catch and a throw is
+> logged via the injected `Logger` — a consumer hook NEVER breaks the auth flow
+> (same defensive contract as the session-slide). `keycloak.authorizeParams`
+> merges extra query params (`prompt`, `login_hint`, `max_age`, …) into the
+> authorize URL; they are applied FIRST and the 7 security-critical params
+> (`response_type`, `client_id`, `redirect_uri`, `scope`, `state`,
+> `code_challenge`, `code_challenge_method`) are set AFTER and always win, so a
+> consumer CANNOT clobber the PKCE / state / redirect / scope params (§F3).
+
 > `resolveUser` runs at `/callback` (server-side), receives the verified id-token
 > claims + the token set, and returns the app's **enriched** user (DB id, role,
 > …). Whatever it returns is stored and is what the verifier attaches and
@@ -646,14 +674,19 @@ export type RefreshPolicy =
 > **AS BUILT — `IdTokenClaims` is a FIXED WHITELIST, no index signature /
 > passthrough.** The claims handed to `resolveUser` are exactly:
 > `sub`, `email`, `emailVerified`, `name`, `givenName`, `familyName`,
-> `preferredUsername`. The decoder copies only these out of the (untrusted)
-> id_token payload and **deliberately does not spread the raw JSON in** — an IdP
-> (or a tampered token) could otherwise inject arbitrary keys that `resolveUser`
-> or a downstream logger mistakes for vetted claims. The trade-off, recorded
-> here: a consumer needing another claim (say `groups`) **edits the library**
-> (adds the field to the `IdTokenClaims` whitelist + the decoder) rather than
-> reading it off a passthrough bag. This is intentional — the safety of an
-> explicit allowlist over the convenience of an open map.
+> `preferredUsername`, `picture`. The decoder copies only these out of the
+> (untrusted) id_token payload and **deliberately does not spread the raw JSON
+> in** — an IdP (or a tampered token) could otherwise inject arbitrary keys that
+> `resolveUser` or a downstream logger mistakes for vetted claims. The typed
+> whitelist is still the SAFE set, but a consumer needing another claim is no
+> longer forced to edit the library: `resolveUser` now ALSO receives the full
+> decoded raw id_token payload as a third `rawClaims` arg (F2), and the exported
+> `decodeIdToken(idToken)` helper returns `{ claims, raw }` — so a TRUSTED
+> consumer can read ANY claim (e.g. `groups`, `realm_access`) WITHOUT a library
+> release by picking it off `rawClaims` inside `resolveUser`. The security
+> guarantee is unchanged: the library stores ONLY what `resolveUser` returns; it
+> never auto-spreads `rawClaims` into the session. The explicit-allowlist-over-
+> open-map spirit still governs the TYPED set.
 
 ---
 

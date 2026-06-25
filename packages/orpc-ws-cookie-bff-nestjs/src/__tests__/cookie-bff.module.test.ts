@@ -155,6 +155,42 @@ describe("CookieBffModule.forRootAsync", () => {
     await moduleRef.close();
   });
 
+  it("F1a: forwards WS lifecycle `hooks` to the internal OrpcWsModule", async () => {
+    const onConnected = vi.fn();
+    const onKicked = vi.fn();
+    const provider = new FakeStoreProvider();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        FakeStoreModule,
+        CookieBffModule.forRootAsync<TestUser>({
+          imports: [FakeStoreModule],
+          inject: [FakeStoreProvider],
+          useFactory: (dep: FakeStoreProvider) => ({
+            ...options(dep.store),
+            hooks: { onConnected, onKicked },
+          }),
+        }),
+      ],
+    })
+      .overrideProvider(FakeStoreProvider)
+      .useValue(provider)
+      .overrideProvider(HttpAdapterHost)
+      .useValue(stubHttpAdapterHost)
+      .compile();
+
+    const wsOptions = moduleRef.get<OrpcWsModuleOptions<TestUser>>(
+      ORPC_WS_OPTIONS,
+      { strict: false },
+    );
+    if (wsOptions.mode === "authless") throw new Error("expected authed arm");
+    // The same hooks object reached the WS-server options.
+    expect(wsOptions.hooks?.onConnected).toBe(onConnected);
+    expect(wsOptions.hooks?.onKicked).toBe(onKicked);
+
+    await moduleRef.close();
+  });
+
   it("runs the async useFactory with injected deps", async () => {
     const store = new FakeSessionStore();
     const useFactory = vi.fn((dep: FakeStoreProvider) => {

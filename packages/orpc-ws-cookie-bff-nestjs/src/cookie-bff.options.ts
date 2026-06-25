@@ -14,6 +14,7 @@
 
 import type { CookieBffOptions, EndpointOptions } from "@orpc-ws/cookie-bff";
 import type {
+  AuthenticatedHooks,
   ConnectionConfig,
   HeartbeatConfig,
   OrpcWsInterceptors,
@@ -59,6 +60,13 @@ export interface CookieBffModuleOptions<TUser = unknown>
   interceptors?: OrpcWsInterceptors;
   /** ORPC root interceptors — forwarded to `OrpcWsModule`. */
   rootInterceptors?: OrpcWsRootInterceptors;
+  /**
+   * WS connection-lifecycle hooks (`onConnected` / `onDisconnected` /
+   * `onKicked` / `onZombieTerminated`) — forwarded to `OrpcWsModule`. These are
+   * the WS-server hooks (NOT the `/auth/*`-flow `authEvents` on the core
+   * options); use them for connection-level observability in cookie-BFF.
+   */
+  hooks?: AuthenticatedHooks<TUser>;
 
   /**
    * Logger seam. Forwarded to BOTH the core (`createCookieBffCore`, for the

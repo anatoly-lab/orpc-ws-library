@@ -11,6 +11,7 @@
 import { clearCookie, parseCookie } from "../cookies/serialize.js";
 import { csrfTokenValid, CSRF_HEADER } from "../cookies/csrf.js";
 import { getHeader } from "./headers.js";
+import { fireAuthEvent } from "./fire-auth-event.js";
 import type { AuthInstruction, AuthRequest } from "./instruction.js";
 import type { HandlerContext } from "./context.js";
 
@@ -44,6 +45,10 @@ export async function handleLogout<TUser>(
     await ctx.store.delete(sid).catch(() => {
       // best-effort — a store outage must not block clearing the cookie
     });
+    // Fire AFTER deleting — the session for this sub is now gone.
+    fireAuthEvent(ctx.logger, "onLogout", () =>
+      ctx.authEvents.onLogout?.(session?.sub ?? null),
+    );
   }
 
   const clearSid = clearCookie(ctx.cookies.sessionCookieName, {

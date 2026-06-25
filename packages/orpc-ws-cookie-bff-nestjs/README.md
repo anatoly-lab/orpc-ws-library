@@ -105,10 +105,15 @@ no Nest providers.
 2. Configures `OrpcWsModule` from the **same** options, constructing the cookie
    `VerifyClient` (`createCookieVerifyClient`) and forwarding `router` plus the
    WS `connection` / `heartbeat` / `interceptors` / `rootInterceptors` /
-   `logger` passthroughs. **This is the bridge** — the consumer never wires the
-   WS verifier (Decision #23). If the adapter merely exported the verifier,
-   every consumer would re-create a hand-bound `verify-client.ts` and re-import
-   `OrpcWsModule` — exactly the scattering #23 forbids.
+   `logger` passthroughs — and an optional `hooks?: AuthenticatedHooks<TUser>`
+   (WS connection-lifecycle hooks `onConnected` / `onDisconnected` / `onKicked`
+   / `onZombieTerminated`), forwarded verbatim to the internal `OrpcWsModule`.
+   **This is the bridge** — the consumer never wires the WS verifier
+   (Decision #23). If the adapter merely exported the verifier, every consumer
+   would re-create a hand-bound `verify-client.ts` and re-import `OrpcWsModule` —
+   exactly the scattering #23 forbids. The core's `authEvents` auth-flow metrics
+   hooks flow through automatically (the resolved options pass straight to
+   `createCookieBffCore`).
 3. Registers the `/auth/*` controller and `CookieBffService`.
 
 `enforceTokenExpiry` is deliberately **left OFF** — the WS connection lifetime

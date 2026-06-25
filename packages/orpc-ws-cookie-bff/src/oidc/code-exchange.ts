@@ -50,6 +50,13 @@ export interface CodeExchangeConfig {
   redirectUri: string;
   /** OAuth scope; defaults to "openid profile email" (NOT offline_access). */
   scope?: string;
+  /**
+   * Extra authorize-URL query params (`prompt`, `login_hint`, `max_age`, …).
+   * Applied FIRST; the 7 security-critical params are set AFTER and win, so
+   * these can NEVER clobber `response_type`/`client_id`/`redirect_uri`/`scope`/
+   * `state`/`code_challenge`/`code_challenge_method` (§F3).
+   */
+  authorizeParams?: Record<string, string>;
 }
 
 /** Collaborators (all injectable) for {@link OidcCodeExchange}. */
@@ -112,6 +119,12 @@ export class OidcCodeExchange {
     });
 
     const url = new URL(authorizationEndpoint);
+    // Consumer-supplied params FIRST (e.g. prompt / login_hint / max_age) …
+    for (const [k, v] of Object.entries(this.config.authorizeParams ?? {})) {
+      url.searchParams.set(k, v);
+    }
+    // … then the 7 security-critical params, which ALWAYS overwrite — a
+    // consumer cannot clobber the PKCE / state / redirect / scope params (§F3).
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", this.config.clientId);
     url.searchParams.set("redirect_uri", this.config.redirectUri);
