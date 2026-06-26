@@ -4,8 +4,7 @@
 //   - packages/orpc-ws-client/src       — no react/vue/svelte/solid/nest imports
 //   - packages/orpc-ws-server/src       — no nest/express/fastify imports
 //   - packages/orpc-ws-server-nestjs/src — nest allowed (it's the adapter)
-//   - packages/orpc-ws-oidc-react/src   — react allowed (it IS the adapter);
-//                                          inherits baseline rules only
+//   - packages/orpc-ws-react/src         — react allowed (it IS the adapter)
 //
 // Note: the implementation-plan.md showed the legacy .eslintrc shape with
 // `from: ["node_modules/react", ...]` for `import/no-restricted-paths`.
@@ -66,13 +65,11 @@ const SERVER_CORE_FORBIDDEN_PACKAGES = [
   "reflect-metadata",
 ];
 
-/**
- * Packages forbidden in the browser-only OIDC React adapter. It may use
- * react / react-dom plus the browser-safe libs (@orpc-ws/client,
- * @orpc-ws/oidc-pkce, @orpc/contract, @orpc/client); everything below is
- * either a server core, a Node-only dep, or a different UI framework.
- */
-const REACT_ADAPTER_FORBIDDEN_PACKAGES = [
+// WS React adapter (`@orpc-ws/react`): the sole React adapter. Browser-only and
+// WS-transport ONLY — it may use react / react-dom plus the browser-safe cores
+// (@orpc-ws/client, @orpc/contract, @orpc/client), but must not reach a server
+// core, a Node-only dep / `jose` / `ws`, another UI framework, or `react-router-dom`.
+const WS_REACT_ADAPTER_FORBIDDEN_PACKAGES = [
   "@nestjs/common",
   "@nestjs/core",
   "@nestjs/platform-express",
@@ -87,15 +84,6 @@ const REACT_ADAPTER_FORBIDDEN_PACKAGES = [
   "vue",
   "svelte",
   "solid-js",
-];
-
-// WS React adapter (`@orpc-ws/react`): the same browser-only restrictions as
-// the OIDC adapter, PLUS a hard ban on the auth/router surface. This package
-// is the WS-transport binding ONLY — it must not couple to `@orpc-ws/oidc-pkce`
-// (auth core, lives behind `@orpc-ws/oidc-react`) or `react-router-dom`.
-const WS_REACT_ADAPTER_FORBIDDEN_PACKAGES = [
-  ...REACT_ADAPTER_FORBIDDEN_PACKAGES,
-  "@orpc-ws/oidc-pkce",
   "react-router-dom",
 ];
 
@@ -248,24 +236,11 @@ export default tseslint.config(
     },
   },
 
-  // ---- OIDC React adapter: browser-only ----
-  {
-    files: ["packages/orpc-ws-oidc-react/src/**/*.{ts,tsx}"],
-    rules: {
-      "no-restricted-imports": restrictedImportRule(
-        REACT_ADAPTER_FORBIDDEN_PACKAGES,
-        "The React adapter is browser-only; do not import server cores, Node-only deps, or other UI frameworks.",
-      ),
-    },
-  },
-
   // ---- WS React adapter: browser-only, WS-transport ONLY ----
   //
-  // `@orpc-ws/react` binds the WS transport core to React. On top of the
-  // shared browser-only bans, it must not reach into the auth/router surface:
-  // `@orpc-ws/oidc-pkce` (auth) and `react-router-dom` live behind the
-  // sibling `@orpc-ws/oidc-react` adapter, keeping this package free of any
-  // OIDC or router coupling.
+  // `@orpc-ws/react` binds the WS transport core to React — the sole React
+  // adapter in the library. It must not reach into the router surface
+  // (`react-router-dom`) or any server / Node-only / non-React-UI package.
   {
     files: ["packages/orpc-ws-react/src/**/*.{ts,tsx}"],
     rules: {

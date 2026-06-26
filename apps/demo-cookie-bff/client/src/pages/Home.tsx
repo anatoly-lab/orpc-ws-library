@@ -5,7 +5,7 @@
 // GET /auth/me finds no session). Home renders just the signed-in view:
 // identity, connection state, ping/echo/getUser buttons, live tick, sign-out.
 //
-// DIFFERENCES from the PKCE demo:
+// Notable points:
 //   - NO image upload section. The cookie-bff demo server has no upload route
 //     configured, and the wsClient here has no `uploads` config, so `upload` is
 //     not present. Omitting the section keeps the UI honest.
@@ -47,8 +47,8 @@ interface GetUserResult {
 
 export function Home(): ReactElement {
   // Identity resolved by the layout's /auth/me call (cookie-authed). Rendered
-  // into the `user-email` testid — same shape as the PKCE demo, different
-  // source (HTTP session instead of a decoded id_token).
+  // into the `user-email` testid — sourced from the HTTP session rather than a
+  // decoded token (the browser holds none).
   const { identity } = useOutletContext<HomeOutletContext>();
 
   const connection = useConnectionState(wsClient);

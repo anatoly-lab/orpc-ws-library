@@ -22,7 +22,7 @@
 export const APP_ENV_CONFIG = "APP_ENV_CONFIG";
 
 export interface OidcAuthConfig {
-  /** OIDC issuer URL — the same one the SPA's `@orpc-ws/oidc-pkce` uses. */
+  /** OIDC issuer URL — the same one the token-minting flow authenticates against. */
   issuerUrl: string;
   /**
    * OPTIONAL internal base URL the SERVER fetches discovery + JWKS from,

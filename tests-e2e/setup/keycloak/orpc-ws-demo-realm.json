@@ -26,16 +26,20 @@
       "rootUrl": "http://localhost:4173",
       "baseUrl": "http://localhost:4173/",
       "redirectUris": [
+        "http://localhost:18083/auth/callback",
         "http://localhost:4173/auth/callback",
-        "http://localhost:5173/auth/callback"
+        "http://localhost:5175/auth/callback",
+        "http://localhost:4175/auth/callback"
       ],
       "webOrigins": [
         "http://localhost:4173",
-        "http://localhost:5173"
+        "http://localhost:18083",
+        "http://localhost:5175",
+        "http://localhost:4175"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:4173/*##http://localhost:5173/*",
+        "post.logout.redirect.uris": "http://localhost:4173/*##http://localhost:5175/*##http://localhost:4175/*",
         "use.refresh.tokens": "true",
         "client.session.idle.timeout": "0",
         "client.session.max.lifespan": "0"

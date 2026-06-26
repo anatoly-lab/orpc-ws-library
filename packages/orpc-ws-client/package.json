@@ -1,7 +1,7 @@
 {
   "name": "@orpc-ws/client",
   "version": "0.5.0",
-  "description": "Framework-free ORPC-over-WebSocket client core. Vanilla TS — reconnect, heartbeat, sleep detection, uploads. React bindings live in @orpc-ws/oidc-react.",
+  "description": "Framework-free ORPC-over-WebSocket client core. Vanilla TS — reconnect, heartbeat, sleep detection, uploads. WS React bindings live in @orpc-ws/react.",
   "license": "MIT",
   "repository": {
     "type": "git",

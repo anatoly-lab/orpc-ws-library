@@ -10,7 +10,7 @@
     "tsBuildInfoFile": "./.tsbuildinfo",
     // Browser-only package: lib includes DOM so global `fetch`, `Headers`,
     // `Request`/`Response`, `RequestInit` are all in scope without @types/node.
-    // Mirrors @orpc-ws/oidc-pkce (the browser-core sibling).
+    // Same browser-core lib setup as @orpc-ws/client.
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src/**/*.ts"],

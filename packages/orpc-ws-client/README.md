@@ -162,13 +162,20 @@ The same `{ getState, subscribe }` state contract plugs into
 one-line bridge — `subscribe` doesn't fire immediately), Vue
 `customRef`, and Solid `from()`.
 
-## Auth helper
+## Auth
 
-For OIDC + PKCE against any spec-compliant IdP (Keycloak, Auth0, Okta,
-Cognito, Google), use [`@orpc-ws/oidc-pkce`](../oidc-pkce/README.md) — its
-`createOidcAuth().tokenProvider` is structurally compatible with the
-`TokenProvider` interface and handles PKCE crypto, token storage,
-refresh purity, OIDC discovery, and the callback dance.
+Auth is the consumer's choice; the core only needs an optional
+`TokenProvider`. Two shapes are common:
+
+- **Backend-token / native path** — your server (or IdP) mints a short-lived
+  access token the client pulls and refreshes; you supply a `TokenProvider`
+  whose `getToken`/`refresh` read it (see the Quickstart above). The token
+  rides the WS handshake as `?token=`, verified server-side by
+  [`@orpc-ws/oidc-verifier-jose`](../oidc-verifier-jose/README.md).
+- **Cookie-BFF / authless** — omit `tokenProvider` entirely. With cookie-BFF,
+  an httpOnly `sid` session cookie authenticates the handshake automatically
+  (the browser never sees a token); see
+  [`@orpc-ws/cookie-bff-client`](../orpc-ws-cookie-bff-client/README.md).
 
 ## Gotchas
 

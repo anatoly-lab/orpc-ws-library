@@ -22,7 +22,6 @@
     "ci-cacheless": "turbo run lint typecheck test build --force",
     "clean": "turbo run clean && rimraf .turbo node_modules",
     "build:demo": "turbo run build --filter='@demo/*'",
-    "dev:pkce": "turbo run dev --filter=@demo/pkce-server --filter=@demo/pkce-client",
     "dev:backend-token": "turbo run dev --filter=@demo/backend-token-server --filter=@demo/backend-token-client",
     "dev:cookie-bff": "turbo run dev --filter=@demo/cookie-bff-server --filter=@demo/cookie-bff-client",
     "dev:authless": "turbo run dev --filter=@demo/authless-server --filter=@demo/authless-client",

@@ -2,7 +2,7 @@
   "name": "@repo/tests-e2e",
   "version": "0.1.0",
   "private": true,
-  "description": "Playwright end-to-end tests driving the demo SPA + demo server + real Keycloak (testcontainers). Exercises the full PKCE → WS → ORPC flow no single-package test can cover.",
+  "description": "Playwright end-to-end tests driving the cookie-BFF demo SPA + demo server + real Keycloak (testcontainers). Exercises the full server-side OIDC → httpOnly session cookie → WS → ORPC flow no single-package test can cover.",
   "type": "module",
   "scripts": {
     "test": "node -e \"console.log('[tests-e2e] skipped — run pnpm --filter @repo/tests-e2e test:e2e to run Playwright (requires Docker)')\"",

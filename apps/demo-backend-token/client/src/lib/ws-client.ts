@@ -2,10 +2,10 @@
 // module load; React components share it via direct import.
 //
 // LIBRARY IMPORT CONSTRAINT (the whole point of this demo): this file imports
-// ONLY `@orpc-ws/client` — no `@orpc-ws/oidc-pkce`, no `@orpc-ws/oidc-react`.
-// The `tokenProvider` is the app's own custom implementation
-// (`createBackendTokenProvider`), proving a consumer can plug any token source
-// into the library's seam without using the bundled OIDC packages.
+// ONLY `@orpc-ws/client` — no auth-core coupling at all. The `tokenProvider`
+// is the app's own custom implementation (`createBackendTokenProvider`),
+// proving a consumer can plug any token source into the library's seam without
+// pulling in any auth package.
 
 import { consoleLogger, createOrpcWsClient } from "@orpc-ws/client";
 
@@ -35,7 +35,7 @@ export const wsClient = createOrpcWsClient<AppContract>({
   onEvent: (e) => console.log("[orpc-ws event]", e),
   logger: consoleLogger("orpc-ws"),
   // Opt-in HTTP uploads transport. The backend-token server enables /upload, so
-  // we mirror the PKCE demo's upload UI. The same `tokenProvider` above is
+  // this demo includes an image-upload UI. The same `tokenProvider` above is
   // reused for the Bearer header automatically — no extra auth wiring here.
   uploads: { strategy: "orpc-http", httpUrl: `${config.SERVER_ORIGIN}/upload` },
 });

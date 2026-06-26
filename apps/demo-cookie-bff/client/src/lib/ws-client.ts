@@ -2,7 +2,7 @@
 // load; React components share it via direct import.
 //
 // LIBRARY IMPORT CONSTRAINT (the whole point of this demo): this file imports
-// ONLY `@orpc-ws/client` — no `@orpc-ws/oidc-pkce`, no `@orpc-ws/oidc-react`.
+// ONLY `@orpc-ws/client` — no auth-core coupling at all.
 //
 // NO `tokenProvider` ON PURPOSE — this is the cookie auth path. The browser
 // holds no token; the httpOnly `sid` cookie set by the server's /auth/callback

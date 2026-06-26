@@ -1,10 +1,9 @@
-// discovery.test.ts — verifier-side OIDC Discovery (parallel to
-// oidc-pkce/discovery.test.ts but trimmed for the smaller required-field
-// set the verifier consumes — only `issuer` + `jwks_uri`).
+// discovery.test.ts — verifier-side OIDC Discovery. The verifier consumes
+// only a small required-field set (`issuer` + `jwks_uri`).
 //
 // The bug-regression case ("evict a failed promise so a retry can
-// succeed") mirrors the named test in oidc-pkce and is the regression
-// fence for the cache-eviction discipline called out in the spec.
+// succeed") is the regression fence for the cache-eviction discipline
+// called out in the spec.
 
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 

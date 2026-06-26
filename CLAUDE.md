@@ -20,7 +20,7 @@ All tasks run through Turborepo from the repo root. First-time setup:
 
 | Task | Command | Notes |
 |---|---|---|
-| Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the six library cores; plain `tsc` for the two React adapters `@orpc-ws/react` and `@orpc-ws/oidc-react` (both ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps (three self-contained apps, each contract/server/client). Topo-ordered via `^build`. |
+| Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the eight non-adapter library packages; plain `tsc` for the sole React adapter `@orpc-ws/react` (ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps (three self-contained apps, each contract/server/client). Topo-ordered via `^build`. |
 | Typecheck all | `pnpm typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
 | Lint all | `pnpm lint` | ESLint flat config; enforces framework-free cores. Note: `lint` `dependsOn: ["build"]` in `turbo.json` — tshy writes a temporary `package.json` mid-build that the ESLint import resolver would otherwise race (commit `edec802`). |
 | Unit tests all | `pnpm test` | Vitest, per package. **User runs tests — assistant does not.** |
@@ -39,27 +39,25 @@ Regression tests for the design-doc bugs are greppable by filename
 (`bug-01-...`, `bug-06-...`, `bug-08-...`) — one named test per fixed bug
 (see "Tests from day 0").
 
-Demo. Four auth-model demos (three authenticated + one authless), each a
+Demo. Three auth-model demos (two authenticated + one authless), each a
 **self-contained app** under `apps/demo-<mode>/` with its own `contract/` +
 `server/` + `client/` package. Each demo runs as two separate processes — a
 Vite SPA (`client/`) + a single-mode NestJS server (`server/`, entry
 `src/main.ts`) on its own port; **user runs these**. Each demo starts with a
 SINGLE command that launches both its server and its client together (turbo
 runs the two `@demo/*-server` / `@demo/*-client` packages in parallel):
-- **pkce** (server on 18081, client dev 5173): `pnpm dev:pkce`.
 - **backend-token** (server on 18082, client dev 5174): `pnpm dev:backend-token`.
 - **cookie-bff** (server on 18083, client dev 5175): `pnpm dev:cookie-bff`.
 - **authless** (server on 18084, client dev 5176): `pnpm dev:authless`. The
   library in `mode: "authless"` — NO IdP, NO secrets, NO auth `.env` (just an
   optional `VITE_WS_URL`, defaulted): the **simplest demo to run**.
 - Build every demo package: `pnpm build:demo`. Preview a built SPA via its
-  own package, e.g. `pnpm --filter @demo/pkce-client preview` (4173 / 4174 /
+  own package, e.g. `pnpm --filter @demo/cookie-bff-client preview` (4174 /
   4175 / authless 4176).
 - needs **both** the SPA's `client/.env` (build-time `VITE_*` vars — every
   SPA needs `VITE_WS_URL`; the two backend modes also need
-  `VITE_SERVER_ORIGIN`; pkce additionally needs `VITE_OIDC_*` +
-  `VITE_UPLOAD_URL`) and the matching `server/.env` (single-mode:
-  `PORT` — defaults pkce 18081 / backend-token 18082 / cookie-bff 18083 —
+  `VITE_SERVER_ORIGIN`) and the matching `server/.env` (single-mode:
+  `PORT` — defaults backend-token 18082 / cookie-bff 18083 —
   plus `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID`, and SPA-origin / session-cookie
   vars for the backend modes; each server loads its OWN `.env` from its
   package dir via Node `--env-file-if-exists`) — each copied from its own
@@ -75,7 +73,7 @@ e2e (Playwright + Testcontainers Keycloak, needs Docker; **user runs these**):
 
 ## Codebase map (as built)
 
-Eleven packages under `packages/` (the "Package layout (locked)" section below
+Nine packages under `packages/` (the "Package layout (locked)" section below
 states intent; this is the current tree), plus demo apps under `apps/`. Every
 non-adapter package is framework-free; the boundary is lint-enforced.
 
@@ -104,19 +102,17 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   `OrpcWsProviderProps`, `UseWsSubscriptionOptions`,
   `UseWsSubscriptionResult`). Depends only on `@orpc-ws/client`; sole peer
   is `react`. Single `.` export, no sub-paths. Does NOT re-export the core.
-- `@orpc-ws/oidc-react` — the OIDC-auth React adapter; hosts the auth
-  bindings only: `useAuthState`, `useUser`, `useOidcCallback`,
-  `RequireAuth`. Depends only on `@orpc-ws/oidc-pkce` (no longer on the
-  client core). Optional `./react-router` sub-path adds the `OidcCallback`
-  `<Route>` drop-in (`react-router` optional peer). Does NOT re-export
-  the core — consumers import `@orpc-ws/oidc-pkce` directly.
+  This is now the **sole** React adapter (the OIDC-auth React adapter
+  `@orpc-ws/oidc-react` and the browser PKCE core `@orpc-ws/oidc-pkce` were
+  removed — the browser-PKCE / localStorage-token topology was dropped on
+  security grounds).
 - `@orpc-ws/server-nestjs` — NestJS adapter. `OrpcWsModule.forRootAsync`
   + injectable `OrpcWsService`; wraps core lifecycle in Nest hooks.
-- `@orpc-ws/oidc-pkce` — browser OIDC/PKCE core, zero deps. Pull API
-  (`hasToken` / `getAuthStatus` / `getUser`) + observable seam
-  (`getAuthState` / `subscribe`) that the React hooks wrap.
-- `@orpc-ws/oidc-verifier-jose` — Node JWT verifier (depends on `jose`); a
-  sibling of `oidc-pkce` (Node runtime + heavy dep, so not a sub-path).
+- `@orpc-ws/oidc-verifier-jose` — Node JWT verifier (depends on `jose`). The
+  server-side verifier for the backend-token / native-mobile auth path: a
+  client sends a Bearer access token over the WS handshake (`?token=`) and the
+  server verifies it here (discovery-driven JWKS, configurable `boundClaim`).
+  Node runtime + heavy dep, so it stands as its own package, not a sub-path.
 - `@orpc-ws/cookie-bff` — framework-free cookie-BFF server core (no token
   ever reaches the browser; server holds tokens in a session store, browser
   holds only an opaque httpOnly `sid`). Owns the seams a consumer plugs into:
@@ -145,7 +141,7 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 - `@orpc-ws/cookie-bff-client` — framework-free BROWSER core for the cookie-BFF
   `/auth/*` client protocol glue, so the consumer doesn't reimplement the
   security-sensitive CSRF/cookie protocol. `createCookieBffAuthClient<TUser>({
-  serverOrigin, basePath?, fetch? })` gives `me()` (typed GET /auth/me →
+  serverOrigin, loginPath, logoutPath, mePath, fetch? })` gives `me()` (typed GET /auth/me →
   enriched user, refreshes the in-memory synchronizer-CSRF token, null on 401),
   a CSRF-aware `mutate()` (the ONE place `X-CSRF-Token` + `credentials:"include"`
   are attached; `path` is origin-relative), `loginUrl()` (pure string), and
@@ -155,23 +151,21 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   `createOrpcWsClient` with no `tokenProvider`). Zero runtime deps (global
   `fetch`); browser-only. See `docs/cookie-bff-server-design.md`.
 
-Apps (under `apps/`): four **self-contained** demo apps, one per auth model
-(three authenticated + one authless), each a directory `apps/demo-<mode>/`
-holding its own `contract/` + `server/` + `client/` package — twelve demo
+Apps (under `apps/`): three **self-contained** demo apps, one per auth model
+(two authenticated + one authless), each a directory `apps/demo-<mode>/`
+holding its own `contract/` + `server/` + `client/` package — nine demo
 packages total (`@demo/<mode>-contract`, `@demo/<mode>-server`,
-`@demo/<mode>-client` for each of pkce / backend-token / cookie-bff /
+`@demo/<mode>-client` for each of backend-token / cookie-bff /
 authless). There is no shared `@demo/contract` or `@demo/server` anymore: the
 ORPC contract is **copied per app** (`@demo/<mode>-contract`, shared only by
 that app's own server + client — an intentional cross-app DRY violation, single
 source within an app). Each `server/` is a **single-mode** NestJS app, entry
-`src/main.ts` (built to `dist/main.js`), on its own port (pkce 18081 /
-backend-token 18082 / cookie-bff 18083 / authless 18084). The library's
+`src/main.ts` (built to `dist/main.js`), on its own port (backend-token 18082 /
+cookie-bff 18083 / authless 18084). The library's
 `OrpcWsModule` is single-instance per Nest app, so the one-mode-per-process
 constraint is now satisfied **by construction** — one mode = one server package
-= one app = one process. The four React + Vite SPAs (`client/`), one per auth
+= one app = one process. The three React + Vite SPAs (`client/`), one per auth
 model:
-- `@demo/pkce-client` — browser PKCE (imports `@orpc-ws/oidc-pkce` +
-  `@orpc-ws/oidc-react` + `@orpc-ws/react`); dev 5173 / e2e preview 4173.
 - `@demo/backend-token-client` — custom `TokenProvider`, server-minted access
   token passed via WS `?token=` (imports only `@orpc-ws/client` +
   `@orpc-ws/react`, no oidc packages — the WS-only consumer path); dev 5174 /
@@ -194,7 +188,9 @@ model:
 
 `@repo/tests-e2e` is **not** under `apps/` — it is a
 top-level workspace dir (`pnpm-workspace.yaml` globs: `packages/*`,
-`apps/*/*`, `tests-e2e`).
+`apps/*/*`, `tests-e2e`). The Playwright + Testcontainers-Keycloak e2e suite
+targets the **demo-cookie-bff** app (it was repointed there when the
+browser-PKCE demo was removed).
 
 Two cross-package mechanisms to know before editing:
 - **Heartbeat is a "stealth procedure"**, not in the consumer's contract. The
@@ -206,9 +202,8 @@ Two cross-package mechanisms to know before editing:
   `auth_failure` / `heartbeat_timeout` / `woke_from_sleep`).
 
 Note: there is no `@orpc-ws/client/react` sub-path. The WS-transport React
-bindings live in `@orpc-ws/react`, and the OIDC-auth bindings in
-`@orpc-ws/oidc-react` (lint config no longer exempts a `src/react/` path in
-the client core).
+bindings live in `@orpc-ws/react`, the sole React adapter (lint config no
+longer exempts a `src/react/` path in the client core).
 
 ## Non-negotiable principles
 
@@ -319,10 +314,20 @@ not aspirational:
 | Package                              | Purpose                                                                   | Framework deps     |
 | ------------------------------------ | ------------------------------------------------------------------------- | ------------------ |
 | `@orpc-ws/client`               | **Client core.** Vanilla TS, fully framework-free. Reconnect, heartbeat, sleep detect, etc. No React sub-path. | none               |
-| `@orpc-ws/react`                | **WS-transport React adapter.** Hosts the WS connection-state hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) only. Depends only on `@orpc-ws/client`. Does **not** re-export the core. No sub-paths. | `react` peer |
-| `@orpc-ws/oidc-react`           | **OIDC-auth React adapter.** Hosts the OIDC auth hooks (`useAuthState`, `useUser`, `useOidcCallback`, `RequireAuth`) only. Depends only on `@orpc-ws/oidc-pkce`. Does **not** re-export the core. Also exposes an optional `./react-router` sub-path (see prose below). | `react` peer (+ optional `react-router` on the sub-path) |
+| `@orpc-ws/react`                | **The sole React adapter** (WS-transport). Hosts the WS connection-state hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) only. Depends only on `@orpc-ws/client`. Does **not** re-export the core. No sub-paths. | `react` peer |
 | `@orpc-ws/server`               | **Server core.** Pure Node + `ws` + `@orpc/server`. Verifier-pluggable.   | none               |
 | `@orpc-ws/server-nestjs`        | NestJS adapter (separate package — decorator metadata can't share a sub-path with vanilla TS without bundler pain). | `@nestjs/common` peer |
+
+**REMOVED: the OIDC React adapter `@orpc-ws/oidc-react` and the browser
+PKCE core `@orpc-ws/oidc-pkce`.** The browser-PKCE / localStorage-token
+topology was dropped on security grounds (access/refresh tokens sitting in
+JS-readable storage). `@orpc-ws/react` is now the **sole** React adapter.
+Browser auth is now served by cookie-BFF (`@orpc-ws/cookie-bff*`, httpOnly
+`sid` cookie — no token in the browser); native/mobile/server clients use the
+backend-token path (Bearer token over WS `?token=`, verified server-side by
+`@orpc-ws/oidc-verifier-jose`). The per-core-sibling *principle* below still
+holds — there is simply no longer a second (OIDC) browser core to host an
+adapter for.
 
 Future adapters (Svelte / Vue / Solid on client; Express / Fastify /
 standalone Node on server) are **not** built on day 0. The contract
@@ -333,46 +338,44 @@ core changes, the seam is wrong — fix the seam, not the adapter.
 **Framework adapters are siblings, one adapter per core, per framework
 (resolved).** Each framework adapter for this library is its own
 **separate sibling package — never a sub-path _of a core_** — and there
-is **one adapter per core, per framework** (so React gets `@orpc-ws/react`
-for the client core and `@orpc-ws/oidc-react` for the OIDC core). The
-"never a sub-path" rule protects the *cores*: `@orpc-ws/client`
-and `@orpc-ws/oidc-pkce` never carry framework code via a sub-path (this
-is why the old `@orpc-ws/client/react` sub-path was removed). It
+is **one adapter per core, per framework** (so the client core gets the
+React adapter `@orpc-ws/react`; a second browser core, were one to exist,
+would get its own React adapter). The "never a sub-path" rule protects the
+*cores*: `@orpc-ws/client` never carries framework code via a sub-path
+(this is why the old `@orpc-ws/client/react` sub-path was removed). It
 does **not** forbid an *adapter* from exposing its own internal
 sub-path: an adapter MAY surface an optional, more-heavily-coupled
-framework binding behind a sub-path of *itself* (see
-`@orpc-ws/oidc-react/react-router` below), so that the adapter's
-main entry stays free of the extra dependency. Such a sub-path lives
+framework binding behind a sub-path of *itself* (such a sub-path lives
 *inside* the sibling adapter, not on a core, so it satisfies — not
-violates — the "Sub-path vs separate sibling package" rule below.
+violates — the "Sub-path vs separate sibling package" rule below).
 `@orpc-ws/react` depends only on `@orpc-ws/client` and exposes the WS
-connection-state bindings; `@orpc-ws/oidc-react` depends only on
-`@orpc-ws/oidc-pkce` and exposes the auth bindings. Neither re-exports
-its core — consumers import the framework-free APIs directly from each
-core.
+connection-state bindings; it does not re-export its core — consumers
+import the framework-free APIs directly. (The removed `@orpc-ws/oidc-react`
+adapter, with its optional `./react-router` sub-path, was the original
+worked example of the per-core-sibling + internal-sub-path shape; the shape
+remains the rule for any future adapter.)
 
-**This REVERSES the earlier "one merged adapter per framework, not
+**This REVERSED an earlier "one merged adapter per framework, not
 one-per-core" decision** (which explicitly *rejected* per-core React
 siblings). That decision rested on the premise "every consumer needs
-*both* cores" — and that premise is **false**. A consumer that
+*both* cores" — and that premise was **false**. A consumer that
 authenticates with a custom `TokenProvider` (e.g. a backend token
 endpoint) or cookie/BFF auth uses the WS transport but never touches
-browser PKCE: it needs `@orpc-ws/client` + `@orpc-ws/react` and never
-`@orpc-ws/oidc-pkce`. The old merged adapter forced that consumer to
-(a) drag an unused `@orpc-ws/oidc-pkce` into `node_modules` and
-(b) import transport hooks from an auth-named package — a
-separation-of-concerns smell. Splitting per-core makes each adapter
-depend on exactly its core (ISP/DIP): the WS-only consumer gets a clean
-single-package dependency, while a PKCE+WS consumer (the demo) pays one
-extra import line. The trade, stated honestly: the both-cores case now
-imports from two packages instead of one — the deliberate cost of
-decoupling the WS-only case. (Note too that the auth hooks
-— `useAuthState` / `useUser` / `RequireAuth` — are typed against an
-`@orpc-ws/oidc-pkce` instance, so they were only ever usable by PKCE
-consumers; a backend-delegated/cookie consumer imports *zero* from
-`@orpc-ws/oidc-react` regardless.)
+browser auth: it needs only `@orpc-ws/client` + `@orpc-ws/react`. A merged
+adapter would force that consumer to (a) drag an unused browser-auth core
+into `node_modules` and (b) import transport hooks from an auth-named
+package — a separation-of-concerns smell. Splitting per-core makes each
+adapter depend on exactly its core (ISP/DIP): the WS-only consumer gets a
+clean single-package dependency. With the browser-PKCE core and its
+`@orpc-ws/oidc-react` adapter since removed, **every** browser consumer is
+now that clean WS-only case — `@orpc-ws/client` + `@orpc-ws/react`, no
+browser auth core at all. (The since-removed auth hooks
+— `useAuthState` / `useUser` / `RequireAuth` — were typed against a browser
+OIDC-PKCE instance, so they were only ever usable by PKCE consumers; a
+backend-delegated/cookie consumer imported *zero* from them regardless,
+which is one reason dropping them cost nothing for those paths.)
 
-Future framework adapters follow the **new** shape — per-core siblings,
+Future framework adapters follow this same shape — per-core siblings,
 not one merged adapter: a future `@orpc-ws/svelte` binds the client core
 and is a *separate* package from any OIDC-svelte adapter, each depending
 only on its own core and exposing framework bindings only. Cores stay
@@ -386,9 +389,10 @@ into the core's `package.json`. A separate sibling package is required
 when either condition fails — different runtime (e.g. a server-side
 helper for a browser-only package) OR different runtime-dep set (e.g.
 a helper requires a heavy library like `jose` that the core shouldn't
-carry). Example today: `@orpc-ws/oidc-pkce` (browser, zero deps) +
-`@orpc-ws/oidc-verifier-jose` (Node, depends on `jose`) live as siblings
-because both conditions fail.
+carry). Example today: `@orpc-ws/oidc-verifier-jose` (Node, depends on
+`jose`) is its own sibling package rather than a sub-path of any
+browser/client package — both the runtime (Node) and the runtime-dep set
+(`jose`) differ.
 
 ### Adapter wiring convention
 
@@ -402,40 +406,29 @@ because both conditions fail.
   exports only the WS bindings: `useConnectionState`, `useWsSubscription`,
   `OrpcWsProvider`, `useOrpcWs` (+ `OrpcWsProviderProps`,
   `UseWsSubscriptionOptions`, `UseWsSubscriptionResult`).
-  `@orpc-ws/oidc-react` exports only the auth bindings: `useAuthState`,
-  `useUser`, `useOidcCallback`, `RequireAuth`. Consumers import the
-  framework-free APIs straight from each core. The core remains a regular
-  `dependency` of its adapter (the hooks `import type` from it, and the
-  emitted `.d.ts` references those types, so the dep must resolve) —
-  `react` is the sole peer.
+  Consumers import the framework-free APIs straight from the core. The core
+  remains a regular `dependency` of its adapter (the hooks `import type` from
+  it, and the emitted `.d.ts` references those types, so the dep must resolve)
+  — `react` is the sole peer.
 - **Optional, heavier-coupled bindings live behind an internal
-  sub-path.** The adapter's main entry stays free of any router or
-  other heavier framework dependency. A binding that needs more than
-  `react` lives at a *second* entry point — e.g. the `OidcCallback`
-  drop-in React-Router `<Route>` component at
-  `@orpc-ws/oidc-react/react-router`, which adds `react-router`
-  as an **optional** peer (`peerDependenciesMeta.optional: true`, range
-  `>=7.0.0`; React Router v7 merged the former `react-router-dom` DOM
-  bindings into `react-router`, and v8 removes the `react-router-dom`
-  shim). The sub-path is declared as a second `exports` entry and built by
-  the same `tsc` pass (`src/react-router/` → `dist/react-router/`).
-  `react-router` resolves only when a consumer imports the sub-path.
-  **Why:** keeps the main entry's dependency surface minimal and the
-  heavier framework-router coupling opt-in, while *reusing* the
-  router-free `useOidcCallback` hook (`OidcCallback` only adds
-  `useNavigate` + default UI on top of it) so there is no logic
-  duplication.
+  sub-path.** An adapter's main entry stays free of any router or other
+  heavier framework dependency; a binding that needs more than `react` lives
+  at a *second* `exports` entry point, declared as a sub-path of the adapter
+  and resolving its extra (optional) peer only when imported. (The removed
+  `@orpc-ws/oidc-react` exercised this with an `./react-router` sub-path that
+  added `react-router` as an optional peer and reused the router-free
+  `useOidcCallback` hook; `@orpc-ws/react` itself has no sub-path. The pattern
+  remains the rule for any future adapter that needs it.)
 - **Consumer usage:**
   ```ts
   import { createOrpcWsClient } from "@orpc-ws/client";
-  import { createOidcAuth } from "@orpc-ws/oidc-pkce";
   import { useConnectionState } from "@orpc-ws/react";
-  import { useAuthState } from "@orpc-ws/oidc-react";
-  // createOrpcWsClient(...) ; createOidcAuth(...) from the cores;
-  // WS hooks from @orpc-ws/react, auth hooks from @orpc-ws/oidc-react.
-  // A WS-only consumer (custom TokenProvider / cookie auth) imports
-  // ONLY from @orpc-ws/client + @orpc-ws/react and never touches the
-  // OIDC packages.
+  // createOrpcWsClient(...) from the core; WS hooks from @orpc-ws/react.
+  // Browser auth is decoupled: cookie-BFF consumers pass NO tokenProvider
+  // (the httpOnly `sid` cookie authenticates the handshake) and use
+  // @orpc-ws/cookie-bff-client for the /auth/* glue; native/backend-token
+  // consumers supply a custom tokenProvider. Either way the consumer imports
+  // ONLY @orpc-ws/client + @orpc-ws/react for the transport.
   ```
 
 Validated against TanStack / XState / Zag.js: core + per-framework
@@ -450,11 +443,11 @@ core the single source of its own public surface.)
 - **Lint rule** (`eslint-plugin-import/no-restricted-paths` or equivalent):
   `@orpc-ws/client` and `@orpc-ws/server` source must not
   import from `react`, `@nestjs/*`, `vue`, `svelte`, `solid-js`,
-  `express`, `fastify`. CI fails on violation. The two React adapters are
+  `express`, `fastify`. CI fails on violation. The React adapter is
   also lint-scoped: `@orpc-ws/react` (browser-only, WS-transport only) is
-  additionally forbidden from importing the OIDC auth core
-  (`@orpc-ws/oidc-pkce`), `react-router`, server cores, Node-only deps,
-  and other UI frameworks — keeping it free of any OIDC or router coupling.
+  additionally forbidden from importing any auth core, `react-router`,
+  server cores, Node-only deps, and other UI frameworks — keeping it free of
+  any auth or router coupling.
 - **No framework lifecycle leakage.** The server core owns its own
   lifecycle (`start`, `stop`, `attach(httpServer)`). The NestJS adapter
   *wraps* core lifecycle in `OnApplicationBootstrap` / `OnModuleDestroy`;
@@ -590,10 +583,17 @@ above.
   factory. Use `OrpcWsModule.forRoot/forRootAsync({ mode: "authless",
   router })`.
 
-### Reactive auth seam — observable `@orpc-ws/oidc-pkce`
+### Reactive auth seam — observable `@orpc-ws/oidc-pkce` (REMOVED)
 
-The `@orpc-ws/oidc-pkce` core now exposes an **observable seam** alongside
-its existing pull API:
+**This decision is obsolete: `@orpc-ws/oidc-pkce` and its `@orpc-ws/oidc-react`
+adapter were removed** (the browser-PKCE / localStorage-token topology was
+dropped on security grounds). The observable-auth-state seam described here no
+longer ships. Browser auth is now cookie-BFF (no token in the browser at all),
+so there is no browser-side auth snapshot to observe. The text is retained as a
+historical record of the design.
+
+The (removed) `@orpc-ws/oidc-pkce` core exposed an **observable seam** alongside
+its pull API:
 
 - **`getAuthState(): AuthSnapshot`** where
   `AuthSnapshot = { status: AuthStatus; user: OidcUser | null }`, plus
@@ -601,16 +601,15 @@ its existing pull API:
 - **Cross-tab sync** via the `window` `'storage'` event, lazy-attached
   on the first subscriber and removed on the last; only active with the
   default localStorage-backed `Storage`.
-- **The snapshot is referentially stable** (id-token-keyed memoization
-  of the decoded user) so it satisfies `useSyncExternalStore`'s
+- **The snapshot was referentially stable** (id-token-keyed memoization
+  of the decoded user) so it satisfied `useSyncExternalStore`'s
   `Object.is` bail-out.
 
-Why: this is the same `{ getState/getSnapshot + subscribe }` state
-contract the client core already follows, so the React hooks
-(`useAuthState` / `useUser`) wrap it via `useSyncExternalStore` and
-future Svelte/Vue adapters reuse it unmodified. The pull API
-(`hasToken` / `getAuthStatus` / `getUser`) is **unchanged** — the
-observable seam is purely additive.
+Why (at the time): it was the same `{ getState/getSnapshot + subscribe }` state
+contract the client core follows, so the (removed) React hooks
+(`useAuthState` / `useUser`) wrapped it via `useSyncExternalStore`. That
+`{ getState + subscribe }` contract remains the client core's shape — only the
+browser-auth-state instance of it is gone.
 
 ### Uploads
 
@@ -811,13 +810,13 @@ publishing.
 - **Tool: [Changesets](https://github.com/changesets/changesets)**
   (`@changesets/cli`, root devDep; config in `.changeset/config.json`),
   used **locally only** (versioning + changelogs).
-- **Lockstep via the `fixed` group** — all eleven published packages are
+- **Lockstep via the `fixed` group** — all nine published packages are
   listed in one `fixed` array, so any release bumps them all to the same
   version (`fixed` does **not** support globs; list each package):
-  `@orpc-ws/shared`, `oidc-pkce`, `client`, `server`, `oidc-react`,
-  `react`, `server-nestjs`, `oidc-verifier-jose`, `cookie-bff`,
-  `cookie-bff-nestjs`, `cookie-bff-client` (the last three appended when the
-  cookie-BFF packages landed).
+  `@orpc-ws/shared`, `client`, `server`, `react`, `server-nestjs`,
+  `oidc-verifier-jose`, `cookie-bff`, `cookie-bff-nestjs`,
+  `cookie-bff-client` (`oidc-pkce` and `oidc-react` were removed when the
+  browser-PKCE topology was dropped).
 - **Internal deps are `workspace:*`** — `pnpm -r publish` rewrites them
   to the exact published version at publish time.
 - **Changelog:** the bundled `@changesets/cli/changelog` (no extra dep).
@@ -833,11 +832,11 @@ publishing.
   GitHub Actions to create and approve PRs" toggle is no longer needed
   for releases.
 - **DO NOT rename `npm-publish.yml`.** The npm trusted-publisher binding
-  for all eight packages is keyed to repo + this exact workflow filename
+  for all nine packages is keyed to repo + this exact workflow filename
   (NOT branch/ref — which is why moving the trigger from `push: main` to a
   `v*` tag authorizes identically, no re-registration).
 - **Release recipe (manual, local):** `pnpm version-packages`
-  (= `changeset version`, consumes `.changeset/*.md`, bumps all eight,
+  (= `changeset version`, consumes `.changeset/*.md`, bumps all nine,
   rewrites `workspace:*`, writes CHANGELOGs) → commit + push the bump to
   `main` (`git commit -am "release: vX.Y.Z" && git push`) → `git tag
   vX.Y.Z && git push origin vX.Y.Z` (the tag push is what publishes).

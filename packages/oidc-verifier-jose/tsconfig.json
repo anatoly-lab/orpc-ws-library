@@ -14,8 +14,8 @@
     // Root `.tsbuildinfo` is gitignored and outside `files`.
     "tsBuildInfoFile": "./.tsbuildinfo"
     // No DOM lib — this is a Node-only package. `fetch`, `Response`,
-    // `URL` come from @types/node 18+. Browser-side counterpart is
-    // `@orpc-ws/oidc-pkce`, which adds DOM here.
+    // `URL` come from @types/node 18+. A browser-side core would add
+    // DOM here instead.
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "**/*.test.ts", "**/__tests__/**"]

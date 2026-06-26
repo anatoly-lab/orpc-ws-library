@@ -79,7 +79,7 @@ only in *who holds the token* and *what rides the WS upgrade*:
 
 | Topology | Token lives | WS upgrade carries | `tokenProvider` | Demo |
 | --- | --- | --- | --- | --- |
-| **Backend-token / PKCE-bearer** | Browser (`localStorage`) | `?token=<access JWT>` | yes (client refreshes) | `demo-backend-token`, `demo-pkce` |
+| **Backend-token / JWT-over-WS** | Client (native / mobile / server) | `?token=<access JWT>` | yes (client refreshes) | `demo-backend-token` |
 | **Authless** | — | nothing | no | `demo-authless` |
 | **Cookie-BFF** ← *this doc* | **Server** (session store) | **`Cookie: sid`** (auto-sent) | **no** | `demo-cookie-bff` |
 
@@ -179,8 +179,8 @@ Three packages, mirroring `@orpc-ws/server` + `@orpc-ws/server-nestjs`. The core
 framework-free; the NestJS adapter is thin and is the **only** package that may
 import `@nestjs/*`. Future `-fastify` / `-express` adapters would wire the **same
 core**. The third package, `@orpc-ws/cookie-bff-client`, is the framework-free
-**browser** client core owning the SPA-side `/auth/*` protocol glue — mirroring
-how `@orpc-ws/oidc-pkce` is a browser core sibling of the server-side OIDC pieces.
+**browser** client core owning the SPA-side `/auth/*` protocol glue — a browser
+core sibling of the server-side cookie-BFF pieces.
 
 ### C.1 What lives where
 
@@ -246,10 +246,8 @@ Both join the existing `packages/*` workspace glob.
 
 - **Runtime deps:** `@orpc-ws/server` (`workspace:*`) for `VerifyClient` /
   `VerifyClientContext` / `VerifyClientResult`; `@orpc-ws/shared` (`workspace:*`)
-  for the `Logger` seam; `@orpc-ws/oidc-pkce` (`workspace:*`) **if** it already
-  exposes a server-side code-exchange primitive the demo's `oidc-code-exchange.ts`
-  reimplements (confirm at build time — reuse a library primitive, don't
-  re-hand-write PKCE).
+  for the `Logger` seam. The core owns its own server-side PKCE code-exchange
+  primitive (`oidc/`); it does not depend on any browser auth package.
 - **Crypto:** Node `crypto` (`randomBytes` for the sid; AES-256-GCM for token
   at-rest). No third-party crypto dep.
 - **NO `@nestjs/*`, NO express.** Framework-free, like `@orpc-ws/server`.

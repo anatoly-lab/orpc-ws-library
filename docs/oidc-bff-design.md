@@ -7,6 +7,16 @@
 > server-held-token** model where tokens never enter the browser at all. See
 > **[`cookie-bff-server-design.md`](./cookie-bff-server-design.md)** for the live
 > design. The rest of this file is retained for historical context only.
+>
+> **Follow-up (cleanup):** the browser-PKCE packages this doc builds on —
+> `@orpc-ws/oidc-pkce`, `@orpc-ws/oidc-react`, and the `demo-pkce` app — have
+> since been **removed** from the repo (the browser never holds a token).
+> `@orpc-ws/react` is now the sole React adapter; server-side token
+> verification for native/backend-token clients lives in
+> `@orpc-ws/oidc-verifier-jose`. Every `@orpc-ws/oidc-pkce` / `@orpc-ws/oidc-react`
+> / `@orpc-ws/oidc-core` / `@orpc-ws/oidc-bff` reference below names a package
+> that does not exist — read this doc as a historical snapshot, not a map of
+> the current tree.
 
 ---
 

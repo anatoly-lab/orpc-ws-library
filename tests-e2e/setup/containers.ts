@@ -1,41 +1,55 @@
 // Full-stack Docker orchestration for the e2e run.
 //
-// Brings up the WHOLE system as containers on one Docker network:
-//   Keycloak (IdP)   ─┐
-//   demo-server      ─┼─ network "e2e" (aliases: keycloak / server / spa)
-//   demo-pkce (nginx)─┘
+// Brings up the WHOLE cookie-BFF system as containers on one Docker network:
+//   Keycloak (IdP)         ─┐
+//   cookie-bff server      ─┼─ network "e2e" (aliases: keycloak / server / spa)
+//   cookie-bff SPA (nginx) ─┘
 //
-// This REPLACES the old split where Playwright's `webServer` started the
-// demo-server + demo-pkce as host dev processes while only Keycloak was a
-// container. That split was the root cause of local-only failures:
-// `reuseExistingServer` silently reused a stale dev server pointed at the
-// wrong Keycloak, so the JWT `iss` the server validated never matched the
-// `iss` the browser's token carried. Containerising all three removes the
-// "reuse a wrong-config process" foot-gun entirely.
+// Containerising all three (rather than the old hybrid where Playwright's
+// `webServer` started host dev processes while only Keycloak was a container)
+// removes the "reuse a wrong-config process" foot-gun: `reuseExistingServer`
+// could silently reuse a stale dev server pointed at the wrong Keycloak, so the
+// issuer the server validated never matched the issuer the browser saw.
 //
 // ── The single-issuer model (the linchpin) ──────────────────────────────
 // One issuer string, two network paths to reach it:
-//   - PUBLIC issuer (browser + token `iss` + server validation target):
+//   - PUBLIC issuer (what the BROWSER is redirected to for login + end-session,
+//     and the token `iss` the server validates):
 //       http://localhost:18080/realms/orpc-ws-demo
-//   - INTERNAL discovery/JWKS (server → KC over the docker net):
+//   - INTERNAL discovery/JWKS + server-side code-exchange (server → KC over the
+//     docker net):
 //       http://keycloak:8080/realms/orpc-ws-demo
 // Keycloak PINS its hostname (KC_HOSTNAME=http://localhost:18080 +
 // KC_HOSTNAME_BACKCHANNEL_DYNAMIC=false) so it stamps `iss` and advertises
-// discovery `issuer` = the PUBLIC url regardless of whether reached via
-// host `localhost:18080` or internal `keycloak:8080`. Validated from both
-// paths in Phase-2/Step-B.0: both report the public issuer. The verifier
-// (@orpc-ws/oidc-verifier-jose) fetches discovery from OIDC_DISCOVERY_URL
-// (the internal host), validates the advertised `issuer` against the public
-// OIDC_ISSUER_URL, and rewrites the advertised jwks_uri prefix to the
-// internal host so the JWKS fetch also goes over the docker net.
+// discovery `issuer` = the PUBLIC url regardless of whether reached via host
+// `localhost:18080` or internal `keycloak:8080`. The verifier
+// (@orpc-ws/oidc-verifier-jose, used inside @orpc-ws/cookie-bff) fetches
+// discovery from OIDC_DISCOVERY_URL (the internal host), validates the
+// advertised `issuer` against the public OIDC_ISSUER_URL, and rewrites the
+// advertised jwks_uri prefix to the internal host so the JWKS fetch also goes
+// over the docker net.
+//
+// ── How cookie-BFF differs from the old PKCE stack ──────────────────────
+// In PKCE the BROWSER ran the whole OAuth dance (authorize → token exchange in
+// JS) and the SPA needed VITE_OIDC_* baked in. In cookie-BFF the SERVER runs
+// the OAuth dance: the browser is only ever REDIRECTED to Keycloak (login form
+// + end-session), and the auth `code` lands on the SERVER's /auth/callback
+// (a server endpoint, NOT a SPA route). So:
+//   - The SPA bakes only VITE_WS_URL + VITE_SERVER_ORIGIN (no OIDC, no upload).
+//   - The realm registers the SERVER callback `http://localhost:18083/auth/callback`
+//     as a redirect URI (Keycloak redirects the browser there over the host
+//     port), and the SPA root `http://localhost:4173/*` as a post-logout URI.
+//   - The server reads its OIDC/cookie/session config from RUNTIME env (it bakes
+//     nothing), so all of it is injected below in startServer().
 //
 // ── Fixed host ports (NOT testcontainers' random ephemeral ports) ───────
-// Keycloak 18080, server 18081, spa 4173. Two hard reasons:
-//   1. The SPA's OIDC issuer / WS / upload URLs are baked at `vite build`
-//      time (Vite inlines `import.meta.env.VITE_*`) — they can't depend on
-//      a port chosen after the build runs.
-//   2. The JWT `iss` the server validates must match what the browser saw
-//      at PKCE-token-exchange time — same URL on both sides, no exceptions.
+// Keycloak 18080, server 18083, spa 4173. Two hard reasons:
+//   1. The SPA's WS + server-origin URLs are baked at `vite build` time (Vite
+//      inlines `import.meta.env.VITE_*`) — they can't depend on a port chosen
+//      after the build runs.
+//   2. The server's registered redirect URI + the browser's view of the server
+//      origin must agree on one fixed URL, and the JWT `iss` the server
+//      validates must match what the IdP stamped — same URLs on both sides.
 // Trade-off: only one stack can run per host at a time. Fine for our
 // single-worker Playwright setup.
 
@@ -66,19 +80,22 @@ const KEYCLOAK_IMAGE = "quay.io/keycloak/keycloak:26.5.5";
 const SERVER_IMAGE = "orpc-ws-e2e/server";
 const SPA_IMAGE = "orpc-ws-e2e/spa";
 
-const SERVER_DOCKERFILE = "apps/demo-pkce/server/Dockerfile";
-const SPA_DOCKERFILE = "apps/demo-pkce/client/Dockerfile";
+const SERVER_DOCKERFILE = "apps/demo-cookie-bff/server/Dockerfile";
+const SPA_DOCKERFILE = "apps/demo-cookie-bff/client/Dockerfile";
 
-// ── realm / ports ─────────────────────────────────────────────────────────
+// ── realm / client ──────────────────────────────────────────────────────
 const KEYCLOAK_REALM = "orpc-ws-demo";
+// The server runs the server-side PKCE code-exchange as a PUBLIC client (no
+// secret) against this same client — see cookie-auth.module.ts / config.ts
+// (backendOidc.clientId defaults to OIDC_CLIENT_ID).
 const OIDC_CLIENT_ID = "orpc-ws-demo-spa";
 
 const KEYCLOAK_INTERNAL_PORT = 8080;
-const SERVER_INTERNAL_PORT = 18081;
+const SERVER_INTERNAL_PORT = 18083;
 const SPA_INTERNAL_PORT = 80;
 
 const KEYCLOAK_HOST_PORT = 18080;
-const SERVER_HOST_PORT = 18081;
+const SERVER_HOST_PORT = 18083;
 const SPA_HOST_PORT = 4173;
 
 // ── public URLs (host-reachable; baked into the SPA + validated as `iss`) ──
@@ -87,10 +104,22 @@ const OIDC_ISSUER_URL = `${KEYCLOAK_PUBLIC_URL}/realms/${KEYCLOAK_REALM}`;
 const SERVER_PUBLIC_URL = `http://localhost:${SERVER_HOST_PORT}`;
 const SPA_PUBLIC_URL = `http://localhost:${SPA_HOST_PORT}`;
 const WS_URL = `ws://localhost:${SERVER_HOST_PORT}/ws`;
-const UPLOAD_URL = `${SERVER_PUBLIC_URL}/upload`;
+// The SERVER's own /auth/callback — Keycloak redirects the BROWSER here over the
+// host port, so it MUST be the host-reachable URL and MUST be registered as a
+// redirect URI in the realm (setup/keycloak/orpc-ws-demo-realm.json).
+const OIDC_REDIRECT_URI = `${SERVER_PUBLIC_URL}/auth/callback`;
 
 // ── internal URLs (docker-net hostnames; server → KC over the network) ─────
 const OIDC_DISCOVERY_URL = `http://keycloak:${KEYCLOAK_INTERNAL_PORT}/realms/${KEYCLOAK_REALM}`;
+
+// ── fixed test secrets ────────────────────────────────────────────────────
+// 32-byte AES-256-GCM key (base64) for at-rest token encryption. A FIXED value
+// is fine for an ephemeral e2e stack — the sessions live only for the run, and
+// the key never leaves this machine. (A real deployment sets a real secret via
+// SESSION_ENC_KEY; rotating it invalidates existing sessions.) This is the same
+// demo key the server's config.ts falls back to, made explicit here so the e2e
+// env is self-documenting.
+const SESSION_ENC_KEY = "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=";
 
 // ── timeouts ──────────────────────────────────────────────────────────────
 // First run pulls the 600+ MB KC image; subsequent runs are seconds.
@@ -103,7 +132,7 @@ const IMAGE_BUILD_TIMEOUT_MS = 10 * 60_000;
 export interface StackHandle {
   /** SPA base URL on the host — Playwright's baseURL. */
   spaUrl: string;
-  /** demo-server base URL on the host. */
+  /** cookie-bff server base URL on the host. */
   serverUrl: string;
   /** Keycloak base URL on the host. */
   keycloakUrl: string;
@@ -123,7 +152,7 @@ interface StartedStack {
 let started: StartedStack | null = null;
 
 /**
- * Build the demo-server + demo-pkce images with FIXED tags via `docker build`.
+ * Build the server + SPA images with FIXED tags via `docker build`.
  *
  * Why shell `docker build` (not GenericContainer.fromDockerfile): fixed tags
  * (`orpc-ws-e2e/server` / `orpc-ws-e2e/spa`) let Docker's layer cache make
@@ -131,8 +160,10 @@ let started: StartedStack | null = null;
  * name per build, defeating the cache. The build context is the REPO ROOT
  * (the Dockerfiles use `turbo prune`, which needs every workspace).
  *
- * The SPA image bakes the 4 VITE_* build args = the PUBLIC urls (Vite inlines
- * them at build time). The server takes none — it reads env at runtime.
+ * The SPA image bakes 2 VITE_* build args (Vite inlines them at build time):
+ * the WS URL + the server origin. The cookie-BFF SPA holds NO token and runs
+ * no OIDC in the browser, so there are no VITE_OIDC_* / VITE_UPLOAD_URL args.
+ * The server takes NO build args — it reads all config from env at runtime.
  *
  * execFileSync (not execSync): args are passed as an array, so there is no
  * shell interpolation of our build-arg URLs.
@@ -143,13 +174,9 @@ export async function buildImages(): Promise<void> {
   buildImage(SERVER_IMAGE, SERVER_DOCKERFILE, []);
   buildImage(SPA_IMAGE, SPA_DOCKERFILE, [
     "--build-arg",
-    `VITE_OIDC_ISSUER_URL=${OIDC_ISSUER_URL}`,
-    "--build-arg",
-    `VITE_OIDC_CLIENT_ID=${OIDC_CLIENT_ID}`,
-    "--build-arg",
     `VITE_WS_URL=${WS_URL}`,
     "--build-arg",
-    `VITE_UPLOAD_URL=${UPLOAD_URL}`,
+    `VITE_SERVER_ORIGIN=${SERVER_PUBLIC_URL}`,
   ]);
 
   console.log("[stack] App images built.");
@@ -288,7 +315,7 @@ async function startKeycloak(
       KC_BOOTSTRAP_ADMIN_PASSWORD: "admin",
       KC_HEALTH_ENABLED: "true",
       KC_HTTP_ENABLED: "true",
-      // ── issuer pinning (validated in Step B.0) ──
+      // ── issuer pinning ──
       // Full-URL hostname pins the public issuer Keycloak stamps + advertises.
       KC_HOSTNAME: KEYCLOAK_PUBLIC_URL,
       // Backchannel/server-side (internal keycloak:8080) requests would
@@ -316,7 +343,7 @@ async function startKeycloak(
 async function startServer(
   network: StartedNetwork,
 ): Promise<StartedTestContainer> {
-  console.log("[stack] Starting demo-server...");
+  console.log("[stack] Starting cookie-bff server...");
   // Attach the log buffer BEFORE .start() so a boot crash (e.g. bad OIDC
   // discovery) is captured even when the wait strategy times out.
   const logBuffer = createLogBuffer("server");
@@ -332,16 +359,27 @@ async function startServer(
     .withEnvironment({
       PORT: String(SERVER_INTERNAL_PORT),
       HOST: "0.0.0.0",
-      // Public issuer: what the browser's token `iss` carries + what the
-      // server validates against.
+      // Public issuer: the token `iss` the server validates + the issuer the
+      // BROWSER is redirected to for login/end-session.
       OIDC_ISSUER_URL,
-      // Internal host: where the server fetches discovery + JWKS (the verifier
-      // validates the advertised issuer against OIDC_ISSUER_URL and rewrites
-      // the jwks_uri prefix to this host).
+      // Internal host: where the server fetches discovery + JWKS AND runs the
+      // server-side code-exchange (the verifier validates the advertised issuer
+      // against OIDC_ISSUER_URL and rewrites the jwks_uri prefix to this host).
       OIDC_DISCOVERY_URL,
       OIDC_CLIENT_ID,
-      // CORS: the browser hits the server from the SPA origin.
-      DEMO_CORS_ORIGINS: SPA_PUBLIC_URL,
+      // The server's OWN /auth/callback — Keycloak redirects the browser here
+      // over the host port; MUST match a redirect URI registered in the realm.
+      OIDC_REDIRECT_URI,
+      // The containerised SPA's host origin. First entry = the post-/auth/callback
+      // 302 target + the post-logout target; whole list = the CORS allowlist
+      // (credentials mode) AND the WS Origin allowlist (Decision #10). The e2e
+      // SPA runs on exactly one origin, so this is a single value.
+      SPA_ORIGIN_COOKIE_BFF: SPA_PUBLIC_URL,
+      // Plain `sid` (the demo's localhost cookie config drops the prod-shaped
+      // __Host-/Secure prefix — see cookie-auth.module.ts).
+      SESSION_COOKIE_NAME: "sid",
+      // Fixed at-rest token-encryption key for the ephemeral e2e stack.
+      SESSION_ENC_KEY,
     })
     .withWaitStrategy(
       Wait.forHttp("/health/live", SERVER_INTERNAL_PORT)
@@ -354,7 +392,7 @@ async function startServer(
 async function startSpa(
   network: StartedNetwork,
 ): Promise<StartedTestContainer> {
-  console.log("[stack] Starting demo-pkce (nginx)...");
+  console.log("[stack] Starting cookie-bff SPA (nginx)...");
   // nginx rarely crashes, but the hook is cheap and surfaces config errors.
   const logBuffer = createLogBuffer("spa");
 

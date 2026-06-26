@@ -1,16 +1,19 @@
 // Playwright test fixtures.
 //
+// (cookie-BFF mode.)
+//
 // `keycloakUser` exposes the seed user as injectable test data; tests
 // take it as a destructured fixture argument and don't need to import
 // the constants module directly. Keeps user identity selection in one
 // place if/when we add per-test user pools.
 //
-// `authenticatedPage` performs the full PKCE login once per test that
-// uses it, then hands back the page already on `/`. Most tests should
-// prefer the raw `page` fixture + explicit LoginPage interactions —
-// driving the login flow is what we're testing — but for tests that
-// only care about post-login behavior (RPC, reconnect), the
-// authenticated fixture removes ~10 lines of boilerplate.
+// `authenticatedPage` performs the full cookie-BFF login once per test that
+// uses it (signin-button → Keycloak → server /auth/callback sets the `sid`
+// cookie → back to the SPA root), then hands back the page already on `/`.
+// Most tests should prefer the raw `page` fixture + explicit LoginPage
+// interactions — driving the login flow is what we're testing — but for tests
+// that only care about post-login behavior (RPC, reconnect), the authenticated
+// fixture removes ~10 lines of boilerplate.
 
 import { test as base, type Page } from "@playwright/test";
 

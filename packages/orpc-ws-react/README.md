@@ -1,16 +1,15 @@
 # `@orpc-ws/react`
 
 The **WS-transport React bindings** — hooks and a provider that adapt the
-framework-free `@orpc-ws/client` core to React. This package contains
-*only* React glue for the WebSocket transport. It does **not** re-export
-the core; the client factory (and its types) come straight from
-`@orpc-ws/client`.
+framework-free `@orpc-ws/client` core to React. This is the **sole React
+adapter** for this library: it binds the WebSocket transport client core
+only. It does **not** re-export the core; the client factory (and its types)
+come straight from `@orpc-ws/client`.
 
-For OIDC auth bindings (`useAuthState`, `useUser`, `RequireAuth`,
-`useOidcCallback`), use the sibling [`@orpc-ws/oidc-react`](../orpc-ws-oidc-react)
-adapter — it depends on `@orpc-ws/oidc-pkce`, not on the WS core, so a
-consumer authenticating with a custom `TokenProvider` or cookie/BFF auth
-imports nothing from it.
+Auth is the consumer's concern, decoupled from this adapter. Whether you
+authenticate with a custom `TokenProvider` (backend-token / native path) or
+a cookie/BFF session, you construct your `@orpc-ws/client` accordingly and
+pass it to these hooks — this package imports nothing auth-related.
 
 ## Install
 
@@ -154,4 +153,3 @@ only, no core re-exports.
 
 - Top-level [README](../../README.md)
 - [`@orpc-ws/client`](../orpc-ws-client) — the WS core this adapter binds
-- [`@orpc-ws/oidc-react`](../orpc-ws-oidc-react) — the sibling OIDC-auth adapter

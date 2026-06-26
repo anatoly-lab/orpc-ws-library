@@ -11,9 +11,12 @@
 // `waitForKeycloakRedirect` matches any URL containing `/realms/` —
 // covers the login page (`.../realms/<realm>/protocol/openid-connect/auth`)
 // AND the callback intermediate (`.../realms/<realm>/login-actions/...`).
-// The previous version that also matched `/auth/` was for an app whose
-// own page lives at `/auth/...`; our demo uses `/auth/callback` so we
-// avoid that prefix to prevent false-positive matches.
+//
+// In cookie-BFF the OAuth `code` lands on the SERVER's `/auth/callback`
+// (`http://localhost:18083/auth/callback`), NOT a SPA route — the browser only
+// transits Keycloak, then the server 302s it back to the SPA root. Matching on
+// `/realms/` (the Keycloak host) is the reliable "we're on the IdP" signal for
+// both the login and the re-login (no-SSO) assertions.
 
 import type { Page, Locator } from "@playwright/test";
 
@@ -53,8 +56,9 @@ export class LoginPage {
   }
 
   /**
-   * Wait for navigation to a Keycloak realm URL — i.e., the PKCE
-   * authorize redirect has landed and the KC login form is rendering.
+   * Wait for navigation to a Keycloak realm URL — i.e., the server's
+   * /auth/login has 302'd the browser to Keycloak's authorize endpoint and
+   * the KC login form is rendering.
    */
   async waitForKeycloakRedirect(timeout = 20_000): Promise<void> {
     await this.page.waitForURL(/\/realms\//, { timeout });

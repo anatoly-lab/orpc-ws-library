@@ -6,9 +6,9 @@
 //   2. The render gate — visitors with no server session see <SignIn />,
 //      session-holders see the matched child.
 //
-// Unlike the PKCE demo, this app does NOT use `useAuthState` / `RequireAuth`
-// from `@orpc-ws/oidc-react` (it imports no oidc package at all — that is the
-// point of this demo). The "am I signed in?" answer comes from a one-shot
+// Unlike a browser-PKCE SPA, this app does NOT use any reactive auth-state
+// hook or auth-guard component (it imports no auth-core package at all — that
+// is the point of this demo). The "am I signed in?" answer comes from a one-shot
 // `auth.bootstrap()` against the server session, held in local component state.
 //
 // Why a layout route and not a wrapper component: react-router renders the

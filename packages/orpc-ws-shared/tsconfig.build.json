@@ -1,9 +1,19 @@
 {
-  // tshy build config — see packages/oidc-pkce/tsconfig.build.json for the
-  // full rationale. `verbatimModuleSyntax: false` lets tshy's CommonJS pass
-  // emit `require`/`exports` from ESM source without TS1286; `incremental`
-  // off avoids a buildinfo path that points outside tshy's relocated outDir.
-  // `typecheck` still uses the strict ESM-only `tsconfig.json`.
+  // tshy build config. Extends the package's editor/typecheck tsconfig but
+  // relaxes two things that conflict with tshy's dual ESM+CJS emit:
+  //
+  // 1. `verbatimModuleSyntax: false` — tshy compiles the SAME source a second
+  //    time as CommonJS (it drops a `{"type":"commonjs"}` src/package.json for
+  //    the CJS pass). Under NodeNext that makes every file CJS-detected, and
+  //    `verbatimModuleSyntax` then forbids ESM `import`/`export` syntax in a
+  //    CJS file (TS1286). Dev-time strictness is unaffected: `typecheck` still
+  //    runs the ESM-only `tsconfig.json` with verbatim ON.
+  // 2. `tsBuildInfoFile`/`incremental` off — tshy relocates `outDir` to
+  //    `.tshy-build`, so a hard-coded `./dist/.tsbuildinfo` would point outside
+  //    the build tree.
+  //
+  // This is the canonical copy; the sibling packages' tsconfig.build.json
+  // files point here for the full rationale.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "verbatimModuleSyntax": false,

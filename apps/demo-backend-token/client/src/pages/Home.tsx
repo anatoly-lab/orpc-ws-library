@@ -6,11 +6,11 @@
 // identity, connection state, ping/echo/getUser buttons, live tick, image
 // upload, sign-out.
 //
-// Identity DIFFERENCE from the PKCE demo: there is no client-side token to
-// decode here — the browser holds only an opaque access token. So the "who am
-// I" line comes from the `getUser()` WS PROCEDURE (server round-trip) rather
-// than from a library `authClient.getUser()` claim parse. It is fetched once on
-// connect and rendered into the same `user-email` testid the PKCE demo uses.
+// Identity model: there is no client-side token to decode here — the browser
+// holds only an opaque access token. So the "who am I" line comes from the
+// `getUser()` WS PROCEDURE (server round-trip) rather than from a browser-side
+// claim parse. It is fetched once on connect and rendered into the
+// `user-email` testid.
 //
 // Every interactive element carries a `data-testid` for Playwright. Selectors
 // are intentionally simple — no class chains, no nth-child.

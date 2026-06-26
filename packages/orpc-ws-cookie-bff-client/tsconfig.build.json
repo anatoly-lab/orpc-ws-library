@@ -1,5 +1,5 @@
 {
-  // tshy build config — see packages/oidc-pkce/tsconfig.build.json for the
+  // tshy build config — see packages/orpc-ws-shared/tsconfig.build.json for the
   // full rationale. `verbatimModuleSyntax: false` lets tshy's CommonJS pass
   // emit `require`/`exports` from ESM source without TS1286; `incremental`
   // off avoids a buildinfo path that points outside tshy's relocated outDir.

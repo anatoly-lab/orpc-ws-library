@@ -7,8 +7,8 @@ import baseConfig from "../../vitest.config.base.ts";
 // globals, so the runner needs a DOM (see CLAUDE.md "Test runner: vitest").
 // happy-dom is lighter and faster than jsdom for these assertions.
 //
-// No `setupFiles` and no `.tsx` globs: the React adapter moved out to
-// `@orpc-ws/oidc-react`, so this core no longer has JSX tests or
+// No `setupFiles` and no `.tsx` globs: the React adapter lives in the
+// sibling `@orpc-ws/react`, so this core has no JSX tests or
 // jest-dom matchers.
 export default mergeConfig(
   baseConfig,

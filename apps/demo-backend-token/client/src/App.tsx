@@ -12,8 +12,8 @@ export function App(): ReactElement {
             inherits it. Add future authed pages here and they are guarded for
             free.
 
-            There is NO `/auth/callback` route here (unlike the PKCE demo): in
-            backend-token mode the SERVER handles the OIDC callback, sets the
+            There is NO `/auth/callback` route here (unlike a browser-PKCE
+            SPA): in backend-token mode the SERVER handles the OIDC callback, sets the
             `sid` cookie, and 302s the browser straight back to "/". The SPA
             never sees an authorization code. */}
         <Route element={<AppLayout />}>

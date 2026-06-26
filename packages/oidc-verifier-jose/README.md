@@ -1,12 +1,14 @@
 # `@orpc-ws/oidc-verifier-jose`
 
-Server-side OIDC access-token verifier. Uses OIDC Discovery so it works
-against any compliant IdP — Keycloak, Auth0, Okta, Cognito, Microsoft.
-Produces a `VerifyClient` callback that drops directly into
-`@orpc-ws/server`'s `verifyClient` option.
+Server-side OIDC access-token verifier for the **backend-token / native
+path**: a native, mobile, or server client obtains a Bearer access token
+from your IdP and sends it over the WS handshake (`?token=`); this verifier
+validates it server-side. Uses OIDC Discovery so it works against any
+compliant IdP — Keycloak, Auth0, Okta, Cognito, Microsoft. Produces a
+`VerifyClient` callback that drops directly into `@orpc-ws/server`'s
+`verifyClient` option.
 
-Node-only. The browser-side counterpart is
-[`@orpc-ws/oidc-pkce`](../oidc-pkce/README.md).
+Node-only.
 
 ## Install
 
@@ -151,5 +153,4 @@ createOidcVerifyClient({
 
 - Top-level [README](../../README.md)
 - [`@orpc-ws/server`](../orpc-ws-server/README.md) — paired server (consumes `VerifyClient`)
-- [`@orpc-ws/oidc-pkce`](../oidc-pkce/README.md) — browser-side counterpart
 - [src/index.ts](./src/index.ts) — full export surface

@@ -1,6 +1,6 @@
 # Releasing `@orpc-ws/*`
 
-How to cut and publish a release of the eight `@orpc-ws/*` packages. The
+How to cut and publish a release of the nine `@orpc-ws/*` packages. The
 monorepo is **lockstep-versioned** via [Changesets](https://github.com/changesets/changesets):
 every published package shares one identical version and they all publish
 together. Publishing is **tag-triggered** — Changesets is kept purely as a
@@ -26,20 +26,21 @@ local versioning + changelog tool; pushing an `v*` tag is what ships to npm.
 
 ## Lockstep versioning model
 
-All eight published packages always carry the **same** version and publish as
+All nine published packages always carry the **same** version and publish as
 a unit:
 
 - `@orpc-ws/shared`
 - `@orpc-ws/client`
 - `@orpc-ws/react`
 - `@orpc-ws/server`
-- `@orpc-ws/oidc-pkce`
-- `@orpc-ws/oidc-react`
 - `@orpc-ws/server-nestjs`
 - `@orpc-ws/oidc-verifier-jose`
+- `@orpc-ws/cookie-bff`
+- `@orpc-ws/cookie-bff-nestjs`
+- `@orpc-ws/cookie-bff-client`
 
 Lockstep is enforced by the Changesets `fixed` group in `.changeset/config.json`
-— a release of any one package bumps all eight to the same version. Internal
+— a release of any one package bumps all nine to the same version. Internal
 cross-package deps use the **`workspace:*`** protocol; `pnpm publish` rewrites
 each to the exact just-published version, so an adapter never drifts from the
 core version it was built against.
@@ -61,7 +62,7 @@ pnpm changeset
 ```
 
 Pick the bump type (patch / minor / major) and write a one-line summary. Because
-of the `fixed` group you only need to select one package — all eight move
+of the `fixed` group you only need to select one package — all nine move
 together — but the summary is what lands in the CHANGELOGs. Commit the generated
 `.changeset/*.md` file alongside your change. (A PR with no user-facing change
 needs no changeset.) Merge to `main` as usual; nothing publishes yet.
@@ -76,7 +77,7 @@ pnpm version-packages   # = `changeset version`
 
 This:
 
-- bumps all eight packages in lockstep,
+- bumps all nine packages in lockstep,
 - rewrites internal `workspace:*` deps,
 - folds the changeset summaries into each `CHANGELOG.md`,
 - and deletes the consumed `.changeset/*.md` files.
@@ -148,7 +149,7 @@ OIDC (a present-but-empty token would bypass OIDC and 404). Provenance is
 automatic.
 
 > **Do not rename `npm-publish.yml`.** The npmjs.org trusted-publisher bindings
-> for all eight packages are keyed to this exact workflow filename; renaming it
+> for all nine packages are keyed to this exact workflow filename; renaming it
 > breaks OIDC authorization. (The binding matches on repo + workflow filename,
 > **not** on branch/ref — which is why moving the trigger from `push: main` to
 > `push: tags: v*` authorizes identically, no re-registration needed.)

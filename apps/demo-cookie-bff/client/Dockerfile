@@ -1,16 +1,20 @@
-# Multi-stage build for @demo/pkce-client (Vite + React → static, served by nginx).
+# Multi-stage build for @demo/cookie-bff-client (Vite + React → static, nginx).
 #
 # Built from the REPO ROOT so `turbo prune` sees every workspace:
-#   docker build -f apps/demo-pkce/client/Dockerfile \
-#     --build-arg VITE_OIDC_ISSUER_URL=... \
-#     --build-arg VITE_OIDC_CLIENT_ID=... \
+#   docker build -f apps/demo-cookie-bff/client/Dockerfile \
 #     --build-arg VITE_WS_URL=... \
-#     --build-arg VITE_UPLOAD_URL=... \
+#     --build-arg VITE_SERVER_ORIGIN=... \
 #     -t orpc-ws-e2e/spa .
 #
 # The VITE_* values are INLINED at `vite build` time (Vite env rules), so
 # they are baked into the static bundle here — not read at container
-# runtime. Re-target a different IdP / server by rebuilding with new args.
+# runtime. Re-target a different server origin by rebuilding with new args.
+#
+# DIFFERENCE from the old PKCE client: cookie-BFF holds NO token in the
+# browser, so there is NO VITE_OIDC_* and NO VITE_UPLOAD_URL. The SPA only
+# needs to know where the WS lives (VITE_WS_URL) and where the server's
+# /auth/* endpoints are (VITE_SERVER_ORIGIN). The httpOnly `sid` cookie does
+# the rest.
 
 # ── base ──────────────────────────────────────────────────────────────
 FROM node:22.22-alpine AS base
@@ -24,7 +28,7 @@ WORKDIR /app
 # ── pruner ────────────────────────────────────────────────────────────
 FROM base AS pruner
 COPY . .
-RUN turbo prune @demo/pkce-client --docker
+RUN turbo prune @demo/cookie-bff-client --docker
 
 # ── builder ───────────────────────────────────────────────────────────
 FROM base AS builder
@@ -36,20 +40,16 @@ COPY --from=pruner /app/out/full/ .
 
 # Build-time SPA config. Declared as ARGs and surfaced as ENV before the
 # build so `vite build` inlines them into the bundle.
-ARG VITE_OIDC_ISSUER_URL
-ARG VITE_OIDC_CLIENT_ID
 ARG VITE_WS_URL
-ARG VITE_UPLOAD_URL
-ENV VITE_OIDC_ISSUER_URL=$VITE_OIDC_ISSUER_URL
-ENV VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
+ARG VITE_SERVER_ORIGIN
 ENV VITE_WS_URL=$VITE_WS_URL
-ENV VITE_UPLOAD_URL=$VITE_UPLOAD_URL
+ENV VITE_SERVER_ORIGIN=$VITE_SERVER_ORIGIN
 
-RUN turbo run build --filter=@demo/pkce-client
+RUN turbo run build --filter=@demo/cookie-bff-client
 
 # ── runner ────────────────────────────────────────────────────────────
 FROM nginx:alpine AS runner
 RUN rm /etc/nginx/conf.d/default.conf
-COPY apps/demo-pkce/client/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/apps/demo-pkce/client/dist /usr/share/nginx/html
+COPY apps/demo-cookie-bff/client/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/apps/demo-cookie-bff/client/dist /usr/share/nginx/html
 EXPOSE 80

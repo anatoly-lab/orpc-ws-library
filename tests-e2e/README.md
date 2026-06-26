@@ -1,15 +1,23 @@
 # `@repo/tests-e2e`
 
 Playwright E2E suite for the `orpc-ws-*` library family. Drives the
-demo SPA + demo NestJS server against a real Keycloak (via
-Testcontainers).
+**cookie-BFF** demo SPA + demo NestJS server against a real Keycloak
+(via Testcontainers).
+
+In the cookie-BFF model the **server** runs the whole OAuth flow and
+holds all tokens server-side; the browser only ever holds an opaque
+httpOnly `sid` session cookie, which authenticates both the `/auth/*`
+HTTP calls and the WS handshake (there is **no** `?token=`).
 
 ## What it covers
 
-- `workflows/smoke.spec.ts` — PKCE login → WS connect → ORPC ping →
-  ORPC echo. The single non-negotiable gate.
-- `workflows/auth.spec.ts` — login → logout (incl. KC end-session) →
-  re-login. Verifies token AND session cookie are killed.
+- `workflows/smoke.spec.ts` — server-side OIDC login → `sid` cookie →
+  WS connect (cookie rides the upgrade) → ORPC ping → ORPC echo with
+  the cookie-derived auth context. The single non-negotiable gate.
+- `workflows/auth.spec.ts` — login → logout → re-login. Asserts the
+  `sid` cookie is cleared from the browser context (via
+  `context.cookies()`) AND that Keycloak's session was ended (a fresh
+  signin lands back on the login form, not a silent SSO bypass).
 
 ## Requirements
 
@@ -47,22 +55,45 @@ message and exits 0. Use `test:e2e` to actually run Playwright.
 
 ## Architecture
 
-- `setup/containers.ts` — Testcontainers wrapper around Keycloak
-  26.5.5. Pins the host port to `18080` so the SPA's
-  `VITE_OIDC_ISSUER_URL` (inlined at build time) and the server's
-  `OIDC_ISSUER_URL` (read at process start) match a known URL. Waits
-  on `/realms/orpc-ws-demo` (NOT `/health/ready`, which goes green
-  before `--import-realm` finishes).
-- `setup/global-setup.ts` / `global-teardown.ts` — Boot/stop the
-  WHOLE stack once per run. There is no Playwright `webServer`: all
-  three tiers (Keycloak + demo-server + demo-pkce SPA) come up as
-  Docker containers via Testcontainers on a shared network in
-  `global-setup.ts` (`startStack()` in `containers.ts`), then each
-  host-facing health endpoint is polled until ready. The demo-server
-  runs its containerized PKCE entry (`dist/main-pkce.js`) on `:18081`
-  (the server is multi-mode — `main-pkce.ts` / `main-backend-token.ts` /
-  `main-cookie-bff.ts` — but only PKCE is containerized for e2e), and
-  the demo-pkce SPA is served by nginx on `:4173` from a build that
-  baked the `VITE_*` issuer/client/WS/upload URLs at image-build time.
-- `pages/` — Page Objects for the SPA and Keycloak login form.
+All three tiers come up as Docker containers via Testcontainers on a
+shared network in `global-setup.ts` (`startStack()` in `containers.ts`).
+There is no Playwright `webServer`.
+
+- `setup/containers.ts` — Testcontainers orchestration of Keycloak +
+  the cookie-BFF server + the cookie-BFF SPA. Pins the host ports
+  (Keycloak `18080`, server `18083`, SPA `4173`) so the SPA's baked
+  `VITE_*` URLs and the server's registered redirect URI line up with
+  known fixed URLs. Implements the **single-issuer model**: the BROWSER
+  is redirected to Keycloak at the PUBLIC url
+  (`http://localhost:18080/realms/orpc-ws-demo`), while the SERVER
+  reaches Keycloak for discovery / JWKS / the server-side code exchange
+  over the docker net (`http://keycloak:8080/...`). Keycloak pins its
+  hostname so the issuer it stamps and advertises is the PUBLIC url from
+  both paths. Waits on `/realms/orpc-ws-demo` (NOT `/health/ready`,
+  which goes green before `--import-realm` finishes).
+  - **Server runtime env** (injected by `containers.ts`, read at process
+    start): `PORT`, `HOST`, `OIDC_ISSUER_URL` (public issuer),
+    `OIDC_DISCOVERY_URL` (internal docker-net host),
+    `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URI`
+    (`http://localhost:18083/auth/callback` — Keycloak redirects the
+    browser here), `SPA_ORIGIN_COOKIE_BFF` (`http://localhost:4173` — the
+    post-callback + post-logout redirect target AND the CORS / WS Origin
+    allowlist), `SESSION_COOKIE_NAME=sid`, and `SESSION_ENC_KEY` (a fixed
+    demo key — fine for an ephemeral run).
+  - **SPA build args** (baked at `vite build` time): `VITE_WS_URL`
+    (`ws://localhost:18083/ws`) and `VITE_SERVER_ORIGIN`
+    (`http://localhost:18083`). No OIDC / upload args — the cookie-BFF SPA
+    holds no token.
+- `setup/global-setup.ts` / `global-teardown.ts` — Boot/stop the whole
+  stack once per run, then poll each host-facing health endpoint
+  (`/health/live` on the server, `/health` on the SPA's nginx) until
+  ready.
+- `setup/keycloak/orpc-ws-demo-realm.json` — the imported realm. The
+  `orpc-ws-demo-spa` client is a PUBLIC PKCE client (no secret); the
+  server runs its server-side code exchange against it. Registered
+  redirect URIs include the SERVER callback
+  `http://localhost:18083/auth/callback`; post-logout redirect URIs
+  include the SPA root `http://localhost:4173/*`.
+- `pages/` — Page Objects for the SPA (signed-out + signed-in branches)
+  and the Keycloak login form.
 - `fixtures/` — Seed test data + optional `authenticatedPage` fixture.

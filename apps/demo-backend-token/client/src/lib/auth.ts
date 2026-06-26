@@ -1,9 +1,9 @@
 // Tiny client-side auth glue for the backend-token mode.
 //
-// Unlike the PKCE demo (which leans on `@orpc-ws/oidc-pkce`'s reactive auth
-// store), this app deliberately imports NO oidc package — the whole point of
-// this demo is the WS-only consumer path. So the "am I signed in?" answer is
-// derived here from the server session, not from a library store:
+// Unlike a browser-PKCE SPA (which would lean on a reactive auth store in the
+// browser), this app deliberately imports NO auth-core package — the whole
+// point of this demo is the WS-only consumer path. So the "am I signed in?"
+// answer is derived here from the server session, not from a library store:
 //
 //   - `bootstrap()` delegates to the provider's `/auth/token` pull and reports
 //     whether a server session exists. AppLayout calls it once on mount.

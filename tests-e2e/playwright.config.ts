@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// The full stack (Keycloak + demo-server + demo-pkce) is brought up as Docker
+// The full cookie-BFF stack (Keycloak + server + SPA) is brought up as Docker
 // containers by globalSetup (setup/containers.ts) — NOT by Playwright's
 // `webServer`. The old `webServer` + `reuseExistingServer` approach silently
 // reused a stale host dev server pointed at the wrong Keycloak, which was the

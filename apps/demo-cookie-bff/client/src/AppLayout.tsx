@@ -6,9 +6,9 @@
 //   2. The render gate — visitors with no server session see <SignIn />,
 //      session-holders see the matched child.
 //
-// Unlike the PKCE demo, this app does NOT use `useAuthState` / `RequireAuth`
-// from `@orpc-ws/oidc-react` (it imports no oidc package at all — that is the
-// point of this demo). The "am I signed in?" answer comes from a one-shot
+// Unlike a browser-PKCE SPA, this app does NOT use any reactive auth-state
+// hook or auth-guard component (it imports no auth-core package at all — that
+// is the point of this demo). The "am I signed in?" answer comes from a one-shot
 // `auth.me()` against the server session. The resolved identity is handed down
 // to the child via the router's <Outlet /> context, so Home can render it
 // WITHOUT a `getUser()` round-trip (cookie-bff already proved identity on the
