@@ -1,5 +1,15 @@
 # @orpc-ws/cookie-bff-nestjs
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [ef68d30]
+  - @orpc-ws/shared@0.6.0
+  - @orpc-ws/cookie-bff@0.6.0
+  - @orpc-ws/server@0.6.0
+  - @orpc-ws/server-nestjs@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes
