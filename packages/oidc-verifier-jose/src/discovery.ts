@@ -189,6 +189,38 @@ function validate(raw: unknown, issuerUrl: string): OidcMetadata {
 }
 
 /**
+ * Lower-case ONLY the origin (scheme + host + port) of a URL string, leaving
+ * the path + query untouched. Returns `null` for a non-URL string.
+ *
+ * Why split origin from the rest: per RFC 3986 the scheme and host are
+ * case-INsensitive, but the path and query ARE case-sensitive. The WHATWG
+ * `URL.origin` is already normalized to lower-case, so we use it as the
+ * comparison key for the host half while preserving the path/query of the
+ * original string verbatim (NOT `URL.pathname`, which would percent-encode /
+ * normalize — we want a host-case fix only, not a full canonicalization).
+ */
+function originCaseFold(url: string): { origin: string; rest: string } | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const schemeSep = url.indexOf("://");
+  if (schemeSep === -1) return null;
+  const authStart = schemeSep + 3;
+  let restStart = url.length;
+  for (let i = authStart; i < url.length; i++) {
+    const c = url[i];
+    if (c === "/" || c === "?" || c === "#") {
+      restStart = i;
+      break;
+    }
+  }
+  return { origin: parsed.origin, rest: url.slice(restStart) };
+}
+
+/**
  * Resolve the URL to actually fetch JWKS from in a split-URL setup.
  *
  * The discovery doc's `jwks_uri` is advertised on the PUBLIC issuer
@@ -198,9 +230,12 @@ function validate(raw: unknown, issuerUrl: string): OidcMetadata {
  * internally-reachable host. A `jwks_uri` on any other host (CDN-hosted
  * keys, non-split providers) is returned as-is.
  *
- * Prefix matching is path-segment-safe: `issuerUrl` must be followed by
- * `/` (or match exactly) so `http://h:80` never claims
- * `http://h:8080/...` as its own.
+ * Host matching is case-INsensitive (RFC 3986 §3.2.2 / §6.2.2.1: scheme +
+ * host are case-insensitive), while the path stays case-SENSITIVE: origins
+ * are compared via the already-lower-cased WHATWG `URL.origin`, then the
+ * path-prefix boundary is checked exactly. Prefix matching is
+ * path-segment-safe: the issuer path must be followed by `/` (or match
+ * exactly) so `http://h:80` never claims `http://h:8080/...` as its own.
  *
  * No-op when `discoveryUrl` equals `issuerUrl` (i.e. the field was
  * omitted) — back-compat fast path.
@@ -213,9 +248,23 @@ export function rewriteJwksUri(
   const publicBase = stripTrailingSlash(issuerUrl);
   const fetchBase = stripTrailingSlash(discoveryUrl);
   if (publicBase === fetchBase) return jwksUri;
-  if (jwksUri === publicBase) return fetchBase;
-  if (jwksUri.startsWith(`${publicBase}/`)) {
-    return fetchBase + jwksUri.slice(publicBase.length);
+
+  const uri = originCaseFold(jwksUri);
+  const base = originCaseFold(publicBase);
+  // If either isn't a parseable URL, fall back to exact-string semantics.
+  if (!uri || !base) {
+    return jwksUri === publicBase ? fetchBase : jwksUri;
+  }
+
+  // Opaque origins (file:/data:/custom schemes) all report `origin` as the
+  // sentinel "null" per WHATWG URL, so two UNRELATED opaque URLs compare equal
+  // — never treat that as the same origin (would wrongly rewrite).
+  if (uri.origin === "null" || base.origin === "null") return jwksUri;
+
+  if (uri.origin !== base.origin) return jwksUri;
+  if (uri.rest === base.rest) return fetchBase;
+  if (uri.rest.startsWith(`${base.rest}/`)) {
+    return fetchBase + uri.rest.slice(base.rest.length);
   }
   return jwksUri;
 }

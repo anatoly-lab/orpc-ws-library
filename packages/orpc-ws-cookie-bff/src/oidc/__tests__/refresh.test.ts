@@ -192,6 +192,64 @@ describe("RefreshManager", () => {
     expect(tokenCalls).toHaveLength(2); // ← in-flight was cleared, not cached
   });
 
+  // Regression (split-horizon): the REFRESH path — not just the initial
+  // code-exchange — must POST to the rewritten INTERNAL token_endpoint. The
+  // IdP advertises everything on the PUBLIC host; the server can only reach
+  // the internal host, so a refresh that targeted the public host would
+  // `fetch failed` exactly like the original code-exchange bug.
+  it("split-horizon: token refresh POSTs to the INTERNAL token endpoint", async () => {
+    const PUBLIC = "http://localhost:18080";
+    const INTERNAL = "http://keycloak:8080";
+    const clock = fakeClock();
+    const cipher = createTokenCipher({ key: KEY });
+    // Discovery advertises the token_endpoint on the PUBLIC host ...
+    const fetcher = fakeFetcher({
+      discovery: {
+        ok: true,
+        status: 200,
+        json: {
+          authorization_endpoint: `${PUBLIC}/realms/demo/protocol/openid-connect/auth`,
+          token_endpoint: `${PUBLIC}/realms/demo/protocol/openid-connect/token`,
+          end_session_endpoint: `${PUBLIC}/realms/demo/protocol/openid-connect/logout`,
+        },
+      },
+      token: { ok: true, status: 200, json: { access_token: "fresh" } },
+    });
+    // ... and the split-horizon policy rewrites the back-channel to INTERNAL.
+    const discovery = new OidcDiscovery(fetcher, {
+      issuerUrl: PUBLIC,
+      discoveryUrl: INTERNAL,
+    });
+    const exchange = new OidcCodeExchange(
+      {
+        issuerUrl: PUBLIC,
+        discoveryUrl: INTERNAL,
+        clientId: "c",
+        redirectUri: `${PUBLIC}/cb`,
+      },
+      { discovery, pkceStore: new InMemoryPkceStore(clock), clock },
+    );
+    const store = new FakeSessionStore<{ id: string }>();
+    const mgr = new RefreshManager({
+      store,
+      cipher,
+      exchange,
+      sessionTtlSeconds: SESSION_TTL_S,
+      clock,
+    });
+    seedSession(store, cipher, "sid-1");
+
+    const res = await mgr.refresh("sid-1");
+    expect(res).toEqual({ ok: true, accessToken: "fresh" });
+
+    // The token POST must have hit the INTERNAL host (rewritten), never PUBLIC.
+    const tokenCall = fetcher.calls.find((c) => c.url.includes("/token"));
+    expect(tokenCall?.url).toBe(
+      `${INTERNAL}/realms/demo/protocol/openid-connect/token`,
+    );
+    expect(tokenCall?.url.startsWith(PUBLIC)).toBe(false);
+  });
+
   it("is terminal when the stored refresh token can't be decrypted (key rotated past grace)", async () => {
     const { mgr, store } = build({
       token: { ok: true, status: 200, json: { access_token: "x" } },

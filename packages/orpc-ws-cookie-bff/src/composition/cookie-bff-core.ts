@@ -57,9 +57,19 @@ export function createCookieBffCore<TUser>(
       : {}),
   });
 
-  const discovery = new OidcDiscovery(fetcher);
   const pkceStore = opts.pkceStore ?? new InMemoryPkceStore(clock);
   const discoveryUrl = opts.keycloak.discoveryUrl ?? opts.keycloak.issuerUrl;
+
+  // Split-horizon: when a distinct internal `discoveryUrl` is configured, the
+  // discovery client rewrites the public-host `token_endpoint` (a server
+  // back-channel call) to the internal host so the code-exchange/refresh POSTs
+  // are reachable from inside the server. Browser-facing endpoints stay public.
+  // No-op for single-URL deployments. Mirrors the jwks_uri rewrite in
+  // `@orpc-ws/oidc-verifier-jose`.
+  const discovery = new OidcDiscovery(fetcher, {
+    issuerUrl: opts.keycloak.issuerUrl,
+    discoveryUrl,
+  });
 
   const exchange = new OidcCodeExchange(
     {

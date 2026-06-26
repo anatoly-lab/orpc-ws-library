@@ -300,4 +300,27 @@ describe("rewriteJwksUri", () => {
       rewriteJwksUri(jwks, "http://public.example:1808", INTERNAL_BASE),
     ).toBe(jwks);
   });
+
+  it("never rewrites an opaque-origin jwks_uri (opaque origins all compare equal as \"null\")", () => {
+    // file:/data:/custom-scheme URLs report origin "null", so two UNRELATED
+    // opaque URLs would falsely match on origin — must stay UNCHANGED.
+    const opaque = "foo://evil/token";
+    expect(rewriteJwksUri(opaque, "foo://issuer/realm", INTERNAL_BASE)).toBe(
+      opaque,
+    );
+  });
+
+  it("matches the host case-INsensitively (RFC 3986: host is case-insensitive)", () => {
+    // The IdP advertises jwks_uri on an UPPER-CASE host; the configured
+    // issuer is lower-case. Per RFC 3986 the host is case-insensitive, so the
+    // same origin must still be rewritten (the host-case-sensitive raw-string
+    // match used to silently no-op). The path is case-SENSITIVE → preserved.
+    expect(
+      rewriteJwksUri(
+        "http://PUBLIC.example:18080/realms/demo/protocol/openid-connect/Certs",
+        PUBLIC_ISSUER,
+        INTERNAL_BASE,
+      ),
+    ).toBe(`${INTERNAL_BASE}/protocol/openid-connect/Certs`);
+  });
 });
