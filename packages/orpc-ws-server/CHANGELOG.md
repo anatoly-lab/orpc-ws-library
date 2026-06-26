@@ -1,5 +1,11 @@
 # @orpc-ws/server
 
+## 0.6.1
+
+### Patch Changes
+
+- @orpc-ws/shared@0.6.1
+
 ## 0.6.0
 
 ### Patch Changes
