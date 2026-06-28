@@ -10,13 +10,20 @@
 // checked at /auth/callback. This is ADDITIVE to the server-side check —
 // defense in depth.
 //
-// SameSite: Strict by default (Decision #8) — viable because the IdP is a
-// subdomain of the same registrable site, so the IdP→/callback redirect is
-// same-site and the cookie is sent. DEPLOYMENT DEPENDENCY: if Keycloak ever
-// moved to a DIFFERENT registrable domain, the callback would become a
-// cross-site top-level GET and this cookie would have to drop to `lax`
-// (Strict is withheld on cross-site navigations) — expose `sameSite` so that
-// retune is config, not a code change.
+// SameSite: Lax by default (Decision #8, revised). This cookie has to survive a
+// TOP-LEVEL GET redirect from the IdP back to `/auth/callback`, and ANY
+// cross-site hop in the login redirect chain makes that callback
+// cross-site-initiated — at which point a `Strict` cookie is WITHHELD on the
+// navigation and `oauthStateMatches` rejects with "browser binding failed"
+// (HTTP 400). Such a hop arises not only if Keycloak sits on a DIFFERENT
+// registrable domain, but also when Keycloak brokers an EXTERNAL/social IdP
+// (Google, GitHub, …): the final redirect back to the callback is then
+// initiated from that off-site IdP. `Lax` is the correct standard default for
+// an OAuth state/callback cookie — it is sent on top-level GET navigations yet
+// still blocked on cross-site UNSAFE-method requests, so the login-CSRF /
+// browser-binding protection is fully preserved. `sameSite` stays overridable
+// (e.g. back to "strict" for a verified strictly-same-registrable-site
+// topology) so the retune is config, not a code change.
 
 import {
   clearCookie,
@@ -43,7 +50,12 @@ export interface OAuthStateCookieOptions {
   cookieName?: string;
   /** Max-Age in seconds. Defaults to 600 (10 min). */
   maxAge?: number;
-  /** Defaults to "strict" (Decision #8). Drop to "lax" only if the IdP moves off-site. */
+  /**
+   * Defaults to "lax" (Decision #8, revised) — sent on the top-level GET
+   * callback redirect even when the login chain has a cross-site hop, while
+   * still blocking cross-site unsafe-method requests. Override to "strict" only
+   * for a verified strictly-same-registrable-site topology.
+   */
   sameSite?: "lax" | "strict";
   /** Defaults to true. Off only for localhost-http demos. */
   secure?: boolean;
@@ -52,7 +64,10 @@ export interface OAuthStateCookieOptions {
 function baseAttrs(opts: OAuthStateCookieOptions): SerializeCookieOptions {
   return {
     httpOnly: true,
-    sameSite: opts.sameSite ?? "strict",
+    // Default LAX (Decision #8, revised) — see the file header. The composition
+    // root resolves this once and passes it down explicitly, but the function's
+    // own default must agree so a direct caller ships the same safe value.
+    sameSite: opts.sameSite ?? "lax",
     secure: opts.secure ?? true,
     path: "/",
   };

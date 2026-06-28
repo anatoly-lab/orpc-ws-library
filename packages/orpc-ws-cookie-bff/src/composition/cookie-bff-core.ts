@@ -26,6 +26,14 @@ import type { CookieBffOptions } from "./options.js";
 
 const DEFAULT_SESSION_TTL_S = 60 * 60 * 24 * 30; // 30 days (Decision #11/#12)
 const DEFAULT_SESSION_COOKIE = "__Host-sid";
+const DEFAULT_SESSION_SAME_SITE = "strict" as const; // Decision #7 (session cookie)
+// Decision #8 (revised): the oauth_state cookie defaults to LAX, DECOUPLED from
+// the session cookie's SameSite. It rides a top-level GET redirect back to
+// /auth/callback, and any cross-site hop in the login chain (off-site Keycloak
+// or a brokered external IdP) would make a `strict` cookie be withheld on that
+// navigation → "browser binding failed" (HTTP 400). `lax` is sent on top-level
+// GETs yet still blocks cross-site unsafe methods, so login-CSRF is preserved.
+const DEFAULT_STATE_SAME_SITE = "lax" as const;
 
 /** The four transport-agnostic `/auth/*` handlers (§D.4). */
 export interface CookieBffCore {
@@ -37,8 +45,9 @@ export interface CookieBffCore {
 
 /**
  * Build the cookie-BFF core from the consumer's options. Applies all §D.7
- * defaults (cookie name `__Host-sid`, SameSite=Strict, Secure, hostPrefix,
- * 30-day session window, `fetch`/`systemClock`/`noopLogger`).
+ * defaults (cookie name `__Host-sid`, session-cookie SameSite=Strict,
+ * oauth_state-cookie SameSite=Lax — decoupled, see `DEFAULT_STATE_SAME_SITE` —
+ * Secure, hostPrefix, 30-day session window, `fetch`/`systemClock`/`noopLogger`).
  */
 export function createCookieBffCore<TUser>(
   opts: CookieBffOptions<TUser>,
@@ -90,7 +99,11 @@ export function createCookieBffCore<TUser>(
     { discovery, pkceStore, clock },
   );
 
-  const sameSite = opts.cookies?.sameSite ?? "strict";
+  const sameSite = opts.cookies?.sameSite ?? DEFAULT_SESSION_SAME_SITE;
+  // Resolved ONCE here (single source of truth) and passed down explicitly to
+  // the state cookie. Independent of `sameSite` above — setting `cookies.sameSite`
+  // for the session cookie must NOT change the state cookie's value.
+  const stateSameSite = opts.cookies?.stateSameSite ?? DEFAULT_STATE_SAME_SITE;
   const secure = opts.cookies?.secure ?? true;
 
   const context: HandlerContext<TUser> = {
@@ -109,7 +122,7 @@ export function createCookieBffCore<TUser>(
       hostPrefix: opts.cookies?.hostPrefix ?? true,
       cookieMaxAge: opts.cookies?.cookieMaxAge ?? sessionTtlSeconds,
     },
-    stateCookie: { sameSite, secure },
+    stateCookie: { sameSite: stateSameSite, secure },
     sessionTtlSeconds,
     slideSessionOnActivity: opts.slideSessionOnActivity ?? true,
     spaRedirectUri: opts.spaRedirectUri,

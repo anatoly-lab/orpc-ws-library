@@ -38,7 +38,12 @@ export interface HandlerContext<TUser> {
   /** Fire-and-forget auth-flow metrics hooks (best-effort; never break a flow). */
   authEvents: AuthEvents<TUser>;
   cookies: ResolvedCookieConfig;
-  /** oauth_state attributes (mirror the session cookie's sameSite/secure). */
+  /**
+   * oauth_state cookie attributes. `sameSite` is DECOUPLED from the session
+   * cookie (defaults to "lax", see `DEFAULT_STATE_SAME_SITE`) because the state
+   * cookie rides a top-level GET callback redirect that a cross-site login hop
+   * would make cross-site-initiated; `secure` is shared with the session cookie.
+   */
   stateCookie: { sameSite: "lax" | "strict"; secure: boolean };
   sessionTtlSeconds: number;
   /** Re-stamp `sessionExpiresAt` on `/me` (and verifier) — rolling window. */

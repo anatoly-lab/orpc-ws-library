@@ -8,18 +8,25 @@ import {
 } from "../oauth-state.js";
 
 describe("serializeOAuthStateCookie", () => {
-  it("is httpOnly, Secure, Strict with a short default Max-Age", () => {
+  it("is httpOnly, Secure, Lax by default with a short default Max-Age", () => {
+    // Lax (NOT Strict) is the default: the state cookie rides a top-level GET
+    // callback redirect that a cross-site login hop would otherwise withhold a
+    // Strict cookie on (Decision #8, revised — see bug-21 regression test).
     const c = serializeOAuthStateCookie("state-123");
     expect(c).toContain(`${OAUTH_STATE_COOKIE}=state-123`);
     expect(c).toContain("HttpOnly");
     expect(c).toContain("Secure");
-    expect(c).toContain("SameSite=Strict");
+    expect(c).toContain("SameSite=Lax");
     expect(c).toContain("Max-Age=600");
   });
 
-  it("can drop to Lax / non-secure (off-site IdP or localhost demo)", () => {
-    const c = serializeOAuthStateCookie("s", { sameSite: "lax", secure: false });
-    expect(c).toContain("SameSite=Lax");
+  it("can be set to Strict (verified same-registrable-site topology)", () => {
+    const c = serializeOAuthStateCookie("s", { sameSite: "strict" });
+    expect(c).toContain("SameSite=Strict");
+  });
+
+  it("can drop Secure for a localhost-http demo", () => {
+    const c = serializeOAuthStateCookie("s", { secure: false });
     expect(c).not.toContain("Secure");
   });
 });

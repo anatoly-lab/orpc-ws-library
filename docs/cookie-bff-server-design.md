@@ -36,8 +36,8 @@ sections below expand on the load-bearing ones.
 | 4  | Token exchange | **Server-side PKCE** at `/auth/callback`; server swaps the one-time code for **both** access + refresh tokens. | ✅ |
 | 5  | OAuth callback location | **Moves to the API** — Keycloak `redirect_uri` becomes `api.ankimcp.ai/auth/callback` (a server endpoint). **DELETE the SPA callback page.** (Keycloak redirect-URI config change.) | ✅ |
 | 6  | Session cookie | **`__Host-sid`** — host-only, `Secure`, `httpOnly`, `SameSite=Strict`, `Path=/`. **PERSISTENT** (`Max-Age` = 30d), slid on activity. NOT a browser-session cookie. | ✅ |
-| 7  | `SameSite` | **`Strict`** — viable because web/api/auth are all subdomains of `ankimcp.ai` (same registrable site). | ✅ |
-| 8  | Login-state cookie | **`oauth_state`**, `SameSite=Strict`, short `Max-Age` (~10 min), httpOnly. (Would drop to `Lax` only if Keycloak moved to a different registrable domain — a deployment dependency.) | ✅ |
+| 7  | `SameSite` (session `sid` cookie) | **`Strict`** — viable because web/api/auth are all subdomains of `ankimcp.ai` (same registrable site). Applies to the SESSION cookie only (see Decision #8 for the state cookie). | ✅ |
+| 8  | Login-state cookie | **`oauth_state`**, **`SameSite=Lax`** (DECOUPLED from Decision #7 — its own `cookies.stateSameSite` knob, default `lax`), short `Max-Age` (~10 min), httpOnly. **REVISED:** was `Strict`; any cross-site hop in the login redirect chain (off-registrable-domain Keycloak OR a brokered external/social IdP) makes the top-level GET back to `/auth/callback` cross-site-initiated, so a `Strict` cookie is withheld and the browser-binding check 400s. `Lax` is the correct standard default for an OAuth state/callback cookie (sent on top-level GETs, still blocks cross-site unsafe methods). Override to `strict` only for a verified strictly-same-registrable-site topology. | ✅ |
 | 9  | CSRF for authed mutating POSTs | **Synchronizer-token CSRF** — token minted at /callback, stored in the session, returned in the /auth/me body, echoed in X-CSRF-Token, validated header-vs-session (constant-time). | ✅ |
 | 10 | WS Origin check | **Origin allowlist in the verifier** — same-origin policy does NOT cover WS. | ✅ |
 | 11 | Session lifetime | **30 days**, mirroring Keycloak's Remember-Me SSO session exactly (`ssoSessionMaxLifespanRememberMe = ssoSessionIdleTimeoutRememberMe = 2,592,000s`). Idle == max → 30-day rolling window capped at 30 days from login. | ✅ |
@@ -133,7 +133,7 @@ drawer behind the counter.
 LOGIN
   browser → GET api.ankimcp.ai/auth/login
   server  → mint state + PKCE verifier (store server-side, e.g. NATS KV oauth_states)
-          → Set-Cookie: oauth_state=<state>   (httpOnly, Secure, SameSite=Strict, ~10min — login-CSRF binding)
+          → Set-Cookie: oauth_state=<state>   (httpOnly, Secure, SameSite=Lax, ~10min — login-CSRF binding)
           → 302 to Keycloak authorize endpoint (code_challenge S256, scope "openid profile email")
 
 CALLBACK  (← NOW ON THE API, not the SPA — Decision #5)
@@ -593,7 +593,8 @@ export interface CookieBffOptions<TUser> {
 
   cookies?: {
     sessionCookieName?: string;                     // default "__Host-sid"
-    sameSite?: "lax" | "strict";                    // default "strict" (Decision #7)
+    sameSite?: "lax" | "strict";                    // SESSION cookie; default "strict" (Decision #7)
+    stateSameSite?: "lax" | "strict";               // oauth_state cookie; default "lax" (Decision #8, revised) — DECOUPLED from `sameSite`
     secure?: boolean;                               // default true
     hostPrefix?: boolean;                           // default true; enforces __Host- rules
     cookieMaxAge?: number;                          // seconds; default = sessionTtlSeconds (default 30d)
@@ -923,12 +924,22 @@ The demo is a teaching reference; confirmed gaps (all verified in the demo sourc
   and auth.ankimcp.ai (Keycloak) are all subdomains of `ankimcp.ai` → **same
   registrable site**. The IdP→`/callback` redirect is therefore same-site and
   `Strict` does not withhold the cookie.
-- **Login CSRF cookie (Decision #8):** `oauth_state`, `httpOnly`, `Secure`,
-  `SameSite=Strict`, short `Max-Age` (~10 min), constant-time compare — additive
-  to the server-side `state → verifier` check (RFC 9700 §4.7 defense-in-depth).
-  **Deployment dependency:** if Keycloak were ever moved to a *different*
-  registrable domain, `oauth_state` would have to drop to `Lax` (the callback
-  would become cross-site top-level GET). Flag this if the topology changes.
+- **Login CSRF cookie (Decision #8, REVISED):** `oauth_state`, `httpOnly`,
+  `Secure`, **`SameSite=Lax` by default** (its own `cookies.stateSameSite` knob,
+  DECOUPLED from the `sid` cookie's `cookies.sameSite`), short `Max-Age`
+  (~10 min), constant-time compare — additive to the server-side
+  `state → verifier` check (RFC 9700 §4.7 defense-in-depth). **Why Lax, not
+  Strict:** this cookie has to ride a **top-level GET** redirect back to
+  `/auth/callback`, and ANY cross-site hop in the login redirect chain makes that
+  callback cross-site-initiated — not only an off-registrable-domain Keycloak,
+  but also Keycloak **brokering an external/social IdP** (Google, GitHub, …),
+  where the final redirect originates off-site. A `Strict` cookie is withheld on
+  such a navigation → the cookie is absent and the browser-binding check rejects
+  with HTTP 400. `Lax` is the correct standard default for an OAuth
+  state/callback cookie: sent on top-level GET navigations yet still blocked on
+  cross-site unsafe-method requests, so the login-CSRF protection is fully
+  preserved. Override to `strict` only for a verified strictly-same-registrable-
+  site topology with no external brokering.
 - **Authed mutating POSTs (Decision #9)** (e.g. `POST /auth/logout`, any future
   authed POST): a **synchronizer-token CSRF** pattern. **AS BUILT:** a 256-bit
   CSRF token is minted server-side at `GET /auth/callback` and **stored in the

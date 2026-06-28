@@ -34,5 +34,6 @@ allowBuilds:
   protobufjs: false # codegen CLI postinstall, unused here
   ssh2: false # native crypto accel (testcontainers/docker) — JS fallback works
   cpu-features: false # optional ssh2 speedup, not required
+  '@swc/core': true # native binary setup for the NestJS-test swc transform
 minimumReleaseAgeExclude:
   - react-router@8.0.1

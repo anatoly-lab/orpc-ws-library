@@ -94,8 +94,9 @@ await revokeUser(sessionStore, wsServer.closeUser, sub);
 
 `createCookieBffCore` returns a `CookieBffCore` — `{ login, callback, me,
 logout }`, each `(req: AuthRequest) => Promise<AuthInstruction>`. It applies
-every default (cookie name `__Host-sid`, SameSite=Strict, Secure, host-prefix,
-30-day session window, global `fetch` / system clock / noop logger).
+every default (cookie name `__Host-sid`, session-cookie SameSite=Strict,
+oauth_state-cookie SameSite=Lax, Secure, host-prefix, 30-day session window,
+global `fetch` / system clock / noop logger).
 
 ## Seams you implement
 
@@ -172,6 +173,14 @@ every default (cookie name `__Host-sid`, SameSite=Strict, Secure, host-prefix,
   cross-site attacker can make the cookie ride along but cannot read it to
   populate the header.
 - **`oauth_state` login-CSRF cookie.** Guards the authorization round-trip.
+  Defaults to `SameSite=Lax` (decoupled from the session cookie, overridable via
+  `cookies.stateSameSite`): the callback rides a top-level GET redirect back to
+  `/auth/callback`, and any cross-site hop in the login chain (an
+  off-registrable-domain Keycloak, or Keycloak brokering an external/social IdP)
+  makes that callback cross-site-initiated, so a `Strict` cookie would be
+  withheld and the browser-binding check would reject the login with HTTP 400.
+  `Lax` is sent on top-level GETs but still blocks cross-site unsafe-method
+  requests, so login-CSRF protection holds.
 - **Sliding session window.** `sessionExpiresAt` is re-stamped on each authed
   touch (the WS upgrade and `/auth/me`) when `slideSessionOnActivity` is `true`
   (the default), so the 30-day window rolls rather than being fixed at login.

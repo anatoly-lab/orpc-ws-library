@@ -4,7 +4,8 @@
   "globalDependencies": [
     "tsconfig.base.json",
     "eslint.config.js",
-    "vitest.config.base.ts"
+    "vitest.config.base.ts",
+    "vitest.config.nestjs.ts"
   ],
   "futureFlags": {
     "pruneIncludesGlobalFiles": true
@@ -20,7 +21,7 @@
         "package.json",
         "../../tsconfig.base.json"
       ],
-      "outputs": ["dist/**", "*.tsbuildinfo"],
+      "outputs": ["dist/**", "!dist/node_modules/**", "*.tsbuildinfo"],
       "env": [
         "VITE_OIDC_ISSUER_URL",
         "VITE_OIDC_CLIENT_ID",

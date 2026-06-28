@@ -76,8 +76,25 @@ export interface EndpointOptions {
 export interface CookieOptions {
   /** Session cookie name; default "__Host-sid". */
   sessionCookieName?: string;
-  /** Default "strict" (Decision #7). */
+  /** Default "strict" (Decision #7) — applies to the SESSION (`sid`) cookie only. */
   sameSite?: "lax" | "strict";
+  /**
+   * SameSite for the short-lived `oauth_state` login-CSRF cookie ONLY —
+   * SEPARATE from `sameSite` above and defaulting to "lax" (Decision #8,
+   * revised). The state cookie rides a TOP-LEVEL GET redirect back to
+   * `/auth/callback`, and ANY cross-site hop in the login redirect chain
+   * (off-registrable-domain Keycloak, or a brokered external/social IdP) makes
+   * that callback cross-site-initiated — at which point a `Strict` cookie is
+   * withheld and the browser-binding check rejects the login (HTTP 400). `Lax`
+   * is the correct standard default for an OAuth state/callback cookie: it is
+   * sent on top-level GET navigations yet still blocked on cross-site
+   * unsafe-method requests, so the login-CSRF protection is fully preserved.
+   * Decoupled from the session cookie because the two cookies travel on
+   * different request shapes (the `sid` never rides the IdP→callback redirect).
+   * Override to "strict" only for a verified strictly-same-registrable-site
+   * topology. Default "lax".
+   */
+  stateSameSite?: "lax" | "strict";
   /** Default true. */
   secure?: boolean;
   /** Default true; enforces __Host- invariants (Secure, Path=/, no Domain). */

@@ -1,9 +1,9 @@
 import { mergeConfig, defineConfig } from "vitest/config";
 
-import baseConfig from "../../vitest.config.base.ts";
+import nestjsConfig from "../../vitest.config.nestjs.ts";
 
 export default mergeConfig(
-  baseConfig,
+  nestjsConfig,
   defineConfig({
     test: {
       name: "@orpc-ws/server-nestjs",
