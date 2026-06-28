@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/shared",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Shared seam types/interfaces (Logger, Clock, Rng, heartbeat wire shape) for the @orpc-ws/* family. A published runtime dependency of the cores.",
   "license": "MIT",
   "repository": {

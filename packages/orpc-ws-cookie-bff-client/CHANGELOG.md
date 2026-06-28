@@ -1,5 +1,7 @@
 # @orpc-ws/cookie-bff-client
 
+## 0.7.0
+
 ## 0.6.1
 
 ## 0.6.0

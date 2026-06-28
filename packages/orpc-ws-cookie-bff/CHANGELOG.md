@@ -1,5 +1,16 @@
 # @orpc-ws/cookie-bff
 
+## 0.7.0
+
+### Minor Changes
+
+- 9fa4fc8: Fix: the `oauth_state` login-CSRF cookie now defaults to `SameSite=Lax` (was `Strict`), decoupled from the session cookie's SameSite. The state cookie rides a top-level GET redirect back to `/auth/callback`, and any cross-site hop in the login redirect chain — an off-registrable-domain Keycloak OR Keycloak brokering an external/social IdP (Google, GitHub, …) — makes that callback cross-site-initiated, at which point a `Strict` cookie is withheld and the browser-binding check rejected the login with HTTP 400 ("Invalid OAuth state (browser binding failed)"). `Lax` is the correct standard default for an OAuth state/callback cookie: sent on top-level GET navigations yet still blocked on cross-site unsafe-method requests, so the login-CSRF / browser-binding protection is fully preserved. A new independent `cookies.stateSameSite` option (default `"lax"`) overrides it without touching the session cookie's `cookies.sameSite` (default `"strict"`, unchanged); existing consumers who set `cookies.sameSite` for the `sid` cookie are unaffected.
+
+### Patch Changes
+
+- @orpc-ws/shared@0.7.0
+- @orpc-ws/server@0.7.0
+
 ## 0.6.1
 
 ### Patch Changes

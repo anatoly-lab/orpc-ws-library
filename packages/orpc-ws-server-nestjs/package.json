@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/server-nestjs",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "NestJS adapter for @orpc-ws/server. The only package allowed to import @nestjs/* and reflect-metadata.",
   "license": "MIT",
   "repository": {
