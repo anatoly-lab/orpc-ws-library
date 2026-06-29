@@ -11,6 +11,7 @@
 // index.ts) — so the public authless type can hide fields the class
 // technically accepts but authless must never expose.
 
+import type { AnyContractRouter } from "@orpc/contract";
 import type { Clock, Logger } from "@orpc-ws/shared";
 import type { WebSocket } from "ws";
 
@@ -22,6 +23,10 @@ import type { ConnectionConfig } from "../config/connection-config.js";
 import type { HeartbeatConfig } from "../config/heartbeat-config.js";
 import type { VerifyClient } from "../lifecycle/verify-client-orchestrator.js";
 import type { UploadHttpConfig } from "../upload/http-config.js";
+import type {
+  AuthlessConnection,
+  ServerConnection,
+} from "../state/connection.js";
 
 // ----- Hook bundles -----
 
@@ -32,9 +37,27 @@ import type { UploadHttpConfig } from "../upload/http-config.js";
  * (This is the historical `OrpcWsServerHooks<TUser>` shape; index.ts
  * re-exports it under both names for back-compat.)
  */
-export interface AuthenticatedHooks<TUser> {
-  onConnected?: (user: TUser, ws: WebSocket) => void;
-  onDisconnected?: (user: TUser, code: number, ws: WebSocket) => void;
+export interface AuthenticatedHooks<
+  TUser,
+  TClientContract extends AnyContractRouter = never,
+> {
+  /**
+   * Fires once per accepted connection. Receives the single `conn` handle
+   * (`{ key, user, ws }`, plus a typed `client` when the server has a
+   * `clientContract`) — NOT positional `(user, ws)` args.
+   */
+  onConnected?: (conn: ServerConnection<TUser, TClientContract>) => void;
+  /**
+   * Fires once on connection close, with the close `code`.
+   *
+   * By the time this fires the connection is ALREADY torn down: `conn.client`
+   * is still a live reference but any call on it REJECTS (the s2c peer is
+   * closed). Do NOT invoke `conn.client` from `onDisconnected`.
+   */
+  onDisconnected?: (
+    conn: ServerConnection<TUser, TClientContract>,
+    code: number,
+  ) => void;
   /**
    * `user` is the kicked user; `replacedBy` is the new live WS that
    * caused the kick. Authenticated-only — authless never replaces a
@@ -55,9 +78,23 @@ export interface AuthenticatedHooks<TUser> {
  * (authless has no session-replacement: `singleConnectionPerUser` is
  * forced off, every connection is independent).
  */
-export interface AuthlessHooks {
-  onConnected?: (ws: WebSocket) => void;
-  onDisconnected?: (code: number, ws: WebSocket) => void;
+export interface AuthlessHooks<TClientContract extends AnyContractRouter = never> {
+  /**
+   * Fires once per accepted connection. Receives the user-less `conn` handle
+   * (`{ key, ws }`, plus a typed `client` when a `clientContract` is supplied).
+   */
+  onConnected?: (conn: AuthlessConnection<TClientContract>) => void;
+  /**
+   * Fires once on connection close, with the close `code`.
+   *
+   * By the time this fires the connection is ALREADY torn down: `conn.client`
+   * is still a live reference but any call on it REJECTS (the s2c peer is
+   * closed). Do NOT invoke `conn.client` from `onDisconnected`.
+   */
+  onDisconnected?: (
+    conn: AuthlessConnection<TClientContract>,
+    code: number,
+  ) => void;
   /** Fires after the watchdog terminates a zombie connection. */
   onZombieTerminated?: () => void;
 }
@@ -69,10 +106,15 @@ export interface AuthlessHooks {
  * the library's everyday surface: `verifyClient` is REQUIRED, and the
  * full feature set (uploads, token-expiry enforcement, per-user
  * close/kick) is available.
+ *
+ * @typeParam TClientContract  The CLIENT's contract router (bidi). Let it be
+ *   INFERRED from the `clientContract` VALUE — never specify it explicitly (see
+ *   the `clientContract` field doc for the type/runtime-divergence footgun).
  */
 export interface AuthenticatedOrpcWsServerOptions<
   TUser,
   TContract extends object,
+  TClientContract extends AnyContractRouter = never,
 > {
   /**
    * The consumer's ORPC router (plain object — top-level keys are
@@ -87,11 +129,30 @@ export interface AuthenticatedOrpcWsServerOptions<
    * `{ok: false, code, reason}` to reject pre-upgrade.
    */
   verifyClient: VerifyClient<TUser>;
+  /**
+   * Opt into server→client RPC ("bidi"). The CLIENT's contract router — the
+   * set of procedures the client will answer. Its PRESENCE turns bidi on for
+   * this server: every connection gets a multiplexed socket and a typed
+   * `conn.client` caller (`ContractRouterClient<TClientContract>`). Omit it
+   * (the default) and the server is byte-identical to a non-bidi server — no
+   * multiplexer, no `client`. The value drives type inference; it is not
+   * otherwise read at runtime (the caller proxy is fully dynamic).
+   *
+   * ALWAYS pass this VALUE and let `TClientContract` be INFERRED from it —
+   * never specify the third generic explicitly. The runtime bidi switch is
+   * `clientContract !== undefined`, but `conn.client`'s TYPE presence is driven
+   * by the `TClientContract` generic; the two are independent and TS cannot
+   * bind them. So `createOrpcWsServer<U, R, SomeContract>({ router, verifyClient })`
+   * (generic given, value OMITTED) compiles and types `conn.client` as PRESENT
+   * while it is `undefined` at runtime — a footgun. Passing the value keeps the
+   * type and the runtime in lockstep.
+   */
+  clientContract?: TClientContract;
   /** Partial connection config overlay. */
   connection?: Partial<ConnectionConfig>;
   /** Partial heartbeat config overlay. */
   heartbeat?: Partial<HeartbeatConfig>;
-  hooks?: AuthenticatedHooks<TUser>;
+  hooks?: AuthenticatedHooks<TUser, TClientContract>;
   logger?: Logger;
   /** Test seam — fake clock. */
   clock?: Clock;
@@ -131,10 +192,32 @@ export interface AuthenticatedOrpcWsServerOptions<
  * tuning, but `singleConnectionPerUser` and `enforceTokenExpiry` are
  * forced off by the factory regardless of what the consumer passes (a
  * stray `true` is ignored + logged once), so they're typed out here.
+ *
+ * @typeParam TClientContract  The CLIENT's contract router (bidi). Let it be
+ *   INFERRED from the `clientContract` VALUE — never specify it explicitly (see
+ *   the `clientContract` field doc for the type/runtime-divergence footgun).
  */
-export interface AuthlessOrpcWsServerOptions<TContract extends object> {
+export interface AuthlessOrpcWsServerOptions<
+  TContract extends object,
+  TClientContract extends AnyContractRouter = never,
+> {
   /** The consumer's ORPC router. Same contract as the authed options. */
   router: TContract;
+  /**
+   * Opt into server→client RPC ("bidi"). Same semantics as the authenticated
+   * option — its presence turns bidi on and gives every (user-less) connection
+   * a typed `conn.client`. Authless supports bidi: the conn simply carries no
+   * `user`.
+   *
+   * ALWAYS pass this VALUE and let `TClientContract` be INFERRED from it —
+   * never specify the second generic explicitly. The runtime bidi switch is
+   * `clientContract !== undefined`, but `conn.client`'s TYPE presence is driven
+   * by `TClientContract`; the two are independent and TS cannot bind them.
+   * Specifying the generic without the value types `conn.client` as PRESENT
+   * while it is `undefined` at runtime — a footgun. Passing the value keeps the
+   * type and the runtime in lockstep.
+   */
+  clientContract?: TClientContract;
   /**
    * Partial connection config overlay — MINUS the auth-only knobs
    * (`singleConnectionPerUser`, `enforceTokenExpiry`), which are
@@ -145,7 +228,7 @@ export interface AuthlessOrpcWsServerOptions<TContract extends object> {
   >;
   /** Partial heartbeat config overlay. */
   heartbeat?: Partial<HeartbeatConfig>;
-  hooks?: AuthlessHooks;
+  hooks?: AuthlessHooks<TClientContract>;
   logger?: Logger;
   /** Test seam — fake clock. */
   clock?: Clock;

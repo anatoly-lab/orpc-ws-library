@@ -2,9 +2,11 @@
 
 The typed ORPC client/server for an app that talks to its backend over
 a long-lived WebSocket. Reconnect, heartbeat, sleep detection, auth
-refresh, single-session-per-user, opt-in HTTP uploads — all extracted
-from one production app into reusable packages, with ~340 unit tests
-across the published packages and a real-Keycloak Playwright e2e on every push.
+refresh, single-session-per-user, opt-in HTTP uploads, and opt-in
+server→client RPC (the server calls procedures the client hosts, over the
+same socket) — all extracted from one production app into reusable packages,
+with ~340 unit tests across the published packages and a real-Keycloak
+Playwright e2e on every push.
 
 An optional server-side JWT verifier (`@orpc-ws/oidc-verifier-jose`) covers
 the backend-token / native path — the client sends a Bearer access token over

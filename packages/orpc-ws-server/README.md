@@ -44,7 +44,7 @@ const wsServer = createOrpcWsServer({
   // Optional knobs (all have sensible defaults):
   // connection: { path: "/ws", shutdownCloseCode: 4009 },
   // heartbeat:  { intervalMs: 25_000, timeoutMs: 20_000 },
-  // hooks:      { onConnected: (u, ws) => ..., onKicked: ... },
+  // hooks:      { onConnected: (conn) => ..., onKicked: ... },
 });
 wsServer.attach(httpServer);
 httpServer.listen(3000);
@@ -161,9 +161,10 @@ What's different from the authenticated path:
   with no per-user identity there's nothing for `closeUser` to target —
   so the returned type omits it. (Authless having no uploads is
   deliberate; it can be added later without an API change.)
-- **Smaller hooks.** `onConnected(ws)` / `onDisconnected(code, ws)` /
-  `onZombieTerminated()` — none take a `user`, and there's no `onKicked`
-  (nothing is ever kicked).
+- **Smaller hooks.** `onConnected(conn)` / `onDisconnected(conn, code)` /
+  `onZombieTerminated()` — the `conn` carries no `user` (it's `{ key, ws }`,
+  plus `client` when bidi is on), and there's no `onKicked` (nothing is ever
+  kicked).
 
 Heartbeat still runs (it's pre-auth liveness — see [Heartbeat](#heartbeat)).
 
@@ -208,6 +209,131 @@ Library owns heartbeat via two independent paths:
 The library reserves the `__orpc_ws_lib__` namespace and asserts no
 collision in your router at construction time. Your contract is
 untouched.
+
+## Server→client RPC (bidirectional)
+
+By default the WS is one-way at the RPC layer: the client calls procedures the
+server hosts. **Opt in** to the reverse — the server calls procedures the
+**client** hosts — over the *same* socket. It's additive: omit the
+`clientContract` option and the server is byte-identical to a one-way server
+(no multiplexer, no `conn.client`). Nothing is enabled by default.
+
+### Connection handle (`conn`)
+
+The lifecycle hooks and `getConnection` deal in a single `conn` object — not
+positional `(user, ws)` args:
+
+```ts
+hooks: {
+  onConnected(conn) {
+    // conn: { key, user, ws }   (+ `client` when bidi is on, see below)
+  },
+  onDisconnected(conn, code) {
+    // same conn, plus the WS close `code`
+  },
+}
+```
+
+(Authless drops `conn.user` — see [Authless mode](#authless-mode).)
+
+### Enabling it
+
+Pass a `clientContract` — the **client's** contract router, i.e. the procedures
+the client will answer. Its presence flips bidi on and gives every connection a
+typed `conn.client` caller:
+
+```ts
+import { createServer } from "http";
+import { createOrpcWsServer } from "@orpc-ws/server";
+import { oc } from "@orpc/contract";
+import { os } from "@orpc/server";
+import { z } from "zod";
+
+// The CLIENT's contract — what the client agrees to answer. (The matching
+// implementations are hosted on the client; see @orpc-ws/client.)
+const clientContract = {
+  showToast: oc.input(z.object({ message: z.string() })),
+};
+
+const appRouter = {
+  ping: os.handler(async () => "pong"),
+};
+
+// No explicit generics — TUser, TContract AND TClientContract all infer from
+// the options (verifyClient / router / clientContract). See the footgun below.
+const wsServer = createOrpcWsServer({
+  router: appRouter,
+  verifyClient,
+  clientContract,           // ← presence turns bidi on; drives `conn.client`'s type
+  hooks: {
+    onConnected(conn) {
+      // conn.client is the typed server→client caller.
+      void conn.client.showToast({ message: "Welcome!" });
+    },
+  },
+});
+wsServer.attach(createServer().listen(3000));
+```
+
+Call it from a hook (`onConnected(conn)`) or out-of-band by key:
+
+```ts
+await server.getConnection(userKey)?.client.showToast({ message: "Build done" });
+```
+
+`conn.client` is typed `ContractRouterClient<typeof clientContract>` and is
+**absent from the type** when no `clientContract` was passed — a one-way server
+can't accidentally reach for a caller that doesn't exist.
+
+Authless bidi works the same way — `createAuthlessOrpcWsServer({ router,
+clientContract, hooks })` — the `conn` simply carries no `user`.
+
+> **Footgun — pass the VALUE, not just the generic.** The runtime bidi switch
+> is `clientContract !== undefined`; `conn.client`'s *type* presence is driven
+> by the third generic. The two are independent and TS can't bind them. Prefer
+> letting the generic infer (write **no** explicit type arguments, as above).
+> If you do write generics, never specify the third one without also passing the
+> `clientContract` value — `createOrpcWsServer<U, R, SomeContract>({ router,
+> verifyClient })` compiles, types `conn.client` as present, yet it is
+> `undefined` at runtime. Passing the value keeps type and runtime in lockstep.
+
+> **Don't call `conn.client` from `onDisconnected`.** By the time that hook
+> fires the connection is already torn down: `conn.client` is still a live
+> reference, but any call on it **rejects** (the s2c peer is closed). Observe
+> its presence there if you must; never invoke it.
+
+### Security: trust inversion ⚠️
+
+Hosting a client router means the **browser now executes procedures the server
+invokes** — the trust arrow flips. This is a real attack surface; the guidance
+lives where you write those handlers, in
+[`@orpc-ws/client` → Server→client RPC](../orpc-ws-client/README.md#serverclient-rpc-bidirectional).
+In short: expose only procedures that are safe to be server-driven (UI notify,
+cache-invalidate), validate every input, and never expose ambient-authority or
+exfiltration-style operations.
+
+### Lost-ack / idempotency
+
+There is **no library-imposed timeout** on a server→client call in v1. The
+outcomes of `await conn.client.x(...)`:
+
+- **resolves** → the client invoked *and* completed it;
+- **rejects with an ORPC error** → it was invoked and the handler threw;
+- **rejects from a transport/close error** → **ambiguous** — the call may or
+  may not have executed (classic lost-ack). In-flight calls reject (they don't
+  hang) when the connection closes.
+
+For exactly-once semantics, add app-level idempotency (e.g. a client-side
+dedupe key) — the library does not retry s2c calls for you.
+
+### Error sink
+
+Inbound bidi dispatch errors (a malformed frame, a throwing listener) are
+routed to the injected `logger`. Keep that sink **total** — a `logger` that
+itself throws is not isolated from the dispatch loop.
+
+> **Streams are deferred.** v1 is request/response only. Server→client
+> *AsyncIterable* streams are not supported yet; adding them later is additive.
 
 ## Uploads
 

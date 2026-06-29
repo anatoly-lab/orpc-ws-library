@@ -72,11 +72,13 @@ describe("OrpcWsServer — lifecycle hooks", () => {
       });
 
       expect(onConnected).toHaveBeenCalledTimes(1);
-      const [u, ws] = onConnected.mock.calls[0]!;
-      expect(u).toEqual(user);
-      // Second arg is the live `ws.WebSocket` instance on the server
-      // side — we don't poke at its identity, but it must be defined.
-      expect(ws).toBeDefined();
+      // The hook now receives a single `conn` handle: { key, user, ws }.
+      const [conn] = onConnected.mock.calls[0]!;
+      expect(conn.user).toEqual(user);
+      expect(conn.key).toBe(user.sub);
+      // The live `ws.WebSocket` instance on the server side — we don't poke
+      // at its identity, but it must be defined.
+      expect(conn.ws).toBeDefined();
 
       client.close();
       await new Promise((r) => setTimeout(r, 50));
@@ -119,8 +121,9 @@ describe("OrpcWsServer — lifecycle hooks", () => {
       await new Promise((r) => setTimeout(r, 80));
 
       expect(onDisconnected).toHaveBeenCalledTimes(1);
-      const [u, code] = onDisconnected.mock.calls[0]!;
-      expect(u).toEqual(user);
+      // The hook now receives (conn, code).
+      const [conn, code] = onDisconnected.mock.calls[0]!;
+      expect(conn.user).toEqual(user);
       expect(code).toBe(SPECIFIC_CODE);
     } finally {
       await server.dispose();

@@ -235,8 +235,8 @@ import { QuotaRouter } from "./quota.router";
         router: buildAppRouter({ authRouter, quotaRouter }),
         verifyClient: (ctx) => auth.verifyWsToken(ctx),
         hooks: {
-          onConnected: (user) => auth.recordWsConnection(user),
-          onDisconnected: (user, code) => auth.recordWsDisconnect(user, code),
+          onConnected: (conn) => auth.recordWsConnection(conn.user),
+          onDisconnected: (conn, code) => auth.recordWsDisconnect(conn.user, code),
         },
         // Reuse the existing env-driven knobs.
         heartbeat: {

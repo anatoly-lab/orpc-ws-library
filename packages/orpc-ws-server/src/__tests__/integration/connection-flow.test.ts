@@ -135,10 +135,10 @@ describe("OrpcWsServer — integration", () => {
 
       // onConnected runs synchronously inside the 'connection' handler;
       // by the time the client's `open` event has fired, it must have
-      // been called.
+      // been called. It now receives the single `conn` handle.
       expect(onConnected).toHaveBeenCalledTimes(1);
-      const callArgs = onConnected.mock.calls[0]!;
-      expect(callArgs[0]).toEqual(user);
+      const conn = onConnected.mock.calls[0]![0];
+      expect(conn.user).toEqual(user);
 
       client.close();
       // Allow the close handler to run.
@@ -157,7 +157,7 @@ describe("OrpcWsServer — integration", () => {
     });
 
     const messageSpy = vi.fn();
-    const onConnected = vi.fn((_user: TestUser, ws: unknown) => {
+    const onConnected = vi.fn((conn: { ws: unknown }) => {
       // Attach our spy in the SAME tick the connection-handler attaches
       // its ORPC pump. If we miss the message, it's because the sync
       // contract was violated.
@@ -166,10 +166,10 @@ describe("OrpcWsServer — integration", () => {
       // decodes JSON; our raw text frame triggers a JSON parse rejection
       // there. We absorb that on the WS's 'error' event so it doesn't
       // become an unhandled rejection at the test runner level.
-      (ws as WSWebSocket).on("message", (data) => {
+      (conn.ws as WSWebSocket).on("message", (data) => {
         messageSpy(data.toString());
       });
-      (ws as WSWebSocket).on("error", () => {
+      (conn.ws as WSWebSocket).on("error", () => {
         // swallow — we only care that 'message' fired.
       });
     });

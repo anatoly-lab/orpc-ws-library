@@ -2,10 +2,10 @@
   "name": "@repo/tests-e2e",
   "version": "0.1.0",
   "private": true,
-  "description": "Playwright end-to-end tests driving the cookie-BFF demo SPA + demo server + real Keycloak (testcontainers). Exercises the full server-side OIDC → httpOnly session cookie → WS → ORPC flow no single-package test can cover.",
+  "description": "Cross-package e2e suite. `test` runs the node-level vitest round-trips that need BOTH cores together (e.g. server↔client bidirectional RPC) — no Docker. `test:e2e` runs the Playwright suite driving the cookie-BFF demo SPA + demo server + real Keycloak (testcontainers), which no single-package test can cover.",
   "type": "module",
   "scripts": {
-    "test": "node -e \"console.log('[tests-e2e] skipped — run pnpm --filter @repo/tests-e2e test:e2e to run Playwright (requires Docker)')\"",
+    "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:list": "playwright test --list",
@@ -15,11 +15,18 @@
     "clean": "rimraf .turbo playwright-report test-results *.tsbuildinfo"
   },
   "devDependencies": {
+    "@orpc-ws/client": "workspace:*",
+    "@orpc-ws/server": "workspace:*",
+    "@orpc/contract": "1.14.6",
+    "@orpc/server": "1.14.6",
     "@playwright/test": "1.61.1",
     "@types/node": "26.0.1",
+    "@types/ws": "8.18.1",
     "rimraf": "6.1.3",
     "testcontainers": "12.0.3",
     "tsx": "4.22.4",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vitest": "4.1.9",
+    "ws": "8.21.0"
   }
 }

@@ -35,7 +35,7 @@ import { appRouter } from "./router";
       useFactory: (auth: AuthService) => ({
         router: appRouter,
         verifyClient: async (ctx) => auth.verifyWsToken(ctx),
-        hooks: { onConnected: (user) => auth.recordConnection(user) },
+        hooks: { onConnected: (conn) => auth.recordConnection(conn.user) },
       }),
     }),
   ],
