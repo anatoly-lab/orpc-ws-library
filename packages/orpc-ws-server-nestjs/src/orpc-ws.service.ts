@@ -36,7 +36,9 @@ import {
 import { HttpAdapterHost } from "@nestjs/core";
 
 import {
+  type AnyContractRouter,
   type OrpcWsServer,
+  type ServerConnection,
   createAuthlessOrpcWsServer,
   createOrpcWsServer,
 } from "@orpc-ws/server";
@@ -240,6 +242,46 @@ export class OrpcWsService
     ...args: Parameters<AnyOrpcWsServer["closeUser"]>
   ): ReturnType<AnyOrpcWsServer["closeUser"]> {
     return this.server.closeUser(...args);
+  }
+
+  /**
+   * Look up a live connection by its registry key — the out-of-band entry
+   * point for server→client RPC. Mirrors the core's `server.getConnection`:
+   * returns the `conn` handle (`{ key, user, ws }`, plus the typed
+   * server→client `client` caller when the server was built with a
+   * `clientContract`) or `undefined`. The bidi call site is then
+   * `service.getConnection<MyClientContract>(key)?.client.notify(payload)`.
+   *
+   * TYPING CHOICE — generic METHOD, not a generic class. A NestJS provider is
+   * injected by token; its instance type can't carry per-app type params
+   * (`@Inject(OrpcWsService)` has nowhere to put `<TClientContract>`), so the
+   * class stays type-erased exactly like `getServer()` / `closeUser`. The
+   * caller supplies `TClientContract` at the call site instead; absent it, the
+   * `never` default yields a `conn` with NO `client` (opt-in: a non-bidi
+   * consumer can't reach a caller that doesn't exist). `user` stays `unknown`
+   * (the same erasure `getServer()` carries); a consumer needing the typed
+   * principal narrows via `getServer()`.
+   *
+   * The cast names the erasure seam: the underlying `AnyOrpcWsServer` is typed
+   * `TClientContract = never`, so its `getConnection` is re-narrowed here to
+   * the caller-supplied contract — the same idiom the core uses internally to
+   * re-narrow its registry's `unknown`-typed `client`.
+   *
+   * CALL-SITE/CONFIG HAZARD — the `TClientContract` you pass here is DECOUPLED
+   * from the module's actual config, so it is on YOU to keep them matched: the
+   * generic must name the same `clientContract` the module was built with.
+   * Calling `getConnection<SomeContract>(key)` against a module configured
+   * WITHOUT a `clientContract` types `.client` as PRESENT while it is
+   * `undefined` at runtime — a `conn.client.notify(...)` then compiles but
+   * crashes. Supply the generic only for a genuinely bidi module; for a
+   * non-bidi module leave it at the `never` default (no `.client`).
+   */
+  getConnection<TClientContract extends AnyContractRouter = never>(
+    key: string,
+  ): ServerConnection<unknown, TClientContract> | undefined {
+    return this.server.getConnection(key) as
+      | ServerConnection<unknown, TClientContract>
+      | undefined;
   }
 }
 

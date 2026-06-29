@@ -107,6 +107,14 @@ export type {
 export type { Path } from "./upload/strategy.js";
 export type { ClientEvent } from "./events.js";
 
+// Stable delegating server→client router primitive (issue #7 Phase 1). PUBLIC
+// so the `@orpc-ws/react` adapter's `<OrpcWs>` (Phase 2) can build one identity-
+// stable `clientRouter` whose leaves delegate to per-render handlers via a ref.
+export {
+  createDelegatingClientRouter,
+  type DelegatingHandler,
+} from "./bidi/delegating-router.js";
+
 /**
  * Base options for `createOrpcWsClient`, common to bidi-on and bidi-off. The
  * public {@link OrpcWsClientOptions} alias adds the server→client (bidi) fields

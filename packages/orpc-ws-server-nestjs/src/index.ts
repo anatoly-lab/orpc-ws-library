@@ -36,6 +36,15 @@ export type {
   HttpUploadHandler,
   OrpcWsInterceptors,
   OrpcWsRootInterceptors,
+  // Bidi (server→client RPC) types: the per-connection `conn` handles
+  // `getConnection` / the lifecycle hooks deal in, plus the contract-router
+  // types that drive the `TClientContract` generic and the `conn.client`
+  // caller. Re-exported so a bidi consumer stays on this single import
+  // surface (no direct `@orpc-ws/server` / `@orpc/contract` import needed).
+  ServerConnection,
+  AuthlessConnection,
+  AnyContractRouter,
+  ContractRouterClient,
 } from "@orpc-ws/server";
 export {
   DEFAULT_UPLOAD_HTTP_CONFIG,

@@ -14,3 +14,5 @@ export type {
   UseWsSubscriptionOptions,
   UseWsSubscriptionResult,
 } from "./use-ws-subscription.js";
+export { OrpcWs } from "./orpc-ws.js";
+export type { OrpcWsProps, ClientRouterHandlers } from "./orpc-ws.js";

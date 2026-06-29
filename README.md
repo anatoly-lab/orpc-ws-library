@@ -52,7 +52,7 @@ shape. Both parameterize on `<TContract>` and pass it through end-to-end.
 | Package | One-liner | Framework deps |
 |---|---|---|
 | [`@orpc-ws/client`](./packages/orpc-ws-client) | Browser core. Connect, reconnect, heartbeat, sleep detection, typed RPC. | none |
-| [`@orpc-ws/react`](./packages/orpc-ws-react) | The sole React adapter — WS-transport bindings (depends only on `@orpc-ws/client`). Hooks: `useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`. | `react` peer |
+| [`@orpc-ws/react`](./packages/orpc-ws-react) | The sole React adapter — WS-transport bindings (depends only on `@orpc-ws/client`). Hooks: `useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`; plus `<OrpcWs>`, a construct-and-own provider that also hosts a React-aware server→client `clientRouter`. | `react` peer |
 | [`@orpc-ws/server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
 | [`@orpc-ws/server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
 | [`@orpc-ws/shared`](./packages/orpc-ws-shared) | Shared seam types (Logger / Clock / Rng / heartbeat wire shape). Published — it's a runtime dependency of the cores. | none |

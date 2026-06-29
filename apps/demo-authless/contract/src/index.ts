@@ -22,6 +22,10 @@
 //                  `signal: AbortSignal`. Exercises the same wire framing
 //                  the library uses internally for its stealth heartbeat —
 //                  with zero auth.
+//
+// This file also defines the CLIENT contract (`clientContract` / `showToast`)
+// — the server→client ("bidi") direction added in issue #7. See the block at
+// the bottom of the file.
 
 import { oc } from "@orpc/contract";
 import { z } from "zod";
@@ -72,3 +76,21 @@ const ticks = oc.output(z.custom<AsyncIterable<TickEvent>>());
 
 export const appContract = oc.router({ echo, increment, ticks });
 export type AppContract = typeof appContract;
+
+// ----- CLIENT contract (server→client RPC, "bidi") -----
+//
+// The SERVER→CLIENT direction: procedures the BROWSER hosts and the server
+// invokes. Issue #7's bidi support makes the WS socket duplex — the server
+// holds a typed caller (`conn.client`) and calls these exactly the way the
+// browser calls `appContract`. Same `oc` idiom, opposite direction, second
+// source-of-truth shared by this app's server + client.
+//
+//   - `showToast`: the server pushes a short message the browser renders as a
+//     toast. The browser replies `{ shown: true }`, so the round-trip is
+//     observable back on the server (the s2c call resolves with this output).
+const showToast = oc
+  .input(z.object({ text: z.string() }))
+  .output(z.object({ shown: z.boolean() }));
+
+export const clientContract = oc.router({ showToast });
+export type ClientContract = typeof clientContract;

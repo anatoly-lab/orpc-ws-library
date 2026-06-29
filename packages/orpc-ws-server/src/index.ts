@@ -118,6 +118,17 @@ export type {
   AuthlessConnection,
 } from "./state/connection.js";
 
+// The ORPC contract-router types that drive the bidi (`TClientContract`)
+// generic. Re-exported so adapters and consumers can name the third generic
+// (and the resulting server→client caller) WITHOUT a direct `@orpc/contract`
+// import — one import surface, the same reason we re-export the conn types
+// above. `AnyContractRouter` is the generic CONSTRAINT; `ContractRouterClient`
+// is the typed caller shape `conn.client` resolves to.
+export type {
+  AnyContractRouter,
+  ContractRouterClient,
+} from "@orpc/contract";
+
 // Logger seam + universal/Node-friendly bridges, re-exported so consumers
 // stay on one import surface. `fromNestShape` lives only in the nestjs
 // adapter package — server core is framework-free.

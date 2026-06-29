@@ -201,6 +201,40 @@ surface**, not as trusted local code:
   routed to the injected `logger` and must not crash the page; keep that sink
   total.
 
+### Late-binding the router — `createDelegatingClientRouter`
+
+`clientRouter` is captured **once** at `createOrpcWsClient` construction:
+rebuilding it rebuilds the client (a reconnect). That's fine for a static
+router, but a framework adapter wants handlers that close over live
+component/render state — fresh function identities every render — *without*
+re-creating the client. `createDelegatingClientRouter` is the bridge:
+
+```ts
+import { createDelegatingClientRouter, createOrpcWsClient } from "@orpc-ws/client";
+
+// Stable shape from a fixed key set; leaves delegate, per call, to whatever
+// `getHandlers()` currently returns.
+const router = createDelegatingClientRouter(
+  ["showToast"],
+  () => currentHandlers,   // read fresh on every server→client call
+);
+
+createOrpcWsClient<AppContract, typeof router>({ url, clientRouter: router });
+```
+
+The router's **identity never changes** (its structure is fixed by the `names`
+array, so it can be hosted for the life of the client), while each invocation
+reads the live handler map and dispatches to the current handler. A call for a
+name absent from the current map throws an `ORPCError("NOT_FOUND")` **at call
+time** (not construction) — a server invoking an unregistered procedure fails
+loudly rather than resolving `undefined`. Handler in/out is `unknown` here: this
+is framework-free structural glue; the typed surface is layered on by an adapter.
+
+> **Most React consumers never call this directly** — the
+> [`@orpc-ws/react`](../orpc-ws-react) `<OrpcWs>` component uses it internally to
+> host a flat, render-updated handler map. It's public so framework adapters
+> (and advanced consumers) can reuse the same late-binding bridge.
+
 ## Uploads — opt-in HTTP transport
 
 ```ts
@@ -245,7 +279,9 @@ function ConnectionBadge({ client }) {
 ```
 
 `@orpc-ws/react` also exports `useWsSubscription`, an optional
-`OrpcWsProvider`, and a `useOrpcWs<TContract>()` hook — see its
+`OrpcWsProvider`, a `useOrpcWs<TContract>()` hook, and `<OrpcWs>` — a
+construct-and-own provider that builds the client (and hosts a React-aware
+server→client `clientRouter`) for you — see its
 [README](../orpc-ws-react/README.md).
 
 ## Other frameworks

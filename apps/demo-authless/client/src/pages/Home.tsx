@@ -14,9 +14,13 @@
 
 import { useState, type ReactElement } from "react";
 
-import { useConnectionState, useWsSubscription } from "@orpc-ws/react";
+import {
+  useConnectionState,
+  useOrpcWs,
+  useWsSubscription,
+} from "@orpc-ws/react";
 
-import { wsClient } from "../lib/ws-client.js";
+import type { AppContract } from "@demo/authless-contract";
 import styles from "./styles.module.css";
 
 interface EchoResult {
@@ -25,6 +29,10 @@ interface EchoResult {
 }
 
 export function Home(): ReactElement {
+  // The client is provided by the `<OrpcWs>` ancestor in App.tsx (no more
+  // module-singleton import). `useOrpcWs<AppContract>()` re-asserts the
+  // CLIENT→SERVER contract at this read site so `wsClient.rpc` stays typed.
+  const wsClient = useOrpcWs<AppContract>();
   const connection = useConnectionState(wsClient);
   const [echoResult, setEchoResult] = useState<EchoResult | null>(null);
   const [count, setCount] = useState<number | null>(null);

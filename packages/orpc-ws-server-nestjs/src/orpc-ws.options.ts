@@ -7,13 +7,22 @@
 // (router, verifyClient, heartbeat tunables, hooks, logger) belongs on
 // the core's options, not on a parallel Nest-only type.
 //
-// The generic parameters mirror the core: `<TUser, TContract>`. Both
-// have defaults so consumers can write `OrpcWsModuleOptions` without
-// any type args when they want erased-types ergonomics during
-// composition (`forRootAsync`'s `useFactory` return type rarely needs
-// the narrow `TUser`).
+// The generic parameters mirror the core: `<TUser, TContract,
+// TClientContract>`. All have defaults so consumers can write
+// `OrpcWsModuleOptions` without any type args when they want erased-types
+// ergonomics during composition (`forRootAsync`'s `useFactory` return type
+// rarely needs the narrow `TUser`).
+//
+// `TClientContract` is the server→client RPC ("bidi") contract — the third
+// generic the core's factories carry. It defaults to `never` (bidi OFF), so
+// EXISTING non-bidi module configs are byte-identical: with the default,
+// the threaded `clientContract?` field is typed `never` (un-passable) and
+// `conn`/`getConnection` carry no `client`. A consumer opts in by passing a
+// `clientContract` VALUE (let the generic be inferred from it — see the core
+// `clientContract` doc for the type/runtime-divergence footgun).
 
 import type {
+  AnyContractRouter,
   AuthenticatedOrpcWsServerOptions,
   AuthlessOrpcWsServerOptions,
 } from "@orpc-ws/server";
@@ -39,15 +48,23 @@ import type {
  * types they intersect — the central-`onError`-logger passthrough — so they
  * flow to the dispatched factory with no Nest-side remap.
  *
- * Both generic params default so consumers can write
- * `OrpcWsModuleOptions` with no type args during composition.
+ * All three generic params default so consumers can write
+ * `OrpcWsModuleOptions` with no type args during composition. The optional
+ * `clientContract` (server→client RPC) threads to whichever factory `mode`
+ * dispatches to — omit it and the config is identical to today's non-bidi
+ * behavior.
  */
 export type OrpcWsModuleOptions<
   TUser = unknown,
   TContract extends object = object,
+  TClientContract extends AnyContractRouter = never,
 > =
   | ({ mode?: "authenticated" } & AuthenticatedOrpcWsServerOptions<
       TUser,
-      TContract
+      TContract,
+      TClientContract
     >)
-  | ({ mode: "authless" } & AuthlessOrpcWsServerOptions<TContract>);
+  | ({ mode: "authless" } & AuthlessOrpcWsServerOptions<
+      TContract,
+      TClientContract
+    >);

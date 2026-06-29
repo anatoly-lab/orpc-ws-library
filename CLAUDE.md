@@ -84,7 +84,11 @@ non-adapter package is framework-free; the boundary is lint-enforced.
 - `@orpc-ws/client` — browser core. Composition root `src/index.ts` →
   `createOrpcWsClient<TContract>(opts): OrpcWsClient`. One-concept-each
   modules: `state/`, `client/`, `lifecycle/`, `reconnect/`, `heartbeat/`,
-  `sleep/`, `auth/`, `upload/`, `config/`. Tests in per-module `__tests__/`.
+  `sleep/`, `auth/`, `upload/`, `config/`, `bidi/`. Tests in per-module
+  `__tests__/`. Also exports `createDelegatingClientRouter` (`bidi/`) — the
+  late-binding bridge that builds an identity-stable server→client router whose
+  leaves delegate to a live handler map (so handlers can change without
+  rebuilding the client); its primary consumer is `@orpc-ws/react`'s `<OrpcWs>`.
 - `@orpc-ws/server` — Node core. The public construction API is the two
   factories `createOrpcWsServer` (authenticated) /
   `createAuthlessOrpcWsServer` (authless) from `composition/` — see
@@ -98,9 +102,19 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   `upload/`, `config/`.
 - `@orpc-ws/react` — the WS-transport React adapter; hosts the React
   bindings for the WS client core only: `useConnectionState`,
-  `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs` (+ types
+  `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`, and `OrpcWs` (+ types
   `OrpcWsProviderProps`, `UseWsSubscriptionOptions`,
-  `UseWsSubscriptionResult`). Depends only on `@orpc-ws/client`; sole peer
+  `UseWsSubscriptionResult`, `OrpcWsProps`, `ClientRouterHandlers`). `<OrpcWs>`
+  is a construct-and-own provider that hosts a React-aware server→client
+  `clientRouter` (handlers may close over hooks/state), builds the client once,
+  owns connect/dispose StrictMode-safe, and renders `OrpcWsProvider` underneath
+  so the existing hooks keep working — it COMPLEMENTS `OrpcWsProvider`
+  (composition, not replacement; `OrpcWsProvider` stays the low-level escape
+  hatch taking a pre-built client). Among the `@orpc-ws` cores it depends only
+  on `@orpc-ws/client` (it also carries ORPC *framework* runtime deps —
+  `@orpc/client` for `consumeEventIterator`, `@orpc/contract` for types — a
+  different axis from the core dependency; it does NOT import `@orpc/server`,
+  the server→client router-build helper lives in the client core). Sole peer
   is `react`. Single `.` export, no sub-paths. Does NOT re-export the core.
   This is now the **sole** React adapter (the OIDC-auth React adapter
   `@orpc-ws/oidc-react` and the browser PKCE core `@orpc-ws/oidc-pkce` were
@@ -314,7 +328,7 @@ not aspirational:
 | Package                              | Purpose                                                                   | Framework deps     |
 | ------------------------------------ | ------------------------------------------------------------------------- | ------------------ |
 | `@orpc-ws/client`               | **Client core.** Vanilla TS, fully framework-free. Reconnect, heartbeat, sleep detect, etc. No React sub-path. | none               |
-| `@orpc-ws/react`                | **The sole React adapter** (WS-transport). Hosts the WS connection-state hooks (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`) only. Depends only on `@orpc-ws/client`. Does **not** re-export the core. No sub-paths. | `react` peer |
+| `@orpc-ws/react`                | **The sole React adapter** (WS-transport). Hosts the WS connection-state bindings (`useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`, plus the construct-and-own `OrpcWs` provider) only. Depends only on `@orpc-ws/client` (among the `@orpc-ws` cores). Does **not** re-export the core. No sub-paths. | `react` peer |
 | `@orpc-ws/server`               | **Server core.** Pure Node + `ws` + `@orpc/server`. Verifier-pluggable.   | none               |
 | `@orpc-ws/server-nestjs`        | NestJS adapter (separate package — decorator metadata can't share a sub-path with vanilla TS without bundler pain). | `@nestjs/common` peer |
 
@@ -348,9 +362,11 @@ sub-path: an adapter MAY surface an optional, more-heavily-coupled
 framework binding behind a sub-path of *itself* (such a sub-path lives
 *inside* the sibling adapter, not on a core, so it satisfies — not
 violates — the "Sub-path vs separate sibling package" rule below).
-`@orpc-ws/react` depends only on `@orpc-ws/client` and exposes the WS
-connection-state bindings; it does not re-export its core — consumers
-import the framework-free APIs directly. (The removed `@orpc-ws/oidc-react`
+`@orpc-ws/react` depends only on `@orpc-ws/client` (among the `@orpc-ws`
+cores — it does also carry ORPC *framework* runtime deps, `@orpc/client` +
+`@orpc/contract`, a different axis from the core dependency; it does NOT
+import `@orpc/server`) and exposes the WS connection-state bindings; it does
+not re-export its core — consumers import the framework-free APIs directly. (The removed `@orpc-ws/oidc-react`
 adapter, with its optional `./react-router` sub-path, was the original
 worked example of the per-core-sibling + internal-sub-path shape; the shape
 remains the rule for any future adapter.)
@@ -404,8 +420,12 @@ browser/client package — both the runtime (Node) and the runtime-dep set
 - **Adapter exposes framework bindings only; the core is imported
   directly.** The adapter does **not** re-export its core. `@orpc-ws/react`
   exports only the WS bindings: `useConnectionState`, `useWsSubscription`,
-  `OrpcWsProvider`, `useOrpcWs` (+ `OrpcWsProviderProps`,
-  `UseWsSubscriptionOptions`, `UseWsSubscriptionResult`).
+  `OrpcWsProvider`, `useOrpcWs`, `OrpcWs` (+ `OrpcWsProviderProps`,
+  `UseWsSubscriptionOptions`, `UseWsSubscriptionResult`, `OrpcWsProps`,
+  `ClientRouterHandlers`). `<OrpcWs>` (a construct-and-own provider hosting a
+  React-aware server→client `clientRouter`) COMPLEMENTS `OrpcWsProvider`
+  (composition, not replacement) — `OrpcWsProvider` stays the low-level
+  pre-built-client escape hatch.
   Consumers import the framework-free APIs straight from the core. The core
   remains a regular `dependency` of its adapter (the hooks `import type` from
   it, and the emitted `.d.ts` references those types, so the dep must resolve)
