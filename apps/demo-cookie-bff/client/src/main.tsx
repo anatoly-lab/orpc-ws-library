@@ -3,9 +3,9 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App.js";
 
-// The connect guard lives in AppLayout (it mounts on first render of the "/"
-// route). Consolidating to a single connect owner avoids a double-trigger
-// (module load + page effect) and keeps the guard tied to the /auth/me result.
+// The WS connection is owned by <OrpcWs>, mounted inside AppLayout's authed
+// branch (after the /auth/me gate). No client exists at module load — the
+// connection is tied to being signed in, and StrictMode-safe via <OrpcWs>.
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {

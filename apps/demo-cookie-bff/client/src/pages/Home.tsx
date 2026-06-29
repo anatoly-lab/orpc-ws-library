@@ -22,11 +22,12 @@ import { useState, type ReactElement } from "react";
 
 import { useOutletContext } from "react-router";
 
-import { useConnectionState, useWsSubscription } from "@orpc-ws/react";
+import { useConnectionState, useOrpcWs, useWsSubscription } from "@orpc-ws/react";
+
+import type { AppContract } from "@demo/cookie-bff-contract";
 
 import type { HomeOutletContext } from "../AppLayout.js";
 import { logout } from "../lib/auth.js";
-import { wsClient } from "../lib/ws-client.js";
 import styles from "./styles.module.css";
 
 interface PingResult {
@@ -51,14 +52,19 @@ export function Home(): ReactElement {
   // decoded token (the browser holds none).
   const { identity } = useOutletContext<HomeOutletContext>();
 
+  // The cookie-auth WS client, constructed and owned by the <OrpcWs> wrapper in
+  // AppLayout. We re-assert the c2s contract here at the read site (the context
+  // stores it erased) — same `<AppContract>` <OrpcWs> built it with.
+  const wsClient = useOrpcWs<AppContract>();
+
   const connection = useConnectionState(wsClient);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
   const [echoResult, setEchoResult] = useState<EchoResult | null>(null);
   const [getUserResult, setGetUserResult] = useState<GetUserResult | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // NOTE: the connect guard lives in AppLayout. Home only consumes the
-  // connection — it never initiates it.
+  // NOTE: <OrpcWs> in AppLayout owns connect/dispose. Home only consumes the
+  // connection via `useOrpcWs()` — it never initiates it.
 
   // Auto-subscribe to the server-pushed `tick` stream. The hook owns all the
   // plumbing the page used to hand-roll: connected-gating, AbortController
@@ -101,8 +107,10 @@ export function Home(): ReactElement {
   const onSignOut = (): void => {
     // Dispose the WS BEFORE the page navigates to the server's logout endpoint
     // — gets us a clean close frame instead of an abrupt teardown when the page
-    // unloads. logout() is async (it POSTs /auth/logout then redirects to the
-    // IdP end-session URL) but we don't need to await it from here.
+    // unloads. dispose() is idempotent, so <OrpcWs>'s own dispose-on-unmount
+    // (when this tree tears down on navigation) is a harmless no-op. logout()
+    // is async (it POSTs /auth/logout then redirects to the IdP end-session
+    // URL) but we don't need to await it from here.
     wsClient.dispose();
     void logout();
   };
