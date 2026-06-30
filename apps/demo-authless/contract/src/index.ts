@@ -23,12 +23,15 @@
 //                  the library uses internally for its stealth heartbeat —
 //                  with zero auth.
 //
-// This file also defines the CLIENT contract (`clientContract` / `showToast`)
-// — the server→client ("bidi") direction added in issue #7. See the block at
-// the bottom of the file.
+// This file also composes the CLIENT contract (`clientContract`) — the
+// server→client ("bidi") direction added in issue #7 — from per-feature
+// fragments. See the thin composition root at the bottom of the file.
 
 import { oc } from "@orpc/contract";
 import { z } from "zod";
+
+import { toastClientContract } from "./client/toast.contract.js";
+import { announceClientContract } from "./client/announce.contract.js";
 
 const echo = oc
   .input(
@@ -77,7 +80,7 @@ const ticks = oc.output(z.custom<AsyncIterable<TickEvent>>());
 export const appContract = oc.router({ echo, increment, ticks });
 export type AppContract = typeof appContract;
 
-// ----- CLIENT contract (server→client RPC, "bidi") -----
+// ----- CLIENT contract (server→client RPC, "bidi") — COMPOSED from fragments -----
 //
 // The SERVER→CLIENT direction: procedures the BROWSER hosts and the server
 // invokes. Issue #7's bidi support makes the WS socket duplex — the server
@@ -85,12 +88,14 @@ export type AppContract = typeof appContract;
 // browser calls `appContract`. Same `oc` idiom, opposite direction, second
 // source-of-truth shared by this app's server + client.
 //
-//   - `showToast`: the server pushes a short message the browser renders as a
-//     toast. The browser replies `{ shown: true }`, so the round-trip is
-//     observable back on the server (the s2c call resolves with this output).
-const showToast = oc
-  .input(z.object({ text: z.string() }))
-  .output(z.object({ shown: z.boolean() }));
-
-export const clientContract = oc.router({ showToast });
+// CONTRACT COMPOSITION: the `clientContract` is the central typed surface, but
+// it stays THIN and feature-owned. Each feature owns its own slice in a
+// colocated fragment (`./client/<feature>.contract.ts`) alongside the React
+// component that implements it; this root just MERGES the fragments. Adding a
+// feature = a new fragment file + one more spread here, with no edits to the
+// existing slices. In a real app the fragments live in their feature folders.
+export const clientContract = oc.router({
+  ...toastClientContract, // showToast — see ./client/toast.contract.ts
+  ...announceClientContract, // announce — see ./client/announce.contract.ts
+});
 export type ClientContract = typeof clientContract;

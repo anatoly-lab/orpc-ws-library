@@ -14,8 +14,11 @@
 //
 // BIDI (issue #7): this module ALSO opts into server→client RPC by passing
 // `clientContract`. Its presence gives every (user-less) connection a typed
-// `conn.client` caller; the `onConnected` hook below uses it to PUSH a toast
-// to the browser — the end-to-end demonstration of server→client RPC.
+// `conn.client` caller; the `onConnected` hook below uses it to PUSH two
+// messages to the browser — `showToast` and `announce`, each owned by its own
+// feature fragment (see the contract's `src/client/*.contract.ts`). The merged
+// `ClientContract` carries both, so one typed `conn.client` invokes either —
+// the end-to-end demonstration of server→client RPC plus contract composition.
 
 import { Logger, Module } from "@nestjs/common";
 import {
@@ -34,6 +37,11 @@ const nestLogger = new Logger("OrpcWs");
 // so the toast lands AFTER the SPA has painted — making it visibly a SERVER
 // push that arrives on a settled page, not something the page rendered on load.
 const WELCOME_TOAST_DELAY_MS = 1_000;
+
+// The second server→client push, from a DIFFERENT feature fragment (`announce`).
+// A slightly later delay than the toast so the two pushes are visibly distinct
+// and so the gated `<Announcements>` child has surely registered its handler.
+const ANNOUNCE_DELAY_MS = 2_000;
 
 @Module({
   imports: [
@@ -76,6 +84,20 @@ const WELCOME_TOAST_DELAY_MS = 1_000;
                   nestLogger.warn(`showToast push failed: ${String(err)}`);
                 });
             }, WELCOME_TOAST_DELAY_MS);
+
+            // A SECOND push, from the `announce` feature fragment. Same typed
+            // `conn.client` (the merged `ClientContract` carries both procs);
+            // same fire-and-forget + benign-on-early-disconnect shape.
+            setTimeout(() => {
+              void conn.client
+                .announce({ message: "Composed from a feature fragment 🧩" })
+                .then((reply) => {
+                  nestLogger.log(`client acked announce: ok=${reply.ok}`);
+                })
+                .catch((err: unknown) => {
+                  nestLogger.warn(`announce push failed: ${String(err)}`);
+                });
+            }, ANNOUNCE_DELAY_MS);
           },
         },
       }),

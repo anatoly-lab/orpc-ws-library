@@ -3,9 +3,10 @@
   //
   // The main `tsconfig.json` excludes `**/*.test.ts(x)` + `**/__tests__/**`, so
   // a type test's `@ts-expect-error` directives are otherwise NEVER checked by
-  // CI — a future regression that loosened the `ClientRouterHandlers` /
-  // `TClientContract` types (e.g. re-introducing the dropped decorative first
-  // generic) would pass silently. This config re-includes ONLY the type tests
+  // CI — a future regression that loosened the `useServerHandler` /
+  // `TClientContract` types (e.g. widening the handler input/output away from
+  // the `clientContract`, or losing inference) would pass silently. This config
+  // re-includes ONLY the type tests
   // (not the runtime ones, which the test runner executes) and is chained into
   // the package's `typecheck` script so the type assertions run in the
   // `typecheck` turbo task. `noEmit` + `incremental:false`: pure check, no

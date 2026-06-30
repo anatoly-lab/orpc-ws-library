@@ -58,11 +58,18 @@ This package exports the WS-transport React bindings only:
   one client across the tree. `OrpcWsProviderProps` types the provider.
 - **`<OrpcWs>`** — the higher-level **construct-and-own** provider: builds the
   client from props, owns its connect/dispose lifecycle, and renders
-  `OrpcWsProvider` underneath. See below.
+  `OrpcWsProvider` underneath. Pass `clientContract` to turn on server→client
+  (bidi) calls. See below.
+- **`createServerHandlerHook<TClientContract>()`** — a hook factory for the
+  bidi path: bind your server→client contract once, get back a typed
+  `useServerHandler` hook that registers a handler implementation from any
+  component *below* `<OrpcWs>`. See below.
 
 Types are exported alongside the hooks: `OrpcWsProviderProps`,
-`UseWsSubscriptionOptions`, `UseWsSubscriptionResult`, `OrpcWsProps`,
-`ClientRouterHandlers`.
+`UseWsSubscriptionOptions`, `UseWsSubscriptionResult`, `OrpcWsProps`.
+
+The server→client (bidi) surface adds one value export,
+`createServerHandlerHook` (a hook factory — see below).
 
 ## Connection state — `useConnectionState`
 
@@ -150,29 +157,53 @@ and `useWsSubscription` work unchanged below it. It's composition, not a
 replacement.
 
 ```tsx
-import { useState } from "react";
 import { OrpcWs } from "@orpc-ws/react";
-import type { MyClientContract } from "./contract.js";
+import { clientContract } from "./contract.js"; // oc.router({ showToast, … })
 
 function App() {
-  const [toasts, setToasts] = useState<string[]>([]);
-
   return (
-    <OrpcWs<MyClientContract>
-      url="wss://api.example.com/ws"
-      fallback={<Spinner />}
-      // Flat server→client handler map. `showToast` is defined in render, so
-      // it closes over `setToasts` — a SERVER push mutates live React state.
-      clientRouter={{
-        showToast: ({ text }) => {
-          setToasts((current) => [...current, text]);
-          return { shown: true };       // typed against MyClientContract
-        },
-      }}
-    >
+    // `clientContract` turns bidi ON and infers TClientContract — no explicit
+    // generic. Handler IMPLEMENTATIONS live in a child (see <ServerToasts>),
+    // because they register through context the provider supplies.
+    <OrpcWs url="wss://api.example.com/ws" fallback={<Spinner />} clientContract={clientContract}>
+      <ServerToasts />
       <Home />
     </OrpcWs>
   );
+}
+```
+
+Bind the contract once — typically in a tiny module — to get a typed
+`useServerHandler` hook:
+
+```ts
+// lib/ws.ts
+import { createServerHandlerHook } from "@orpc-ws/react";
+import type { ClientContract } from "./contract.js";
+
+export const useServerHandler = createServerHandlerHook<ClientContract>();
+```
+
+Then register the implementation from a component rendered **below**
+`<OrpcWs>`. Because the handler is defined in render, it closes over hooks and
+component state — a SERVER push mutates live React state:
+
+```tsx
+// ServerToasts.tsx — a CHILD of <OrpcWs>
+import { useState } from "react";
+import { useServerHandler } from "./lib/ws.js";
+
+function ServerToasts() {
+  const [toasts, setToasts] = useState<string[]>([]);
+
+  // `name` is constrained to the contract's procedure keys; input/output are
+  // pinned per procedure. The handler returns the procedure's output.
+  useServerHandler("showToast", ({ text }) => {
+    setToasts((current) => [...current, text]);
+    return { shown: true };
+  });
+
+  return <ToastStack toasts={toasts} />;
 }
 ```
 
@@ -180,43 +211,77 @@ function App() {
 `createOrpcWsClient` option (`url`, `tokenProvider`, `onEvent`, `reconnect`,
 `logger`, `uploads`, …) and reads them **once**, at construction — changing
 them across renders has no effect (build a new tree to change them). The bidi
-`clientRouter` / `clientContext` are the exception: `<OrpcWs>` owns them and
-supplies the core a stable delegating router + empty context itself.
+`clientContract` is the exception in *role*, not in timing: it too is read at
+construction, and `<OrpcWs>` owns the core's `clientRouter` / `clientContext`
+internally — supplying a stable delegating router + empty context itself.
 
-**The React-aware `clientRouter`.** Where the core's `clientRouter` is a full
-ORPC router fixed at construction (see
-[`@orpc-ws/client` → Server→client RPC](../orpc-ws-client/README.md#serverclient-rpc-bidirectional)),
-`<OrpcWs>`'s `clientRouter` prop is a **flat handler map** —
-`{ proc: (input) => output | Promise<output> }`. Handlers are defined in
-render, so they can close over hooks and component state (the `setToasts`
-above); `<OrpcWs>` reads them through a render-updated ref and hands the core
-one identity-stable delegating router, so a fresh handler closure each render
-does **not** rebuild the client (no reconnect storm). That's the whole value
-proposition: a server→client call mutates the *current* render's UI without
-re-creating the connection.
+**`clientContract` turns bidi on, and infers the type.** Pass the
+server→client contract router **value** (e.g.
+`clientContract = oc.router({ showToast })`) as the `clientContract` prop. Bidi
+is ON iff that prop is present, and `TClientContract` is **inferred** from the
+value — so there is **no** explicit generic on `<OrpcWs>`: write
+`<OrpcWs clientContract={clientContract}>`, not `<OrpcWs<MyClientContract> …>`.
+Drop the prop and `<OrpcWs>` is a plain one-way construct-and-own provider.
+(Your client→server contract is asserted at the read site via
+`useOrpcWs<MyContract>()`, not as a generic here.)
 
-> The set of procedure **keys** is fixed at the first render (the router shape
-> is identity-stable). Adding keys to `clientRouter` on a later render has no
-> effect. FLAT for v1 — no nested namespaces.
+**Handlers register from below, through a hook — not a prop.** The handler
+**implementations** are not passed to `<OrpcWs>`. Instead a child component
+calls the typed hook from `createServerHandlerHook<TClientContract>()`:
+`useServerHandler("showToast", ({ text }) => { … return { shown: true }; })`.
+The hook must run *below* `<OrpcWs>` because it reads a registration context
+the provider supplies — hence the `<ServerToasts>` child idiom above: put the
+handler and the state it closes over into a small descendant component. The
+hook reads the handler through a render-updated ref / a live registry, so a
+fresh handler closure each render does **not** rebuild the client (no reconnect
+storm). That's the whole value proposition: a server→client call mutates the
+*current* render's UI without re-creating the connection.
 
-**Single generic — type the handler map.** `<OrpcWs>` takes exactly one type
-parameter, `TClientContract` (the server→client contract). Write it explicitly
-to type the `clientRouter` map:
-
-```tsx
-<OrpcWs<MyClientContract> clientRouter={{ showToast }}>…</OrpcWs>
-```
-
-Omitting the generic falls to the default `never` — the **bidi-off** case:
-drop the `clientRouter` prop and `<OrpcWs>` is a plain one-way construct-and-own
-provider. (The component is generic *only* over `TClientContract`; your
-client→server contract is asserted at the read site via `useOrpcWs<MyContract>()`,
-not as a generic here.)
+> The hosted router's procedure **name set** is frozen at `<OrpcWs>`
+> construction from the `clientContract` keys — children register
+> implementations afterward, but the router shape can't grow after connect. The
+> `clientContract` must be **flat** (v1): a nested sub-router throws a clear
+> error at construction, naming the offending key.
+> Duplicate registration for the same name is **last-registration-wins** and
+> warns through the client's configured `logger` (not `console`); disposing an
+> old registration deletes by identity, so it can't clobber a newer one.
+> Calling a contract-declared procedure with **no** mounted handler throws
+> `ORPCError("NOT_FOUND")` (the core delegating router's existing behavior),
+> and a `useServerHandler` used with **no** `clientContract` on the ancestor
+> `<OrpcWs>` throws a clear error.
 
 **`fallback`.** Rendered until the WS reaches `connected`; the children mount
 only once connected. Omit `fallback` to always render `children` (even
 pre-connect) — the connection state is still observable below via
 `useConnectionState`.
+
+### Registration timing — when a handler is ready
+
+`useServerHandler` registers when its component **mounts**, not when `<OrpcWs>`
+is constructed. That is a real, observable property — plan for it:
+
+- **A registrant mounted in the SAME commit as `<OrpcWs>` (ungated) is ready
+  before the socket opens.** React runs effects bottom-up, so a child's
+  registration effect fires *before* `<OrpcWs>`'s own `connect()` effect. The
+  handler is in the registry before the connection is even attempted — no race.
+- **A registrant gated behind `fallback` mounts one commit LATER — after
+  `connected`.** When a `fallback` is set, children mount only once the WS
+  reaches `connected`, which is *one React commit after* the socket opened. A
+  server push that arrives in that gap — before the gated component's
+  registration effect runs — hits a contract-declared procedure with no mounted
+  handler and gets a graceful `ORPCError("NOT_FOUND")` back over the wire (the
+  core delegating router's behavior). It is handled, not a crash, but the push
+  is lost.
+
+**Guidance.** To guarantee a handler is live *before the first server push*,
+mount its component **ungated** — a direct child of `<OrpcWs>` not hidden behind
+`fallback` — so it registers pre-connect. If you do gate it behind `fallback`
+(or otherwise mount it post-connect), the **server** must tolerate an early
+`NOT_FOUND`: delay or retry the first server→client call until the client has
+had a commit to register. The authless demo takes the gated route on purpose and
+pairs it with a ~1s server-side delay before the welcome `showToast`, so the
+fallback→child commit always wins the race (see `ServerToasts.tsx` and the
+authless server's `app-module.ts`).
 
 **When to use which.** Reach for `<OrpcWs>` for the common case — let it build
 and own the client. Keep `OrpcWsProvider` as the low-level escape hatch when
@@ -232,15 +297,59 @@ server-driven.
 
 ### API
 
-- **`<OrpcWs<TClientContract> {...props}>`** — `props` is `OrpcWsProps`.
+- **`<OrpcWs {...props}>`** — `props` is `OrpcWsProps`; `TClientContract` is
+  inferred from the `clientContract` prop (no explicit generic).
 - **`OrpcWsProps<TClientContract>`** — every `createOrpcWsClient` construction
-  option **minus** `clientRouter` / `clientContext`, plus: `clientRouter?`
-  (the flat handler map, optional — omit for bidi-off), `fallback?: ReactNode`,
-  and `children: ReactNode`.
-- **`ClientRouterHandlers<TClientContract>`** — the type of the `clientRouter`
-  prop: `{ [K in proc]: (input) => output | Promise<output> }`, with input /
-  output derived from the contract via ORPC's `InferContractRouterInputs` /
-  `InferContractRouterOutputs`. Defaults to `never` (bidi off).
+  option **minus** `clientRouter` / `clientContext`, plus: `clientContract?`
+  (the server→client contract router value — present turns bidi on, absent
+  leaves it off), `fallback?: ReactNode`, and `children: ReactNode`.
+- **`createServerHandlerHook<TClientContract>()`** — binds a server→client
+  contract and returns a typed `useServerHandler(name, handler)` hook. `name`
+  is constrained to the contract's procedure keys; the handler's input /
+  output are pinned per procedure (the call itself returns `void`). Call the
+  returned hook from any component below `<OrpcWs>`.
+
+### Composing the client contract from feature fragments
+
+The `clientContract` is the central typed surface for the server→client
+direction — that's inherent to typed RPC, the way a server router has a single
+root. But "central" doesn't mean "monolithic": keep it **thin and
+feature-owned** by composing it from per-feature fragments merged at a small
+root. Each feature owns its own slice — a plain object of `oc` procedures,
+colocated with that feature's component and its `useServerHandler`
+registration. Adding a feature is a new fragment file plus one spread line at
+the root; you never edit another feature's slice.
+
+```ts
+// feature A owns its slice — toast/toast.contract.ts
+export const toastClientContract = {
+  showToast: oc.input(z.object({ text: z.string() })).output(z.object({ shown: z.boolean() })),
+};
+// feature B owns its slice — announce/announce.contract.ts
+export const announceClientContract = {
+  announce: oc.input(z.object({ message: z.string() })).output(z.object({ ok: z.boolean() })),
+};
+// THIN composition root — just merges the fragments
+export const clientContract = oc.router({ ...toastClientContract, ...announceClientContract });
+export type ClientContract = typeof clientContract;
+```
+
+One `useServerHandler` hook — bound once to the merged `ClientContract` via
+`createServerHandlerHook<ClientContract>()` — serves **all** features: many
+components, one hook, different procedure names. Each feature's component
+registers only its own name (see the `useServerHandler` idiom above).
+
+**Optional: feature-scoped hooks.** A feature can bind its hook to just its own
+slice — `createServerHandlerHook<typeof toastClientContract>()` — so that
+feature's call sites can't even *see* other features' procedure names. That's
+pure type scoping: the hook still registers into the **same**
+`<OrpcWs>` / `clientContract` at runtime; the narrowing is a types-only nicety,
+not a separate registry.
+
+For a worked example, see `apps/demo-authless`: its
+`contract/src/client/*.contract.ts` fragments merge into a thin
+`contract/src/index.ts` root, and `<ServerToasts>` + `<Announcements>` each own
+a fragment while sharing one `useServerHandler`.
 
 ## Where the rest lives
 

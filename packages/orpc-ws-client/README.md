@@ -280,8 +280,9 @@ function ConnectionBadge({ client }) {
 
 `@orpc-ws/react` also exports `useWsSubscription`, an optional
 `OrpcWsProvider`, a `useOrpcWs<TContract>()` hook, and `<OrpcWs>` — a
-construct-and-own provider that builds the client (and hosts a React-aware
-server→client `clientRouter`) for you — see its
+construct-and-own provider that builds the client for you (and, given a
+server→client `clientContract` value, hosts a router whose handlers descendants
+register via `createServerHandlerHook` → `useServerHandler`) — see its
 [README](../orpc-ws-react/README.md).
 
 ## Other frameworks

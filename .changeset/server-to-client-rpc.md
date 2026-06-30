@@ -23,12 +23,15 @@ byte-identical to the prior one-way behavior.
   host a router the server calls. New public `createDelegatingClientRouter`
   helper builds an identity-stable router whose leaves delegate to a live
   handler map (the late-binding bridge used by the React adapter).
-- **react**: new `<OrpcWs>` construct-and-own provider — hosts a React-aware
-  `clientRouter` whose flat handler map may close over hooks/state (so a server
-  push mutates live React UI). Builds the client once, owns connect/dispose
-  (StrictMode-safe), and renders `OrpcWsProvider` underneath so
-  `useConnectionState` / `useWsSubscription` / `useOrpcWs` keep working below
-  it.
+- **react**: new `<OrpcWs>` construct-and-own provider — takes the server→client
+  `clientContract` VALUE (`oc.router({ … })`; bidi on iff present,
+  `TClientContract` inferred — no explicit generic), builds the client once,
+  owns connect/dispose (StrictMode-safe), and renders `OrpcWsProvider` underneath
+  so `useConnectionState` / `useWsSubscription` / `useOrpcWs` keep working below
+  it. Feature-local handler implementations register from any descendant via
+  `createServerHandlerHook<TClientContract>()` → a typed `useServerHandler(name,
+  fn)` (the closure may close over hooks/state, so a server push mutates live
+  React UI).
 - **nestjs**: `OrpcWsModule.forRoot` / `forRootAsync` thread `clientContract` +
   the third generic; `OrpcWsService.getConnection`. Note: a `forRootAsync`
   `useFactory` must annotate its return type

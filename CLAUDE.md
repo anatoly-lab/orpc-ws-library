@@ -102,15 +102,19 @@ non-adapter package is framework-free; the boundary is lint-enforced.
   `upload/`, `config/`.
 - `@orpc-ws/react` — the WS-transport React adapter; hosts the React
   bindings for the WS client core only: `useConnectionState`,
-  `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`, and `OrpcWs` (+ types
-  `OrpcWsProviderProps`, `UseWsSubscriptionOptions`,
-  `UseWsSubscriptionResult`, `OrpcWsProps`, `ClientRouterHandlers`). `<OrpcWs>`
-  is a construct-and-own provider that hosts a React-aware server→client
-  `clientRouter` (handlers may close over hooks/state), builds the client once,
-  owns connect/dispose StrictMode-safe, and renders `OrpcWsProvider` underneath
-  so the existing hooks keep working — it COMPLEMENTS `OrpcWsProvider`
+  `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`, `OrpcWs`, and
+  `createServerHandlerHook` (+ types `OrpcWsProviderProps`,
+  `UseWsSubscriptionOptions`, `UseWsSubscriptionResult`, `OrpcWsProps`).
+  `<OrpcWs>` is a construct-and-own provider that takes the server→client
+  `clientContract` VALUE (`oc.router({ … })` — bidi is on iff present;
+  `TClientContract` infers from it, no explicit generic), builds the client
+  once, owns connect/dispose StrictMode-safe, and renders `OrpcWsProvider`
+  underneath so the existing hooks keep working — it COMPLEMENTS `OrpcWsProvider`
   (composition, not replacement; `OrpcWsProvider` stays the low-level escape
-  hatch taking a pre-built client). Among the `@orpc-ws` cores it depends only
+  hatch taking a pre-built client). Feature-local server→client handlers
+  register from any descendant via `createServerHandlerHook<TClientContract>()`
+  → a typed `useServerHandler(name, fn)` (handlers may close over hooks/state;
+  register-on-mount / unregister-on-unmount, last-wins on duplicate). Among the `@orpc-ws` cores it depends only
   on `@orpc-ws/client` (it also carries ORPC *framework* runtime deps —
   `@orpc/client` for `consumeEventIterator`, `@orpc/contract` for types — a
   different axis from the core dependency; it does NOT import `@orpc/server`,
@@ -420,12 +424,14 @@ browser/client package — both the runtime (Node) and the runtime-dep set
 - **Adapter exposes framework bindings only; the core is imported
   directly.** The adapter does **not** re-export its core. `@orpc-ws/react`
   exports only the WS bindings: `useConnectionState`, `useWsSubscription`,
-  `OrpcWsProvider`, `useOrpcWs`, `OrpcWs` (+ `OrpcWsProviderProps`,
-  `UseWsSubscriptionOptions`, `UseWsSubscriptionResult`, `OrpcWsProps`,
-  `ClientRouterHandlers`). `<OrpcWs>` (a construct-and-own provider hosting a
-  React-aware server→client `clientRouter`) COMPLEMENTS `OrpcWsProvider`
-  (composition, not replacement) — `OrpcWsProvider` stays the low-level
-  pre-built-client escape hatch.
+  `OrpcWsProvider`, `useOrpcWs`, `OrpcWs`, `createServerHandlerHook`
+  (+ `OrpcWsProviderProps`, `UseWsSubscriptionOptions`,
+  `UseWsSubscriptionResult`, `OrpcWsProps`). `<OrpcWs>` (a construct-and-own
+  provider taking the server→client `clientContract` value; handler
+  implementations register from descendants via `createServerHandlerHook<T>()`
+  → `useServerHandler(name, fn)`) COMPLEMENTS `OrpcWsProvider` (composition, not
+  replacement) — `OrpcWsProvider` stays the low-level pre-built-client escape
+  hatch.
   Consumers import the framework-free APIs straight from the core. The core
   remains a regular `dependency` of its adapter (the hooks `import type` from
   it, and the emitted `.d.ts` references those types, so the dep must resolve)
