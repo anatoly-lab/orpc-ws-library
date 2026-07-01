@@ -1,5 +1,13 @@
 # @orpc-ws/cookie-bff
 
+## 0.8.0
+
+### Patch Changes
+
+- Updated dependencies [b93dd3d]
+  - @orpc-ws/shared@0.8.0
+  - @orpc-ws/server@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes

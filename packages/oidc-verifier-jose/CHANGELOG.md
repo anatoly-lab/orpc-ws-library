@@ -1,5 +1,12 @@
 # @orpc-ws/oidc-verifier-jose
 
+## 0.8.0
+
+### Patch Changes
+
+- Updated dependencies [b93dd3d]
+  - @orpc-ws/server@0.8.0
+
 ## 0.7.0
 
 ### Patch Changes
