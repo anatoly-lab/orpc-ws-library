@@ -74,9 +74,14 @@ export interface AuthenticatedHooks<
 /**
  * Lifecycle hooks for the AUTHLESS server. Same EVENTS as the
  * authenticated hooks but with NO user param (authless carries no
- * authenticated principal — see `state/no-auth.ts`), and NO `onKicked`
- * (authless has no session-replacement: `singleConnectionPerUser` is
- * forced off, every connection is independent).
+ * authenticated principal — see `state/no-auth.ts`).
+ *
+ * `onKicked` IS available: authless now defaults to a SINGLE global
+ * connection (a new connection kicks the previous one with `4005`), so a
+ * kick is a real event. It carries only `replacedBy` (the new live WS) —
+ * there is no kicked `user` to report. It never fires when
+ * `allowConcurrentConnections: true` (connections coexist, nothing is
+ * kicked).
  */
 export interface AuthlessHooks<TClientContract extends AnyContractRouter = never> {
   /**
@@ -95,6 +100,13 @@ export interface AuthlessHooks<TClientContract extends AnyContractRouter = never
     conn: AuthlessConnection<TClientContract>,
     code: number,
   ) => void;
+  /**
+   * Fires when a previous connection was closed (`4005`) because a newer one
+   * took over — the DEFAULT single-global-connection model. `replacedBy` is
+   * the new live WS. There is no `user` param (authless has no principal to
+   * name). Never fires under `allowConcurrentConnections: true`.
+   */
+  onKicked?: (replacedBy: WebSocket) => void;
   /** Fires after the watchdog terminates a zombie connection. */
   onZombieTerminated?: () => void;
 }
@@ -190,8 +202,11 @@ export interface AuthenticatedOrpcWsServerOptions<
  *
  * `connection` is still accepted for path / close-code / shutdown
  * tuning, but `singleConnectionPerUser` and `enforceTokenExpiry` are
- * forced off by the factory regardless of what the consumer passes (a
- * stray `true` is ignored + logged once), so they're typed out here.
+ * typed out here: single-connection behavior is controlled by
+ * `allowConcurrentConnections` (below), and `enforceTokenExpiry` has no
+ * token to act on (forced off, a stray `true` on the raw-class path is
+ * ignored + logged once). The `sessionReplacedCloseCode` (default `4005`)
+ * used for the kick IS still tunable via `connection`.
  *
  * @typeParam TClientContract  The CLIENT's contract router (bidi). Let it be
  *   INFERRED from the `clientContract` VALUE — never specify it explicitly (see
@@ -203,6 +218,20 @@ export interface AuthlessOrpcWsServerOptions<
 > {
   /** The consumer's ORPC router. Same contract as the authed options. */
   router: TContract;
+  /**
+   * Opt OUT of the single-global-connection default.
+   *
+   * DEFAULT (`false` / omitted) — a SINGLE global connection: all authless
+   * sockets share one registry key, so a NEW connection KICKS the previous
+   * one with `sessionReplacedCloseCode` (`4005`, → the client goes terminal
+   * `kicked`). This models a single-GUI remote-control server where the
+   * newest tab takes over.
+   *
+   * `true` — connections COEXIST (the pre-flip behavior): every socket gets
+   * a unique key, none kick each other, and `onKicked` never fires. The
+   * consumer's broadcast logic owns any deduplication.
+   */
+  allowConcurrentConnections?: boolean;
   /**
    * Opt into server→client RPC ("bidi"). Same semantics as the authenticated
    * option — its presence turns bidi on and gives every (user-less) connection

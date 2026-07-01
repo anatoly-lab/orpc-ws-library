@@ -47,9 +47,11 @@ const echo = oc
   );
 
 // Tiny mutable state: no input, returns the new running count. The server
-// keeps the counter in a module-level variable (see router.ts) so two
-// browser tabs share — and race on — the same number, the simplest possible
-// demonstration that an RPC can mutate server state.
+// keeps the counter in a module-level variable (see router.ts) so it is
+// shared across connections. Note: authless now DEFAULTS to a single global
+// connection — opening a second tab takes over (kicks the first with 4005)
+// rather than the two coexisting — but the shared counter carries over, the
+// simplest possible demonstration that an RPC can mutate server state.
 const increment = oc
   .input(z.void())
   .output(

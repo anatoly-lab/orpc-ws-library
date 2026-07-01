@@ -134,12 +134,16 @@ export interface ConnectionHandlerDeps<TUser> {
    */
   verifyOrchestrator?: VerifyClientOrchestrator<TUser>;
   /**
-   * AUTHLESS-only: produces a UNIQUE registry key per connection. The
-   * composition root injects a monotonic counter (not `Math.random`/
-   * `Date.now` — CLAUDE.md seam rule). REQUIRED whenever
-   * `verifyOrchestrator` is absent: authless connections carry no user,
-   * so without a unique key every connection would collapse to one map
-   * entry and kick each other (the registry foot-gun).
+   * AUTHLESS-only: produces the registry key for each connection. The
+   * composition root injects one of two deterministic seams (never
+   * `Math.random`/`Date.now` — CLAUDE.md seam rule) depending on the
+   * authless sub-mode:
+   *   - DEFAULT (single global connection): a CONSTANT key, so every
+   *     socket collides and a new connection kicks the previous (`4005`).
+   *   - `allowConcurrentConnections`: a UNIQUE monotonic key per
+   *     connection, so authless sockets coexist without kicking.
+   * REQUIRED whenever `verifyOrchestrator` is absent (authless carries no
+   * user, so there is no verify-supplied key to fall back to).
    */
   authlessKey?: () => string;
   registry: ConnectionRegistry;
@@ -314,13 +318,13 @@ export class ConnectionHandler<TUser> {
    * verify-result lookup, no token plumbing, no expiry watchdog. The
    * ORPC context is the EMPTY object `{}` (see `state/no-auth.ts`).
    *
-   * The registry key comes from the injected unique-key seam so authless
-   * connections never collide — without it `singleConnectionPerUser`
-   * would collapse every authless socket to one entry and they'd kick
-   * each other. (`singleConnectionPerUser` is also forced off for
-   * authless at the composition root, so the kick branch is unreachable
-   * regardless; the unique key is belt-and-suspenders + a meaningful
-   * registry key for `entries()`/diagnostics.)
+   * The registry key comes from the injected authless key seam. In the
+   * DEFAULT single-global-connection mode that seam is CONSTANT, so a new
+   * connection collides with the previous one and `singleConnectionPerUser`
+   * (ON by default in authless) kicks it (`4005`). Under
+   * `allowConcurrentConnections` the seam is a unique monotonic key so
+   * sockets coexist and the kick branch stays unreachable. Either way the
+   * key is deterministic (no `Date.now()`/random — CLAUDE.md seam rule).
    *
    * The same sync contract as `handle` applies up to `upgrade()`.
    */

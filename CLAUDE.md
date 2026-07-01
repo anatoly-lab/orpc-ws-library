@@ -584,16 +584,37 @@ above.
   `verifyClient`) so the everyday name carries the safe authed path and
   authless is opt-in-by-name.
 - **Authless behavior:** no verifier runs (every WS upgrade accepted);
-  ORPC procedure context is empty `{}` (no `user`, no `token`); each
-  connection gets a unique internal registry key
-  (`state/authless-key.ts`, a deterministic monotonic counter — not
-  `Math.random()`/`Date.now()`) so single-session enforcement is OFF
-  (no `4005` session-replace, anonymous connections coexist); NO uploads,
-  NO token-expiry, NO `closeUser`. One info log line at attach notes
-  authless mode. `AuthlessOrpcWsServerOptions` has no `verifyClient` /
-  `uploads` / `enforceTokenExpiry`; `AuthlessHooks` drops the `user`
-  params and `onKicked`. The return type is `Omit<OrpcWsServer<NoAuth>,
-  "closeUser">`.
+  ORPC procedure context is empty `{}` (no `user`, no `token`); NO
+  uploads, NO token-expiry, NO `closeUser`. One info log line at attach
+  notes authless mode. `AuthlessOrpcWsServerOptions` has no `verifyClient`
+  / `uploads` / `enforceTokenExpiry`. The return type is
+  `Omit<OrpcWsServer<NoAuth>, "closeUser">`.
+- **Single global connection is the DEFAULT (single-session enforcement
+  is ON).** *(NEW — reverses the earlier "connections coexist / no
+  `onKicked`" authless default.)* All authless sockets share ONE constant
+  internal registry key (`state/authless-key.ts` returns a fixed key by
+  default — a deterministic constant, not `Math.random()`/`Date.now()`),
+  so a NEW connection KICKS the previous one: the prior socket is closed
+  with `4005` (session-replaced) and the client maps `4005` to the
+  terminal `kicked` state (it does NOT reconnect). This models a
+  single-GUI remote-control server where the newest tab takes over. The
+  kick close code is `sessionReplacedCloseCode` (default `4005`), still
+  tunable via the `connection` config overlay.
+- **`allowConcurrentConnections?: boolean` opt-out (default `false`).** A
+  public option on `AuthlessOrpcWsServerOptions`. Set `true` to restore
+  the OLD coexist behavior: each connection gets a *unique* per-connection
+  key (`state/authless-key.ts`'s monotonic counter), single-session
+  enforcement is OFF, no `4005` kick, anonymous connections coexist, and
+  `onKicked` never fires. (`singleConnectionPerUser` is no longer a
+  warned/ignored knob in authless — it is now meaningful, controlled via
+  this option.)
+- **`AuthlessHooks` now HAS a user-less `onKicked`.** *(NEW — authless
+  previously had no `onKicked`.)* `onKicked?: (replacedBy: WebSocket) =>
+  void` carries ONLY the replacing WebSocket — there is no kicked `user`
+  (authless has no principal). It fires in the default single-connection
+  mode when a new connection replaces the previous; it never fires under
+  `allowConcurrentConnections: true`. The other authless hooks still drop
+  the `user` params.
 - **No uploads in authless is deliberate** (the HTTP upload transport
   authenticates via the same Bearer token the WS uses, which authless has
   none of). Adding it later is purely additive — no public API change.
@@ -607,7 +628,8 @@ above.
   unchanged — back-compat default); `mode: "authless"` ⇒ the authless
   arm. `OrpcWsService` reads `mode` and dispatches to the matching
   factory. Use `OrpcWsModule.forRoot/forRootAsync({ mode: "authless",
-  router })`.
+  router })`. The authless arm inherits `allowConcurrentConnections` and
+  the authless `onKicked` automatically through the option type.
 
 ### Reactive auth seam — observable `@orpc-ws/oidc-pkce` (REMOVED)
 

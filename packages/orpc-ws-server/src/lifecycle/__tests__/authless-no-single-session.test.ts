@@ -1,19 +1,20 @@
-// REGRESSION (foot-gun): authless connections must NOT kick each other.
+// AUTHLESS session behavior at the connection-handler + registry seam.
 //
-// The bug this guards against: the connection registry keys every
-// connection by a string. Authless connections carry no user, so a naive
-// key (`JSON.stringify(user)` → `JSON.stringify(undefined)` → the literal
-// `"undefined"`) would collapse EVERY authless connection to one map
-// entry. With `singleConnectionPerUser` on, the second connection would
-// then close the first with code 4005 ("session replaced") — every
-// authless client would kick every other one.
+// The library flipped the authless DEFAULT (behavior change): authless is
+// now a SINGLE global connection — a new connection KICKS the previous one
+// (single-GUI remote-control model) — with an opt-out
+// (`allowConcurrentConnections: true`) that restores the old "connections
+// coexist" behavior. Both halves are decided by which key seam the
+// composition root injects into the handler:
 //
-// The fix, asserted here:
-//   - the connection handler in authless mode mints a UNIQUE registry key
-//     per connection (injected monotonic counter — `authlessKey`), so two
-//     authless connections land under DISTINCT keys and the registry
-//     holds TWO entries.
-//   - NEITHER WS is closed with the session-replaced code (4005).
+//   - DEFAULT → `createSingleAuthlessKey()` (a CONSTANT key) + the registry's
+//     `singleConnectionPerUser: true`: the second connection collides on the
+//     one key and the registry closes the first with 4005, firing onKicked.
+//   - `allowConcurrentConnections` → `createAuthlessKeyFactory()` (a UNIQUE
+//     monotonic key) + `singleConnectionPerUser: false`: distinct keys, no
+//     collision, no kick. (This is the OLD default — the relocated foot-gun
+//     regression: `JSON.stringify(undefined)` would collapse every authless
+//     socket to one key and kick each other; the unique seam prevents it.)
 //
 // Unit-level + deterministic (CLAUDE.md "Tests from day 0"): a REAL
 // `ConnectionRegistry` (so the keying is genuinely exercised) with fake
@@ -25,7 +26,11 @@ import type { WebSocket } from "ws";
 
 import { ConnectionHandler } from "../connection-handler.js";
 import { ConnectionRegistry } from "../../state/connection-registry.js";
-import { createAuthlessKeyFactory } from "../../state/authless-key.js";
+import {
+  createAuthlessKeyFactory,
+  createSingleAuthlessKey,
+  SINGLE_AUTHLESS_KEY,
+} from "../../state/authless-key.js";
 import { DEFAULT_CONNECTION_CONFIG } from "../../config/connection-config.js";
 import type { WsPingPong } from "../../heartbeat/ws-ping-pong.js";
 
@@ -46,43 +51,98 @@ function fakePingPong(): { register: ReturnType<typeof vi.fn>; unregister: Retur
   return { register: vi.fn(), unregister: vi.fn() };
 }
 
-describe("authless: connections do not kick each other (foot-gun regression)", () => {
-  it("two authless connections coexist — distinct keys, no 4005 close", () => {
-    // singleConnectionPerUser ON: this is the dangerous config. The
-    // unique-key seam must make the kick branch unreachable anyway.
+describe("authless DEFAULT — single global connection (new kicks previous)", () => {
+  it("second connection kicks the first with 4005; only B remains; onKicked fires once with B's ws", () => {
+    const onKicked = vi.fn();
+    // DEFAULT authless config: single global connection ON.
     const registry = new ConnectionRegistry({
       config: { ...DEFAULT_CONNECTION_CONFIG, singleConnectionPerUser: true },
+      onKicked,
     });
     const pingPong = fakePingPong();
     const upgrade = vi.fn();
 
     const handler = new ConnectionHandler({
-      // No verifyOrchestrator → authless path.
-      authlessKey: createAuthlessKeyFactory(),
+      // No verifyOrchestrator → authless path. CONSTANT key seam → collide.
+      authlessKey: createSingleAuthlessKey(),
       registry,
-      // The fake structurally matches the bits the handler touches.
       pingPong: pingPong as unknown as WsPingPong,
       rpcHandler: { upgrade },
     });
 
     const a = fakeWs();
     const b = fakeWs();
-
-    // `req` is unused on the authless path — the handler never reads it.
     const fakeReq = {} as Parameters<typeof handler.handle>[1];
+
     handler.handle(a.ws, fakeReq);
     handler.handle(b.ws, fakeReq);
 
-    // Foot-gun would have closed `a` with 4005 here. It must NOT.
-    expect(a.close).not.toHaveBeenCalled();
+    // A is kicked with the session-replaced code (4005); B is untouched.
+    expect(a.close).toHaveBeenCalledTimes(1);
+    expect(a.close.mock.calls[0]?.[0]).toBe(
+      DEFAULT_CONNECTION_CONFIG.sessionReplacedCloseCode,
+    );
+    expect(a.close.mock.calls[0]?.[0]).toBe(4005);
     expect(b.close).not.toHaveBeenCalled();
 
-    // The registry holds TWO distinct entries under distinct keys.
+    // ONE entry under the single shared key — B took over A's slot.
+    expect(registry.size()).toBe(1);
+    const keys = [...registry.entries()].map((e) => e.key);
+    expect(keys).toEqual([SINGLE_AUTHLESS_KEY]);
+
+    // onKicked fired exactly once; `replacedBy` is B's (server-side) ws.
+    expect(onKicked).toHaveBeenCalledTimes(1);
+    const [, replacedBy] = onKicked.mock.calls[0]!;
+    expect(replacedBy).toBe(b.ws);
+
+    // Both upgraded with the EMPTY authless context (no user/token).
+    expect(upgrade).toHaveBeenCalledTimes(2);
+    for (const call of upgrade.mock.calls) {
+      expect(call[1]).toEqual({ context: {} });
+    }
+  });
+});
+
+describe("authless allowConcurrentConnections opt-out — connections coexist (foot-gun regression)", () => {
+  it("two authless connections coexist — distinct keys, no 4005, no onKicked", () => {
+    const onKicked = vi.fn();
+    // Concurrent opt-out config: single-connection enforcement OFF + the
+    // UNIQUE key seam. Even with the enforcement flag ON the unique keys
+    // would keep the kick branch unreachable — asserted here belt-and-braces.
+    const registry = new ConnectionRegistry({
+      config: { ...DEFAULT_CONNECTION_CONFIG, singleConnectionPerUser: false },
+      onKicked,
+    });
+    const pingPong = fakePingPong();
+    const upgrade = vi.fn();
+
+    const handler = new ConnectionHandler({
+      // No verifyOrchestrator → authless path. UNIQUE key seam → no collide.
+      authlessKey: createAuthlessKeyFactory(),
+      registry,
+      pingPong: pingPong as unknown as WsPingPong,
+      rpcHandler: { upgrade },
+    });
+
+    const a = fakeWs();
+    const b = fakeWs();
+    const fakeReq = {} as Parameters<typeof handler.handle>[1];
+
+    handler.handle(a.ws, fakeReq);
+    handler.handle(b.ws, fakeReq);
+
+    // Neither socket is kicked; nobody is replaced.
+    expect(a.close).not.toHaveBeenCalled();
+    expect(b.close).not.toHaveBeenCalled();
+    expect(onKicked).not.toHaveBeenCalled();
+
+    // TWO distinct entries under the unique authless keys (authless#1/#2).
     expect(registry.size()).toBe(2);
     const keys = [...registry.entries()].map((e) => e.key);
+    expect(keys).toEqual(["authless#1", "authless#2"]);
     expect(new Set(keys).size).toBe(2);
 
-    // Both connections were upgraded with the EMPTY context (no user/token).
+    // Both upgraded with the EMPTY authless context (no user/token).
     expect(upgrade).toHaveBeenCalledTimes(2);
     for (const call of upgrade.mock.calls) {
       expect(call[1]).toEqual({ context: {} });

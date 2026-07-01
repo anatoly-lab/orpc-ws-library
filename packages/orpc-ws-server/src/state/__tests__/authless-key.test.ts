@@ -1,12 +1,31 @@
-// Unit test for the authless unique-key seam.
+// Unit tests for the two authless key seams.
 //
-// The keys must be UNIQUE per call and DETERMINISTIC (monotonic counter,
-// not Math.random/Date.now) so the foot-gun regression test can rely on
-// stable keys.
+// - `createSingleAuthlessKey` (DEFAULT): a CONSTANT key so every authless
+//   socket collides on one registry entry and a new connection kicks the
+//   previous (single global connection).
+// - `createAuthlessKeyFactory` (opt-out): UNIQUE per-call DETERMINISTIC keys
+//   (monotonic counter, not Math.random/Date.now) so concurrent authless
+//   sockets coexist and the foot-gun regression can rely on stable keys.
 
 import { describe, expect, it } from "vitest";
 
-import { createAuthlessKeyFactory } from "../authless-key.js";
+import {
+  createAuthlessKeyFactory,
+  createSingleAuthlessKey,
+  SINGLE_AUTHLESS_KEY,
+} from "../authless-key.js";
+
+describe("createSingleAuthlessKey", () => {
+  it("always yields the same constant key (so all authless sockets collide)", () => {
+    const next = createSingleAuthlessKey();
+    expect([next(), next(), next()]).toEqual([
+      SINGLE_AUTHLESS_KEY,
+      SINGLE_AUTHLESS_KEY,
+      SINGLE_AUTHLESS_KEY,
+    ]);
+    expect(SINGLE_AUTHLESS_KEY).toBe("authless");
+  });
+});
 
 describe("createAuthlessKeyFactory", () => {
   it("yields unique, monotonic keys", () => {

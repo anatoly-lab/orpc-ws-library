@@ -23,10 +23,13 @@ const echo = os.echo.handler(({ input }) => ({
   at: Date.now(),
 }));
 
-// Mutable shared in-memory state. Module-level so every connection — every
-// browser tab — increments the SAME counter. The simplest possible proof
-// that an RPC can change server state and read it back. Not persisted: it
-// resets when the process restarts, which is fine for a demo.
+// Mutable shared in-memory state. Module-level so every connection
+// increments the SAME counter — the count persists across connections and
+// even across the authless single-session takeover (opening a second tab
+// KICKS the first with 4005, but the new tab keeps counting from where the
+// shared counter left off). The simplest possible proof that an RPC can
+// change server state and read it back. Not persisted: it resets when the
+// process restarts, which is fine for a demo.
 let counter = 0;
 const increment = os.increment.handler(() => ({
   count: ++counter,

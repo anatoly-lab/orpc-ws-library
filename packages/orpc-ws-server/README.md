@@ -152,19 +152,28 @@ What's different from the authenticated path:
 - **Empty ORPC context.** Procedures run with `{}` — there is no `user`
   and no `token` on the context. (The option/return types make this a
   compile-time fact: an authless build never declares or sees a `TUser`.)
-- **No single-session enforcement.** Each connection gets a unique
-  internal registry key, so anonymous connections never kick each other
-  — no `4005` session-replace. Many clients coexist freely.
+- **Single global connection (default).** All authless sockets share one
+  internal registry key, so a new connection **kicks** the previous one —
+  the prior socket is closed with `4005` (session-replaced) and the
+  library client maps `4005` to the terminal `kicked` state (it does not
+  reconnect). This models a single-GUI remote-control server where the
+  newest tab takes over. To restore coexistence, set
+  `allowConcurrentConnections: true` — each connection then gets a unique
+  key, nothing is kicked, and any number of anonymous clients coexist
+  freely.
 - **No uploads, no token-expiry, no `closeUser`.** The HTTP upload
   transport authenticates with the same Bearer token the WS uses, which
   authless has none of; `enforceTokenExpiry` has no token to expire; and
   with no per-user identity there's nothing for `closeUser` to target —
   so the returned type omits it. (Authless having no uploads is
   deliberate; it can be added later without an API change.)
-- **Smaller hooks.** `onConnected(conn)` / `onDisconnected(conn, code)` /
-  `onZombieTerminated()` — the `conn` carries no `user` (it's `{ key, ws }`,
-  plus `client` when bidi is on), and there's no `onKicked` (nothing is ever
-  kicked).
+- **Smaller hooks — but `onKicked` is available.** `onConnected(conn)` /
+  `onDisconnected(conn, code)` / `onZombieTerminated()` — the `conn`
+  carries no `user` (it's `{ key, ws }`, plus `client` when bidi is on).
+  Authless also has a user-less `onKicked?: (replacedBy: WebSocket) =>
+  void`, which fires in the default single-connection mode when a new
+  connection replaces the previous (it carries only the replacing socket,
+  no `user`); it never fires under `allowConcurrentConnections: true`.
 
 Heartbeat still runs (it's pre-auth liveness — see [Heartbeat](#heartbeat)).
 
@@ -172,6 +181,39 @@ Heartbeat still runs (it's pre-auth liveness — see [Heartbeat](#heartbeat)).
 > authless entry point. The bare `OrpcWsServer` class is the
 > advanced/internal entry; authless consumers should not construct it
 > directly.
+
+### Out-of-band push (`SINGLE_AUTHLESS_KEY`)
+
+In the default single-connection mode every authless socket shares one
+registry key — exported as `SINGLE_AUTHLESS_KEY` (value `"authless"`). It
+lets you reach the one live GUI from **outside** the connection lifecycle
+and push to it via server→client RPC:
+
+```ts
+import { SINGLE_AUTHLESS_KEY } from "@orpc-ws/server";
+
+// e.g. an MCP tool handler reacting to an external command:
+server.getConnection(SINGLE_AUTHLESS_KEY)?.client.notify({ text: "hi" });
+```
+
+- **Bidi must be on** for `.client` to exist — pass a `clientContract`
+  (see [Server→client RPC](#serverclient-rpc-bidirectional)); the push is a
+  server→client call.
+- **Prefer the in-lifecycle route when you can.** If the push originates
+  *inside* the connection lifecycle, capture `conn` from `onConnected` and
+  hold `conn.client` — that's cleaner and avoids the registry lookup.
+  `SINGLE_AUTHLESS_KEY` is specifically for pushes triggered by something
+  **external** to the connection (an MCP tool handler, a webhook, a timer).
+- **Only meaningful in the default single-connection mode.** Under
+  `allowConcurrentConnections: true` each connection has its own unique key,
+  so there is no single shared key to look up.
+
+NestJS consumers import `SINGLE_AUTHLESS_KEY` from
+[`@orpc-ws/server-nestjs`](../orpc-ws-server-nestjs/README.md) (re-exported)
+and push via the service's typed `getConnection` mirror:
+`OrpcWsService.getConnection<TClientContract>(SINGLE_AUTHLESS_KEY)?.client.notify(…)`
+— prefer this over `getServer().getConnection(…)`, whose `AnyOrpcWsServer`
+return type erases the typed `.client`.
 
 On NestJS, the same mode is reached with
 `OrpcWsModule.forRoot({ mode: "authless", router })` — see

@@ -11,7 +11,7 @@
 //     authless must not disturb it).
 //   - The client connects with NO `?token=` query.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createServer, type Server as HttpServer } from "http";
 import type { AddressInfo } from "net";
 import { os, type RouterClient } from "@orpc/server";
@@ -92,6 +92,154 @@ describe("AUTHLESS — end-to-end", () => {
     } finally {
       ws.close();
       await new Promise((r) => setTimeout(r, 30));
+      await server.dispose();
+      await close();
+    }
+  });
+
+  // Behavior change: authless DEFAULTS to a single global connection — a new
+  // connection kicks the previous with 4005 (single-GUI remote-control model).
+  // Models the authenticated kick test in ../integration/hooks.test.ts.
+  it("DEFAULT single-connection: a second connection kicks the first with 4005 and fires onKicked", async () => {
+    const onKicked = vi.fn();
+    const { http, port, close } = await startHttpServer();
+    // No allowConcurrentConnections → the single-global-connection default.
+    const server = createAuthlessOrpcWsServer({
+      router,
+      hooks: { onKicked },
+      heartbeat: { intervalMs: 10_000, timeoutMs: 5_000, pingPong: false },
+    });
+    server.attach(http);
+
+    try {
+      const c1 = new WebSocketClient(`ws://127.0.0.1:${port}/ws`);
+      await new Promise<void>((resolve, reject) => {
+        c1.on("open", () => resolve());
+        c1.on("error", (err) => reject(err));
+      });
+
+      const c1ClosePromise = new Promise<{ code: number }>((resolve) => {
+        c1.on("close", (code) => resolve({ code }));
+      });
+
+      const c2 = new WebSocketClient(`ws://127.0.0.1:${port}/ws`);
+      await new Promise<void>((resolve, reject) => {
+        c2.on("open", () => resolve());
+        c2.on("error", (err) => reject(err));
+      });
+
+      // c1 is kicked with the session-replaced code (4005).
+      const c1Close = await c1ClosePromise;
+      expect(c1Close.code).toBe(4005);
+
+      // onKicked fired exactly once; the authless hook receives only the
+      // replacing WS (no user param).
+      expect(onKicked).toHaveBeenCalledTimes(1);
+      expect(onKicked.mock.calls[0]).toHaveLength(1);
+      expect(onKicked.mock.calls[0]?.[0]).toBeDefined();
+
+      // c2 is still the live connection.
+      expect(c2.readyState).toBe(WebSocketClient.OPEN);
+
+      c2.close();
+      await new Promise((r) => setTimeout(r, 30));
+    } finally {
+      await server.dispose();
+      await close();
+    }
+  });
+
+  // The highest-value coverage gap: after a kick, the REPLACING connection must
+  // be a fully-functional RPC endpoint — not merely "the old one got 4005".
+  // Open A, open B (kicks A with 4005), then round-trip a real RPC over B.
+  it("DEFAULT single-connection: the connection that kicks is fully functional (RPC round-trips over it)", async () => {
+    const { http, port, close } = await startHttpServer();
+    const server = createAuthlessOrpcWsServer({
+      router,
+      heartbeat: { intervalMs: 10_000, timeoutMs: 5_000, pingPong: false },
+    });
+    server.attach(http);
+
+    let c1: WebSocketClient | undefined;
+    let c2: WebSocketClient | undefined;
+    try {
+      c1 = new WebSocketClient(`ws://127.0.0.1:${port}/ws`);
+      await new Promise<void>((resolve, reject) => {
+        c1?.on("open", () => resolve());
+        c1?.on("error", (err) => reject(err));
+      });
+
+      // Await c1's kick BEFORE touching c2 — this makes the test deterministic
+      // (the registry has definitely swapped to c2 by the time 4005 lands) and
+      // pins the precondition: the new connection is exercised POST-kick.
+      const c1ClosePromise = new Promise<{ code: number }>((resolve) => {
+        c1?.on("close", (code) => resolve({ code }));
+      });
+
+      c2 = new WebSocketClient(`ws://127.0.0.1:${port}/ws`);
+      await new Promise<void>((resolve, reject) => {
+        c2?.on("open", () => resolve());
+        c2?.on("error", (err) => reject(err));
+      });
+
+      expect((await c1ClosePromise).code).toBe(4005);
+
+      // The replacing connection (c2) must serve RPC normally.
+      const link = new RPCLink({ websocket: c2 as unknown as WsLike });
+      const client = createORPCClient<RouterClient<typeof router>>(link);
+      expect(await client.echo("post-kick")).toBe("post-kick");
+      // Works twice — proves the socket is a live, reusable RPC endpoint, not a
+      // one-shot fluke that happened to survive the kick.
+      expect(await client.echo("still-alive")).toBe("still-alive");
+    } finally {
+      c1?.close();
+      c2?.close();
+      await new Promise((r) => setTimeout(r, 30));
+      await server.dispose();
+      await close();
+    }
+  });
+
+  // The opt-out restores the pre-flip behavior: connections coexist.
+  it("allowConcurrentConnections: two connections coexist — no kick, no onKicked", async () => {
+    const onKicked = vi.fn();
+    const { http, port, close } = await startHttpServer();
+    const server = createAuthlessOrpcWsServer({
+      router,
+      allowConcurrentConnections: true,
+      hooks: { onKicked },
+      heartbeat: { intervalMs: 10_000, timeoutMs: 5_000, pingPong: false },
+    });
+    server.attach(http);
+
+    try {
+      const c1 = new WebSocketClient(`ws://127.0.0.1:${port}/ws`);
+      const c1Closes: number[] = [];
+      c1.on("close", (code) => c1Closes.push(code));
+      await new Promise<void>((resolve, reject) => {
+        c1.on("open", () => resolve());
+        c1.on("error", (err) => reject(err));
+      });
+
+      const c2 = new WebSocketClient(`ws://127.0.0.1:${port}/ws`);
+      await new Promise<void>((resolve, reject) => {
+        c2.on("open", () => resolve());
+        c2.on("error", (err) => reject(err));
+      });
+
+      // Give any (erroneous) kick a moment to land.
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Neither connection was kicked; both stay open.
+      expect(c1Closes).toHaveLength(0);
+      expect(onKicked).not.toHaveBeenCalled();
+      expect(c1.readyState).toBe(WebSocketClient.OPEN);
+      expect(c2.readyState).toBe(WebSocketClient.OPEN);
+
+      c1.close();
+      c2.close();
+      await new Promise((r) => setTimeout(r, 30));
+    } finally {
       await server.dispose();
       await close();
     }

@@ -116,11 +116,23 @@ export function createAuthlessOrpcWsServer<
     const cb = h.onZombieTerminated;
     internalHooks.onZombieTerminated = () => cb();
   }
+  // Adapt the user-less authless `onKicked(replacedBy)` to the internal
+  // registry hook shape `(user, replacedBy)` — dropping the (uninhabited
+  // NoAuth) kicked user. Fires in the DEFAULT single-connection mode when a
+  // new connection replaces the previous one.
+  if (h?.onKicked) {
+    const cb = h.onKicked;
+    internalHooks.onKicked = (_user, replacedBy) => cb(replacedBy);
+  }
 
   const internalOpts: OrpcWsServerOptions<NoAuth, TContract, TClientContract> = {
     router: opts.router,
     // No verifyClient → the class constructs in authless mode.
     hooks: internalHooks,
+    // Thread the public single-vs-concurrent switch to the internal sub-mode
+    // flag. Default (false/omitted) ⇒ single global connection (kick on
+    // reconnect); `true` ⇒ concurrent connections coexist.
+    authlessConcurrent: opts.allowConcurrentConnections === true,
   };
   if (opts.clientContract) internalOpts.clientContract = opts.clientContract;
   if (opts.connection) internalOpts.connection = opts.connection;
