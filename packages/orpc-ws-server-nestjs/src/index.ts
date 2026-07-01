@@ -51,6 +51,12 @@ export {
   DEFAULT_BEFORE_UPLOAD_REJECT_CODE,
   DEFAULT_BEFORE_UPLOAD_REJECT_REASON,
   extractBearerToken,
+  // The single registry key every authless connection shares in the default
+  // single-connection mode. Re-exported so a NestJS consumer can push to the
+  // one live authless GUI out-of-band via the service's typed `getConnection`
+  // mirror — `OrpcWsService.getConnection(SINGLE_AUTHLESS_KEY)?.client.<proc>()`
+  // WITHOUT adding a direct `@orpc-ws/server` dependency.
+  SINGLE_AUTHLESS_KEY,
 } from "@orpc-ws/server";
 
 // Logger seam + bridges. `fromNestShape` is the nestjs-adapter-only bridge;

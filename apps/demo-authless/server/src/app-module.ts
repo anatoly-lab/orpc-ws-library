@@ -66,6 +66,18 @@ const ANNOUNCE_DELAY_MS = 2_000;
         connection: { path: "/ws" },
         logger: fromNestShape(nestLogger),
         hooks: {
+          // NOTE on out-of-band pushes: both pushes below originate INSIDE the
+          // connection lifecycle, so they capture `conn` and hold `conn.client`
+          // directly — the cleaner pattern. A push triggered by something
+          // EXTERNAL (e.g. an MCP tool handler reacting to a command from
+          // elsewhere) has no `conn` in scope; it would instead reach the one
+          // live authless GUI by its shared registry key via the service's
+          // typed `getConnection` mirror —
+          // `orpcWsService.getConnection(SINGLE_AUTHLESS_KEY)?.client.<proc>()`
+          // (`SINGLE_AUTHLESS_KEY` is re-exported from `@orpc-ws/server-nestjs`;
+          // prefer it over the erased `getServer().getConnection(…)`).
+          // This demo has no such external trigger, so it stays with `conn`.
+          //
           // Fires once per accepted connection. `conn.client` is the typed
           // server→client caller (present because we passed `clientContract`).
           // We push a welcome toast after a short delay; fire-and-forget, but

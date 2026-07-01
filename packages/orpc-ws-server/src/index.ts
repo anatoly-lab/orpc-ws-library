@@ -44,7 +44,10 @@ import {
 } from "./config/heartbeat-config.js";
 
 import { ConnectionRegistry } from "./state/connection-registry.js";
-import { createAuthlessKeyFactory } from "./state/authless-key.js";
+import {
+  createAuthlessKeyFactory,
+  createSingleAuthlessKey,
+} from "./state/authless-key.js";
 import type { ServerConnection } from "./state/connection.js";
 import { createConnectionBidi } from "./bidi/connection-bidi.js";
 
@@ -110,6 +113,20 @@ export type {
   AuthlessHooks,
 } from "./composition/server-options.js";
 export type { NoAuth } from "./state/no-auth.js";
+/**
+ * The single registry key every authless connection shares in the DEFAULT
+ * single-connection mode. Exported so a consumer can push to the one live
+ * authless GUI OUT-OF-BAND — i.e. from OUTSIDE the connection lifecycle (e.g.
+ * an MCP tool handler reacting to an external command) — via
+ * `server.getConnection(SINGLE_AUTHLESS_KEY)?.client.<proc>(...)`.
+ *
+ * Only meaningful when authless is in its default single-connection mode
+ * (NOT `allowConcurrentConnections: true`, where each connection gets its own
+ * unique key). When the push originates INSIDE the connection lifecycle,
+ * prefer capturing `conn` from the `onConnected` hook and holding
+ * `conn.client` — that's cleaner and doesn't depend on the constant.
+ */
+export { SINGLE_AUTHLESS_KEY } from "./state/authless-key.js";
 
 // Per-connection handle (`conn`) types — the object the lifecycle hooks
 // receive and `getConnection` returns. `client` is present only when bidi is on.
@@ -223,6 +240,17 @@ export interface OrpcWsServerOptions<
    * and tests use it).
    */
   verifyClient?: VerifyClient<TUser>;
+  /**
+   * INTERNAL authless sub-mode switch, threaded by
+   * `createAuthlessOrpcWsServer` from its public `allowConcurrentConnections`
+   * option. Only meaningful in authless mode (no `verifyClient`):
+   *   - `false` / omitted → SINGLE global connection (constant registry key;
+   *     a new connection kicks the previous with `4005`). The default.
+   *   - `true` → connections COEXIST (unique per-connection keys, no kick).
+   * Ignored entirely in authenticated mode. Not part of either public
+   * factory's option surface — the factory owns the public name.
+   */
+  authlessConcurrent?: boolean;
   /** Partial connection config overlay. */
   connection?: Partial<ConnectionConfig>;
   /** Partial heartbeat config overlay. */
@@ -306,6 +334,13 @@ export class OrpcWsServer<
   /** `true` when constructed with no `verifyClient`. */
   private readonly authless: boolean;
   /**
+   * Authless sub-mode: `true` ⇒ concurrent connections coexist (unique
+   * per-connection keys, no kick); `false` (the default) ⇒ a single global
+   * connection where a new connection kicks the previous. Only read on the
+   * authless path.
+   */
+  private readonly authlessConcurrent: boolean;
+  /**
    * `true` when constructed with a `clientContract` (server→client RPC on).
    * Drives whether each connection gets a `SocketMultiplexer` + typed
    * `conn.client`. `false` → the non-bidi path (raw `ws`, no `client`).
@@ -344,6 +379,10 @@ export class OrpcWsServer<
     // AUTHLESS when no verifyClient was supplied. The factories enforce
     // the public shape; here we just read presence.
     this.authless = opts.verifyClient === undefined;
+    // Authless sub-mode. Default (false) = single global connection (kick on
+    // reconnect); `true` = concurrent connections coexist. Read only when
+    // authless; meaningless with a verifyClient.
+    this.authlessConcurrent = opts.authlessConcurrent === true;
     // BIDI on when a clientContract was supplied. Presence is the switch — the
     // value itself is type-inference only (the caller proxy is dynamic).
     this.bidiEnabled = opts.clientContract !== undefined;
@@ -354,24 +393,21 @@ export class OrpcWsServer<
       ...opts.connection,
     };
     this.logger = opts.logger ?? noopLogger;
-    // Authless safety net: a user/token is required for session
-    // replacement (4005) and the token-expiry watchdog, so both knobs are
-    // forced OFF in authless mode (the 4005 path would otherwise key on
-    // `undefined`, and the expiry watchdog has no `expiresAt` to act on).
-    // Warn ONLY when the consumer *explicitly* set a knob — the typed
-    // authless factory omits both, but the raw class / NestJS DI path can
-    // still pass them. Inferring "stray config" from the *merged* value
-    // would fire the warning on every authless boot (the defaults are
-    // `singleConnectionPerUser: true`, `enforceTokenExpiry: false`), so we
-    // gate on `opts.connection`, not on `this.connectionConfig`.
+    // Authless config derivation:
+    //   - singleConnectionPerUser is DERIVED from the authless sub-mode
+    //     (`authlessConcurrent`), NOT read from `opts.connection`. Default
+    //     (concurrent=false) ⇒ single global connection ON: a new connection
+    //     kicks the previous with 4005 — the single-GUI-remote-control model.
+    //     `allowConcurrentConnections: true` (concurrent=true) ⇒ OFF, so
+    //     connections coexist under unique keys (the pre-flip behavior).
+    //     Authless HAS no user, so the kick keys on the shared constant
+    //     authless key (see the key-seam injection below), not a user record.
+    //   - enforceTokenExpiry stays forced OFF (no token to expire). We warn
+    //     ONLY when the raw class / NestJS DI path explicitly set it — the
+    //     typed authless factory omits it. Gate on `opts.connection`, not the
+    //     merged value, so a clean boot (default `false`) stays silent.
     if (this.authless) {
-      if (opts.connection?.singleConnectionPerUser) {
-        this.logger.warn(
-          "orpc-ws-server: singleConnectionPerUser ignored in authless mode " +
-            "(no user identity to replace a session by)",
-        );
-      }
-      this.connectionConfig.singleConnectionPerUser = false;
+      this.connectionConfig.singleConnectionPerUser = !this.authlessConcurrent;
       if (opts.connection?.enforceTokenExpiry) {
         this.logger.warn(
           "orpc-ws-server: enforceTokenExpiry ignored in authless mode " +
@@ -504,8 +540,16 @@ export class OrpcWsServer<
     this.connectionHandler = new ConnectionHandler<TUser>({
       // Undefined in authless mode → the handler takes its authless path.
       verifyOrchestrator: this.verifyOrchestrator ?? undefined,
-      // Unique-key seam, used only on the authless path.
-      authlessKey: this.authless ? createAuthlessKeyFactory() : undefined,
+      // Authless key seam. DEFAULT (single global connection): a CONSTANT key
+      // so every socket collides and the registry kicks the previous one.
+      // `allowConcurrentConnections` opt-out: a UNIQUE monotonic key per
+      // connection so authless sockets coexist without kicking. Undefined in
+      // authenticated mode (the verify result supplies the key).
+      authlessKey: this.authless
+        ? this.authlessConcurrent
+          ? createAuthlessKeyFactory()
+          : createSingleAuthlessKey()
+        : undefined,
       registry: this.registry,
       pingPong: this.pingPong,
       // Bridge to the structural shape connection-handler expects.

@@ -1,16 +1,18 @@
 // REGRESSION: an authless server must NOT emit a spurious config warning on
-// a clean boot — and MUST still warn when a user-identity knob is set explicitly.
+// a clean boot — and MUST still warn when the (still-meaningless in authless)
+// `enforceTokenExpiry` knob is set explicitly.
 //
-// The bug (fixed): the constructor inferred "stray config" from the MERGED
-// connection config. Because `DEFAULT_CONNECTION_CONFIG.singleConnectionPerUser`
-// is `true`, every authless server tripped the guard and logged a confusing
-// "singleConnectionPerUser ignored" warning on EVERY boot — even though the
-// consumer never set it (the typed authless factory omits the knob entirely).
+// The original bug: the constructor inferred "stray config" from the MERGED
+// connection config, so every authless server tripped the guard and logged a
+// confusing warning on EVERY boot even though the consumer set nothing.
 //
-// The fix, asserted here: warn ONLY when the knob was passed via
-// `opts.connection`; otherwise force it off SILENTLY. This slipped through
-// originally because every other authless test uses the noop logger — so this
-// one asserts against a SPY logger.
+// NOTE (behavior change): `singleConnectionPerUser` is NO LONGER warned about
+// in authless mode. It used to be forced off (and "ignored"); now it is
+// MEANINGFUL — authless defaults to a single global connection (a new
+// connection kicks the previous), controlled by the factory's
+// `allowConcurrentConnections`. Only `enforceTokenExpiry` remains a
+// no-op-in-authless knob that warns when explicitly set. This one asserts
+// against a SPY logger (every other authless test uses the noop logger).
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -31,19 +33,18 @@ describe("AUTHLESS — config-warning behavior", () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it("warns when singleConnectionPerUser is explicitly set (raw-class path)", () => {
+  it("does NOT warn when singleConnectionPerUser is set (it is now meaningful in authless)", () => {
     const logger = spyLogger();
-    // The raw class / NestJS DI path can still pass the knob the typed
-    // authless factory omits. No verifyClient → the class constructs authless.
+    // Behavior change: authless honors single-connection enforcement now (it
+    // is the default, giving the new-kicks-previous model), so passing the
+    // knob is no longer "ignored" and must NOT log a warning. No verifyClient
+    // → the class constructs authless.
     new OrpcWsServer<NoAuth, typeof router>({
       router,
       connection: { singleConnectionPerUser: true },
       logger,
     });
-    expect(logger.warn).toHaveBeenCalledOnce();
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("singleConnectionPerUser"),
-    );
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("warns when enforceTokenExpiry is explicitly set (raw-class path)", () => {
