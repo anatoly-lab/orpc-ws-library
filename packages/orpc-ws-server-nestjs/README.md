@@ -35,7 +35,7 @@ import { appRouter } from "./router";
       useFactory: (auth: AuthService) => ({
         router: appRouter,
         verifyClient: async (ctx) => auth.verifyWsToken(ctx),
-        hooks: { onConnected: (user) => auth.recordConnection(user) },
+        hooks: { onConnected: (conn) => auth.recordConnection(conn.user) },
       }),
     }),
   ],
@@ -93,6 +93,86 @@ OrpcWsModule.forRoot({
 session-replacement, and there's no `closeUser`. See
 [`@orpc-ws/server` → Authless mode](../orpc-ws-server/README.md#authless-mode)
 for the full behavior contract.
+
+## Server→client RPC (bidirectional)
+
+Opt in to the **reverse** direction — the server calls procedures the
+**client** hosts, over the same socket. It's additive: omit `clientContract`
+and the module is byte-identical to a one-way server. Both `mode`s support it
+(authenticated and `mode: "authless"`).
+
+Pass a `clientContract` (the client's contract router — what the client agrees
+to answer) and surface the third `TClientContract` generic on
+`OrpcWsModuleOptions<TUser, TContract, TClientContract>`. Its presence gives
+every connection a typed `conn.client` caller:
+
+```ts
+import { OrpcWsModule, type OrpcWsModuleOptions } from "@orpc-ws/server-nestjs";
+import { clientContract, type ClientContract } from "./client-contract";
+import { appRouter } from "./router";
+
+OrpcWsModule.forRootAsync({
+  inject: [AuthService],
+  // ⚠️ ANNOTATE THE RETURN TYPE — see the caveat below. Without it the bidi
+  // generic collapses to `never` and `conn.client` silently disappears.
+  useFactory: (
+    auth: AuthService,
+  ): OrpcWsModuleOptions<MyUser, typeof appRouter, ClientContract> => ({
+    router: appRouter,
+    verifyClient: async (ctx) => auth.verifyWsToken(ctx),
+    clientContract,            // ← presence turns bidi on; drives `conn.client`'s type
+    hooks: {
+      onConnected: (conn) => {
+        // conn.client is the typed server→client caller.
+        void conn.client.showToast({ text: "Welcome!" });
+      },
+    },
+  }),
+});
+```
+
+Call it out-of-band later via `OrpcWsService.getConnection(key)`, which mirrors
+the core's `getConnection` (the `TClientContract` is supplied at the call site,
+since the injected provider is type-erased — see its docstring for the
+config↔generic matching hazard):
+
+```ts
+@Injectable()
+export class BuildNotifier {
+  constructor(private readonly ws: OrpcWsService) {}
+  notify(userKey: string): void {
+    void this.ws
+      .getConnection<ClientContract>(userKey)
+      ?.client.showToast({ text: "Build done" });
+  }
+}
+```
+
+The authless arm works the same way — `mode: "authless"` plus `clientContract`;
+the `conn` simply carries no `user`. (Working example:
+[`apps/demo-authless`](../../apps/demo-authless/server/src/app-module.ts).)
+
+### Caveat — `forRootAsync` needs an annotated `useFactory` return type
+
+This bites **`forRootAsync` only**. `forRoot` takes the options literal
+directly, so `TClientContract` infers from the `clientContract` value you pass.
+`forRootAsync` takes a `useFactory` instead, and TypeScript's higher-order
+inference will **not** pull the third generic out of a bare (unannotated)
+factory return — it collapses `TClientContract` to `never`, so `conn.client`
+silently loses its typing (the property disappears) even though the runtime
+still wires bidi up. Annotate the factory's return type to make the generic
+flow:
+
+```ts
+useFactory: (): OrpcWsModuleOptions<TUser, TContract, MyClientContract> => ({
+  /* … */
+});
+```
+
+(Runtime is unaffected either way; this is purely about preserving `.client`
+typing.) For the full bidi contract — including the trust-inversion threat
+model of letting the server invoke a client-hosted router — see
+[`@orpc-ws/server` → Server→client RPC (bidirectional)](../orpc-ws-server/README.md#serverclient-rpc-bidirectional).
 
 ## OIDC verifier
 

@@ -108,6 +108,133 @@ type ClientEvent =
 "reconnecting" UX). `refreshable: false` pairs with
 `onTerminalAuthFailure` — the library has given up.
 
+## Server→client RPC (bidirectional)
+
+Normally the client calls procedures the server hosts. **Opt in** to the
+reverse — the server calls procedures **this client** hosts — over the *same*
+socket (alongside your normal RPC and the heartbeat). It's additive: omit
+`clientRouter` and the client is byte-identical to a one-way client (no
+multiplexer, heartbeat untouched). Not enabled by default.
+
+You provide a `clientRouter` — your own ORPC router, built off a bare `os` —
+whose procedures **execute in the browser** when the server invokes them:
+
+```ts
+import { createOrpcWsClient } from "@orpc-ws/client";
+import { os } from "@orpc/server";
+import { z } from "zod";
+import type { AppContract } from "./contract.js";
+
+// The procedures this client answers. Built off a bare `os`, NOT your
+// server contract. VALIDATE inputs — see the trust note below.
+const clientRouter = {
+  showToast: os
+    .input(z.object({ message: z.string() }))
+    .handler(({ input }) => {
+      toast(input.message); // runs HERE, in the browser
+    }),
+};
+
+// BOTH generics are MANDATORY and must be written explicitly.
+const client = createOrpcWsClient<AppContract, typeof clientRouter>({
+  url: "wss://api.example.com/ws",
+  clientRouter,
+});
+client.connect();
+```
+
+> **Both type arguments are required — TS cannot infer the second.** `TContract`
+> appears only in the *return* type, so it must always be given explicitly; and
+> TypeScript does not do partial type-argument inference, so once you supply the
+> first, an omitted `TClientRouter` falls to its default (`never` = bidi off)
+> rather than being inferred from `clientRouter`. Always write
+> `createOrpcWsClient<MyContract, typeof clientRouter>({ ... })`. (To enforce
+> this, `clientRouter` is a *required* option on the bidi-on path — passing the
+> generic but omitting the value is a compile error.)
+
+If your `clientRouter` declares an initial ORPC context, pass `clientContext` —
+it's typed against the router and becomes **required** exactly when the router
+requires one (a context-free router built off a bare `os` needs none):
+
+```ts
+// A router that declares an initial context:
+const base = os.$context<{ store: CacheStore }>();
+const ctxRouter = {
+  invalidate: base.handler(({ context }) => context.store.clear()),
+};
+
+createOrpcWsClient<AppContract, typeof ctxRouter>({
+  url,
+  clientRouter: ctxRouter,
+  clientContext: { store },   // REQUIRED here — typed as { store: CacheStore }
+});
+```
+
+The server side (enabling `clientContract`, calling `conn.client.<proc>()`) is
+documented in
+[`@orpc-ws/server` → Server→client RPC](../orpc-ws-server/README.md#serverclient-rpc-bidirectional).
+
+### Trust inversion — your responsibility ⚠️
+
+Hosting a `clientRouter` flips the trust arrow: the browser now runs procedures
+the **server** invokes. Treat the hosted router as a **server-driven attack
+surface**, not as trusted local code:
+
+- **Expose only what's safe to be server-driven** — UI notifications, cache
+  invalidation, re-fetch triggers. Never expose ambient-authority or
+  exfiltration-style operations (e.g. "read a token from storage and return it",
+  "run arbitrary fetch", "touch the filesystem").
+- **Validate every input** (the `.input(z.object(...))` above) — the caller is
+  remote.
+- **Derive any authority from this client's own `clientContext`**, never from
+  server-supplied request data.
+
+### Caveats
+
+- **Lost-ack:** v1 imposes no s2c-call timeout. A server→client call that
+  rejects from a transport/close error is *ambiguous* — it may have executed.
+  In-flight hosted executions abort (they don't hang) when the connection
+  closes. See the server README for the full table.
+- **Streams deferred:** request/response only in v1 — no server→client
+  AsyncIterable streams yet (additive later).
+- **Error sink:** an inbound dispatch error (bad frame / throwing handler) is
+  routed to the injected `logger` and must not crash the page; keep that sink
+  total.
+
+### Late-binding the router — `createDelegatingClientRouter`
+
+`clientRouter` is captured **once** at `createOrpcWsClient` construction:
+rebuilding it rebuilds the client (a reconnect). That's fine for a static
+router, but a framework adapter wants handlers that close over live
+component/render state — fresh function identities every render — *without*
+re-creating the client. `createDelegatingClientRouter` is the bridge:
+
+```ts
+import { createDelegatingClientRouter, createOrpcWsClient } from "@orpc-ws/client";
+
+// Stable shape from a fixed key set; leaves delegate, per call, to whatever
+// `getHandlers()` currently returns.
+const router = createDelegatingClientRouter(
+  ["showToast"],
+  () => currentHandlers,   // read fresh on every server→client call
+);
+
+createOrpcWsClient<AppContract, typeof router>({ url, clientRouter: router });
+```
+
+The router's **identity never changes** (its structure is fixed by the `names`
+array, so it can be hosted for the life of the client), while each invocation
+reads the live handler map and dispatches to the current handler. A call for a
+name absent from the current map throws an `ORPCError("NOT_FOUND")` **at call
+time** (not construction) — a server invoking an unregistered procedure fails
+loudly rather than resolving `undefined`. Handler in/out is `unknown` here: this
+is framework-free structural glue; the typed surface is layered on by an adapter.
+
+> **Most React consumers never call this directly** — the
+> [`@orpc-ws/react`](../orpc-ws-react) `<OrpcWs>` component uses it internally to
+> host a flat, render-updated handler map. It's public so framework adapters
+> (and advanced consumers) can reuse the same late-binding bridge.
+
 ## Uploads — opt-in HTTP transport
 
 ```ts
@@ -152,7 +279,10 @@ function ConnectionBadge({ client }) {
 ```
 
 `@orpc-ws/react` also exports `useWsSubscription`, an optional
-`OrpcWsProvider`, and a `useOrpcWs<TContract>()` hook — see its
+`OrpcWsProvider`, a `useOrpcWs<TContract>()` hook, and `<OrpcWs>` — a
+construct-and-own provider that builds the client for you (and, given a
+server→client `clientContract` value, hosts a router whose handlers descendants
+register via `createServerHandlerHook` → `useServerHandler`) — see its
 [README](../orpc-ws-react/README.md).
 
 ## Other frameworks

@@ -20,6 +20,7 @@
 
 import type { Server as HttpServer } from "http";
 
+import type { AnyContractRouter } from "@orpc/contract";
 import { RPCHandler } from "@orpc/server/ws";
 import {
   WebSocketServer,
@@ -44,6 +45,8 @@ import {
 
 import { ConnectionRegistry } from "./state/connection-registry.js";
 import { createAuthlessKeyFactory } from "./state/authless-key.js";
+import type { ServerConnection } from "./state/connection.js";
+import { createConnectionBidi } from "./bidi/connection-bidi.js";
 
 import { HeartbeatPublisher } from "./heartbeat/publisher.js";
 import { WsPingPong } from "./heartbeat/ws-ping-pong.js";
@@ -108,6 +111,24 @@ export type {
 } from "./composition/server-options.js";
 export type { NoAuth } from "./state/no-auth.js";
 
+// Per-connection handle (`conn`) types — the object the lifecycle hooks
+// receive and `getConnection` returns. `client` is present only when bidi is on.
+export type {
+  ServerConnection,
+  AuthlessConnection,
+} from "./state/connection.js";
+
+// The ORPC contract-router types that drive the bidi (`TClientContract`)
+// generic. Re-exported so adapters and consumers can name the third generic
+// (and the resulting server→client caller) WITHOUT a direct `@orpc/contract`
+// import — one import surface, the same reason we re-export the conn types
+// above. `AnyContractRouter` is the generic CONSTRAINT; `ContractRouterClient`
+// is the typed caller shape `conn.client` resolves to.
+export type {
+  AnyContractRouter,
+  ContractRouterClient,
+} from "@orpc/contract";
+
 // Logger seam + universal/Node-friendly bridges, re-exported so consumers
 // stay on one import surface. `fromNestShape` lives only in the nestjs
 // adapter package — server core is framework-free.
@@ -167,7 +188,11 @@ export type OrpcWsRootInterceptors = NonNullable<
   RpcHandlerOptions["rootInterceptors"]
 >;
 
-export interface OrpcWsServerOptions<TUser, TContract extends object> {
+export interface OrpcWsServerOptions<
+  TUser,
+  TContract extends object,
+  TClientContract extends AnyContractRouter = never,
+> {
   /**
    * The consumer's ORPC router (plain object — top-level keys are
    * procedure names or sub-routers). The library spreads its own
@@ -175,6 +200,14 @@ export interface OrpcWsServerOptions<TUser, TContract extends object> {
    * the `OrpcWsServer` constructor throws immediately.
    */
   router: TContract;
+  /**
+   * Opt into server→client RPC ("bidi"). The CLIENT's contract router. Its
+   * PRESENCE turns bidi on: every connection is wrapped in a `SocketMultiplexer`
+   * and gets a typed `conn.client` caller. ABSENT (the default) → the server is
+   * byte-identical to a non-bidi server (no mux, no `client`). The value is used
+   * for type inference only; the caller proxy is fully dynamic at runtime.
+   */
+  clientContract?: TClientContract;
   /**
    * Pre-101 auth. Runs inside `ws`'s `verifyClient` callback — see
    * `VerifyClientOrchestrator` for the contract. Returns a discriminated
@@ -194,7 +227,7 @@ export interface OrpcWsServerOptions<TUser, TContract extends object> {
   connection?: Partial<ConnectionConfig>;
   /** Partial heartbeat config overlay. */
   heartbeat?: Partial<HeartbeatConfig>;
-  hooks?: OrpcWsServerHooks<TUser>;
+  hooks?: AuthenticatedHooks<TUser, TClientContract>;
   logger?: Logger;
   /** Test seam — fake clock. */
   clock?: Clock;
@@ -250,7 +283,11 @@ export interface OrpcWsServerOptions<TUser, TContract extends object> {
  * framework lifecycle hooks (`OnApplicationBootstrap` /
  * `BeforeApplicationShutdown` in Nest); the core stays decorator-free.
  */
-export class OrpcWsServer<TUser, TContract extends object> {
+export class OrpcWsServer<
+  TUser,
+  TContract extends object,
+  TClientContract extends AnyContractRouter = never,
+> {
   private readonly connectionConfig: ConnectionConfig;
   private readonly heartbeatConfig: HeartbeatConfig;
   private readonly logger: Logger;
@@ -268,6 +305,12 @@ export class OrpcWsServer<TUser, TContract extends object> {
   private readonly verifyOrchestrator: VerifyClientOrchestrator<TUser> | null;
   /** `true` when constructed with no `verifyClient`. */
   private readonly authless: boolean;
+  /**
+   * `true` when constructed with a `clientContract` (server→client RPC on).
+   * Drives whether each connection gets a `SocketMultiplexer` + typed
+   * `conn.client`. `false` → the non-bidi path (raw `ws`, no `client`).
+   */
+  private readonly bidiEnabled: boolean;
   private readonly registry: ConnectionRegistry;
   private readonly publisher: HeartbeatPublisher;
   private readonly pingPong: WsPingPong;
@@ -296,11 +339,14 @@ export class OrpcWsServer<TUser, TContract extends object> {
   private wss: WebSocketServerType | null = null;
   private disposed = false;
 
-  constructor(opts: OrpcWsServerOptions<TUser, TContract>) {
+  constructor(opts: OrpcWsServerOptions<TUser, TContract, TClientContract>) {
     // ----- 0. Mode -----
     // AUTHLESS when no verifyClient was supplied. The factories enforce
     // the public shape; here we just read presence.
     this.authless = opts.verifyClient === undefined;
+    // BIDI on when a clientContract was supplied. Presence is the switch — the
+    // value itself is type-inference only (the caller proxy is dynamic).
+    this.bidiEnabled = opts.clientContract !== undefined;
 
     // ----- 1. Resolve config / seams -----
     this.connectionConfig = {
@@ -440,9 +486,21 @@ export class OrpcWsServer<TUser, TContract extends object> {
         : null;
 
     // ----- 7. Connection handler -----
+    // Bridge the public, `client`-conditional conn hooks down to the handler's
+    // flat `HandlerConnection` shape. The runtime conn the handler builds is
+    // structurally the public conn (key/user/ws/client); the cast names that
+    // seam — same pattern as `onKicked`'s `user as TUser` re-narrow above.
     const handlerHooks: ConnectionHandlerHooks<TUser> = {};
-    if (hooks.onConnected) handlerHooks.onConnected = hooks.onConnected;
-    if (hooks.onDisconnected) handlerHooks.onDisconnected = hooks.onDisconnected;
+    if (hooks.onConnected) {
+      const cb = hooks.onConnected;
+      handlerHooks.onConnected = (conn) =>
+        cb(conn as ServerConnection<TUser, TClientContract>);
+    }
+    if (hooks.onDisconnected) {
+      const cb = hooks.onDisconnected;
+      handlerHooks.onDisconnected = (conn, code) =>
+        cb(conn as ServerConnection<TUser, TClientContract>, code);
+    }
     this.connectionHandler = new ConnectionHandler<TUser>({
       // Undefined in authless mode → the handler takes its authless path.
       verifyOrchestrator: this.verifyOrchestrator ?? undefined,
@@ -454,6 +512,12 @@ export class OrpcWsServer<TUser, TContract extends object> {
       rpcHandler: {
         upgrade: (ws, opts2) => this.rpcHandler.upgrade(ws, { context: opts2.context }),
       },
+      // BIDI: inject the per-connection multiplexer factory ONLY when a
+      // clientContract was supplied. Absent → the handler upgrades the raw
+      // `ws` (byte-identical non-bidi path).
+      createBidi: this.bidiEnabled
+        ? (ws) => createConnectionBidi<TClientContract>(ws, { logger: this.logger })
+        : undefined,
       hooks: handlerHooks,
       // API-4: expiry-watchdog knobs + clock. The handler only enforces
       // when `connection.enforceTokenExpiry` is true AND the verify
@@ -544,6 +608,33 @@ export class OrpcWsServer<TUser, TContract extends object> {
    */
   getUploadConfig(): UploadHttpConfig<TUser> {
     return this.uploadConfig;
+  }
+
+  /**
+   * Look up a live connection by its registry key (the same key
+   * `verifyClient` returned, or the authless per-connection key). Returns the
+   * `conn` handle — `{ key, user, ws }`, plus the typed server→client `client`
+   * caller when the server was built with a `clientContract` — or `undefined`
+   * if no such connection exists.
+   *
+   * This is the out-of-band entry point for server→client RPC: e.g.
+   * `server.getConnection(key)?.client.notify(payload)`. The per-connection
+   * `client` is also delivered to the `onConnected` hook on the same `conn`.
+   */
+  getConnection(
+    key: string,
+  ): ServerConnection<TUser, TClientContract> | undefined {
+    const entry = this.registry.getEntry(key);
+    if (!entry) return undefined;
+    // The registry stores `user` / `client` as `unknown`; re-narrow here at the
+    // typed composition seam. The conditional public conn type is satisfied
+    // structurally — the cast names that seam (same idiom as `onKicked`).
+    return {
+      key,
+      user: entry.user as TUser,
+      ws: entry.ws,
+      client: entry.client,
+    } as ServerConnection<TUser, TClientContract>;
   }
 
   /**

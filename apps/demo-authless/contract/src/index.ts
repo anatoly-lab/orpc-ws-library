@@ -22,9 +22,16 @@
 //                  `signal: AbortSignal`. Exercises the same wire framing
 //                  the library uses internally for its stealth heartbeat —
 //                  with zero auth.
+//
+// This file also composes the CLIENT contract (`clientContract`) — the
+// server→client ("bidi") direction added in issue #7 — from per-feature
+// fragments. See the thin composition root at the bottom of the file.
 
 import { oc } from "@orpc/contract";
 import { z } from "zod";
+
+import { toastClientContract } from "./client/toast.contract.js";
+import { announceClientContract } from "./client/announce.contract.js";
 
 const echo = oc
   .input(
@@ -72,3 +79,23 @@ const ticks = oc.output(z.custom<AsyncIterable<TickEvent>>());
 
 export const appContract = oc.router({ echo, increment, ticks });
 export type AppContract = typeof appContract;
+
+// ----- CLIENT contract (server→client RPC, "bidi") — COMPOSED from fragments -----
+//
+// The SERVER→CLIENT direction: procedures the BROWSER hosts and the server
+// invokes. Issue #7's bidi support makes the WS socket duplex — the server
+// holds a typed caller (`conn.client`) and calls these exactly the way the
+// browser calls `appContract`. Same `oc` idiom, opposite direction, second
+// source-of-truth shared by this app's server + client.
+//
+// CONTRACT COMPOSITION: the `clientContract` is the central typed surface, but
+// it stays THIN and feature-owned. Each feature owns its own slice in a
+// colocated fragment (`./client/<feature>.contract.ts`) alongside the React
+// component that implements it; this root just MERGES the fragments. Adding a
+// feature = a new fragment file + one more spread here, with no edits to the
+// existing slices. In a real app the fragments live in their feature folders.
+export const clientContract = oc.router({
+  ...toastClientContract, // showToast — see ./client/toast.contract.ts
+  ...announceClientContract, // announce — see ./client/announce.contract.ts
+});
+export type ClientContract = typeof clientContract;

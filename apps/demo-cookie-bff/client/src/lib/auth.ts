@@ -7,9 +7,9 @@
 // is intentionally NOT in the library.
 //
 // Separation of concerns to note: this `authClient` is the HTTP `/auth/*`
-// control plane. The WS client is created SEPARATELY in `ws-client.ts` with NO
-// `tokenProvider` — the httpOnly `sid` cookie rides the WS upgrade
-// automatically. The two are independent.
+// control plane. The WS client is created SEPARATELY by the <OrpcWs> wrapper in
+// AppLayout with NO `tokenProvider` — the httpOnly `sid` cookie rides the WS
+// upgrade automatically. The two are independent.
 
 import { createCookieBffAuthClient } from "@orpc-ws/cookie-bff-client";
 

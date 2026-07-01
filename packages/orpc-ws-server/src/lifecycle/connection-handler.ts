@@ -85,14 +85,44 @@ export interface RpcHandlerLike<TUser> {
 }
 
 /**
+ * The connection handle the handler builds and passes to the lifecycle hooks.
+ *
+ * INTERNAL, non-conditional shape (`client?: unknown`): the public, typed,
+ * `client`-conditional `ServerConnection` / `AuthlessConnection` views live in
+ * `state/connection.ts` and are applied at the composition seam (`index.ts`
+ * casts the public hook into this shape). Keeping the handler's own conn flat
+ * means the handler never has to construct a conditional-typed value.
+ */
+export interface HandlerConnection<TUser> {
+  readonly key: string;
+  readonly user: TUser;
+  readonly ws: WebSocket;
+  /** The bidi server→client caller — present only when bidi is on. */
+  readonly client?: unknown;
+}
+
+/**
+ * Per-connection bidi wiring the handler interposes when bidi is on. Supplied
+ * by `createBidi` (injected only by a bidi-enabled composition root). Mirrors
+ * `ConnectionBidi` from `bidi/connection-bidi.ts` but with `client` widened to
+ * `unknown` (the handler is generic only over `TUser`).
+ */
+export interface ConnectionHandlerBidi {
+  readonly c2sSocket: WebSocket;
+  readonly client?: unknown;
+  dispose(): void;
+}
+
+/**
  * Lifecycle hooks the composition root forwards into the handler.
  *
- * `onConnected` / `onDisconnected` are typed-user hooks. `onKicked` is
- * on the registry directly (different timing).
+ * `onConnected` / `onDisconnected` receive the single {@link HandlerConnection}
+ * handle (NOT positional `user` / `ws` args). `onKicked` is on the registry
+ * directly (different timing).
  */
 export interface ConnectionHandlerHooks<TUser> {
-  onConnected?: (user: TUser, ws: WebSocket) => void;
-  onDisconnected?: (user: TUser, code: number, ws: WebSocket) => void;
+  onConnected?: (conn: HandlerConnection<TUser>) => void;
+  onDisconnected?: (conn: HandlerConnection<TUser>, code: number) => void;
 }
 
 export interface ConnectionHandlerDeps<TUser> {
@@ -115,6 +145,15 @@ export interface ConnectionHandlerDeps<TUser> {
   registry: ConnectionRegistry;
   pingPong: WsPingPong;
   rpcHandler: RpcHandlerLike<TUser>;
+  /**
+   * Per-connection bidi factory. Injected ONLY when the server opted into bidi
+   * (a `clientContract` was supplied). ABSENT for a non-bidi server — and its
+   * absence is what makes the non-bidi path byte-identical to the pre-bidi
+   * server: the handler upgrades the raw `ws`, stores no `client`, and runs no
+   * mux teardown. When present, the handler interposes the c2s facade, stashes
+   * the `client`, and disposes the bidi on close.
+   */
+  createBidi?: (ws: WebSocket) => ConnectionHandlerBidi;
   hooks?: ConnectionHandlerHooks<TUser>;
   /**
    * Structural pick of the connection config (interface segregation —
@@ -138,6 +177,7 @@ export class ConnectionHandler<TUser> {
   private readonly registry: ConnectionRegistry;
   private readonly pingPong: WsPingPong;
   private readonly rpcHandler: RpcHandlerLike<TUser>;
+  private readonly createBidi: ((ws: WebSocket) => ConnectionHandlerBidi) | undefined;
   private readonly hooks: ConnectionHandlerHooks<TUser>;
   private readonly enforceTokenExpiry: boolean;
   private readonly authFailedCloseCode: number;
@@ -150,6 +190,7 @@ export class ConnectionHandler<TUser> {
     this.registry = deps.registry;
     this.pingPong = deps.pingPong;
     this.rpcHandler = deps.rpcHandler;
+    this.createBidi = deps.createBidi;
     this.hooks = deps.hooks ?? {};
     this.enforceTokenExpiry = deps.config?.enforceTokenExpiry ?? false;
     this.authFailedCloseCode = deps.config?.authFailedCloseCode ?? 4001;
@@ -211,15 +252,20 @@ export class ConnectionHandler<TUser> {
     // surface consistent values for the same request.
     const clientIp = extractClientIp(req);
 
+    // Bidi interposition (sync) — see `setupConnectionTransport`. When bidi is
+    // off, `c2sSocket` is the RAW `ws` and there is no `client`/`disposeBidi`.
+    const { c2sSocket, client, disposeBidi } =
+      this.setupConnectionTransport(ws);
+
     // Sync from here to `upgrade()` — see file header.
-    this.registry.register(connectionKey, ws, user);
+    this.registry.register(connectionKey, ws, user, client);
 
     // RPCHandler.upgrade returns a Promise<unknown> that resolves on WS
     // disconnect. We intentionally do NOT await it: doing so would block
     // this handler indefinitely. The 'close' handler below takes care of
     // cleanup. The `void` discards the dangling promise for the linter's
     // peace of mind.
-    void this.rpcHandler.upgrade(ws, { context: { user, token } });
+    void this.rpcHandler.upgrade(c2sSocket, { context: { user, token } });
 
     if (this.pingPong) {
       this.pingPong.register(ws, user);
@@ -258,6 +304,8 @@ export class ConnectionHandler<TUser> {
       user,
       clientIp,
       clearExpiryTimer,
+      client,
+      disposeBidi,
     });
   }
 
@@ -301,12 +349,17 @@ export class ConnectionHandler<TUser> {
     // STATIC type the lifecycle hooks see; at runtime there is no user.
     const noUser = undefined as unknown as TUser;
 
-    this.registry.register(connectionKey, ws, noUser);
+    // Bidi interposition — identical to the authed path; authless supports
+    // server→client RPC too (the conn just carries no user). Off → raw `ws`.
+    const { c2sSocket, client, disposeBidi } =
+      this.setupConnectionTransport(ws);
+
+    this.registry.register(connectionKey, ws, noUser, client);
 
     // Empty context — the consumer's procedures run with `{}`. Same
     // non-awaited upgrade as the authed path (promise resolves on
     // disconnect; the 'close' handler does cleanup).
-    void this.rpcHandler.upgrade(ws, { context: {} });
+    void this.rpcHandler.upgrade(c2sSocket, { context: {} });
 
     this.pingPong.register(ws, noUser);
 
@@ -318,7 +371,34 @@ export class ConnectionHandler<TUser> {
       clearExpiryTimer: () => {
         // No expiry watchdog in authless mode — nothing to clear.
       },
+      client,
+      disposeBidi,
     });
+  }
+
+  /**
+   * Build the per-connection transport, shared by BOTH the authed (`handle`)
+   * and authless (`handleAuthless`) paths — the ONLY mode difference is the
+   * ORPC context built at each call site, so it stays there.
+   *
+   * When the server opted into bidi (`createBidi` injected), this builds the
+   * per-connection multiplexer: `upgrade()` runs over the c2s `ChanneledSocket`
+   * facade, `client` is the typed server→client caller, and `disposeBidi` tears
+   * the mux down on close. When bidi is OFF (`createBidi` absent), `c2sSocket`
+   * is the RAW `ws` (no cast, no mux) and there is no `client`/`disposeBidi` —
+   * so the non-bidi path is byte-identical to the pre-bidi server.
+   */
+  private setupConnectionTransport(ws: WebSocket): {
+    c2sSocket: WebSocket;
+    client: unknown;
+    disposeBidi: (() => void) | undefined;
+  } {
+    const bidi = this.createBidi?.(ws);
+    return {
+      c2sSocket: bidi ? bidi.c2sSocket : ws,
+      client: bidi?.client,
+      disposeBidi: bidi?.dispose,
+    };
   }
 
   /**
@@ -336,11 +416,35 @@ export class ConnectionHandler<TUser> {
     user: TUser;
     clientIp: string | undefined;
     clearExpiryTimer: () => void;
+    client: unknown;
+    disposeBidi: (() => void) | undefined;
   }): void {
-    const { ws, connectionKey, user, clientIp, clearExpiryTimer } = args;
+    const {
+      ws,
+      connectionKey,
+      user,
+      clientIp,
+      clearExpiryTimer,
+      client,
+      disposeBidi,
+    } = args;
+
+    // One conn handle, shared by onConnected + onDisconnected (same connection).
+    const conn: HandlerConnection<TUser> = {
+      key: connectionKey,
+      user,
+      ws,
+      client,
+    };
 
     ws.on("close", (code, reason: Buffer) => {
       clearExpiryTimer();
+      // Bidi teardown. `disposeBidi` defers `mux.dispose()` to a microtask so
+      // this synchronous 'close' fan-out — which includes the mux's own close
+      // listener (→ s2c peer rejects pending server→client calls) — completes
+      // FIRST. See `bidi/connection-bidi.ts` for the full ordering rationale.
+      // No-op when bidi is off.
+      disposeBidi?.();
       // `reason` arrives as a Buffer from `ws`; decode for human-readable
       // log output. Empty buffer → `undefined` so structured-log viewers
       // render the field as absent rather than an ambiguous empty string
@@ -355,7 +459,7 @@ export class ConnectionHandler<TUser> {
       this.pingPong.unregister(ws);
       if (this.hooks.onDisconnected) {
         try {
-          this.hooks.onDisconnected(user, code, ws);
+          this.hooks.onDisconnected(conn, code);
         } catch (err) {
           this.logger.error("connection-handler: onDisconnected hook threw", {
             error: err instanceof Error ? err.message : String(err),
@@ -380,7 +484,7 @@ export class ConnectionHandler<TUser> {
 
     if (this.hooks.onConnected) {
       try {
-        this.hooks.onConnected(user, ws);
+        this.hooks.onConnected(conn);
       } catch (err) {
         this.logger.error("connection-handler: onConnected hook threw", {
           error: err instanceof Error ? err.message : String(err),

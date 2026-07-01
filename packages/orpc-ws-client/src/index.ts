@@ -21,6 +21,7 @@
 // the closure built here. CLAUDE.md "No god files" / "Dependency inversion".
 
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import type { AnyRouter, InferRouterInitialContext } from "@orpc/server";
 import type ReconnectingWebSocket from "partysocket/ws";
 import {
   type Clock,
@@ -66,6 +67,8 @@ import { HeartbeatSubscriber } from "./heartbeat/subscriber.js";
 
 import { SleepDetector } from "./sleep/sleep-detector.js";
 
+import { type ClientBidi, createClientBidi } from "./bidi/client-bidi.js";
+
 import {
   type ReconnectConfig,
   resolveReconnectConfig,
@@ -104,11 +107,23 @@ export type {
 export type { Path } from "./upload/strategy.js";
 export type { ClientEvent } from "./events.js";
 
+// Stable delegating server→client router primitive (issue #7 Phase 1). PUBLIC
+// so the `@orpc-ws/react` adapter's `<OrpcWs>` (Phase 2) can build one identity-
+// stable `clientRouter` whose leaves delegate to per-render handlers via a ref.
+export {
+  createDelegatingClientRouter,
+  type DelegatingHandler,
+} from "./bidi/delegating-router.js";
+
 /**
- * Options for `createOrpcWsClient`. All fields except `url` are optional;
- * defaults match the source app's existing behavior post-de-app-ification.
+ * Base options for `createOrpcWsClient`, common to bidi-on and bidi-off. The
+ * public {@link OrpcWsClientOptions} alias adds the server→client (bidi) fields
+ * on top, conditionally typed against the client router.
+ *
+ * All fields except `url` are optional; defaults match the source app's existing
+ * behavior post-de-app-ification.
  */
-export interface OrpcWsClientOptions {
+interface BaseOrpcWsClientOptions {
   /**
    * WS base URL (e.g. `wss://api.example.com/ws`) or a thunk for dynamic
    * resolution (multi-region, runtime env switching). Token is appended as
@@ -170,6 +185,70 @@ export interface OrpcWsClientOptions {
    */
   uploads?: UploadsConfig;
 }
+
+/**
+ * The server→client ("bidi") arm of {@link OrpcWsClientOptions}, conditionally
+ * typed against the client router so `clientContext` is REQUIRED exactly when the
+ * router needs an initial context — REUSING the Phase-4 host's rule
+ * ({@link ClientRouterHostOptions} / `createClientRouterHost`).
+ *
+ * Three arms, selected by `TClientRouter`:
+ *   - bidi OFF (`never`, the default when `TClientRouter` is left unspecified):
+ *     neither field may be set — keeps the off path byte-identical and honest.
+ *   - bidi ON, router needs NO context: `clientRouter` is required, `clientContext`
+ *     optional.
+ *   - bidi ON, router REQUIRES a context: BOTH `clientRouter` and `clientContext`
+ *     are mandatory (omitting `clientContext` — or passing `{}` for a non-empty
+ *     context — is a compile error).
+ *
+ * `clientRouter` is REQUIRED on both bidi-on arms (not just present): because
+ * `TClientRouter` cannot be inferred (see {@link OrpcWsClientOptions} — it must be
+ * passed explicitly as `typeof clientRouter`), making `clientRouter` required is
+ * what closes the desync hole — specifying the generic but omitting the value is a
+ * compile error, so the type can never claim bidi-on while the runtime switch
+ * (`clientRouter !== undefined`) is off.
+ */
+type BidiClientArm<TClientRouter extends AnyRouter> = [TClientRouter] extends [
+  never,
+]
+  ? { clientRouter?: never; clientContext?: never }
+  : Record<never, never> extends InferRouterInitialContext<TClientRouter>
+    ? {
+        clientRouter: TClientRouter;
+        clientContext?: InferRouterInitialContext<TClientRouter>;
+      }
+    : {
+        clientRouter: TClientRouter;
+        clientContext: InferRouterInitialContext<TClientRouter>;
+      };
+
+/**
+ * Options for `createOrpcWsClient`.
+ *
+ * @typeParam TClientRouter  The CLIENT's OWN router (server→client / "bidi") —
+ *   the procedures the client answers when the server calls it. To enable bidi
+ *   you MUST specify it EXPLICITLY as `typeof clientRouter` alongside the
+ *   contract:
+ *
+ *   ```ts
+ *   createOrpcWsClient<MyContract, typeof clientRouter>({ url, clientRouter });
+ *   ```
+ *
+ *   It cannot be inferred: `TContract` appears only in the return type and so
+ *   must always be given explicitly, and TypeScript does NOT support partial
+ *   type-argument inference — once any type argument is supplied, an omitted
+ *   defaulted one (`TClientRouter`) falls to its default (`never`) rather than
+ *   being inferred from `clientRouter`. To prevent the resulting desync,
+ *   `clientRouter` is REQUIRED (not just allowed) on both bidi-on arms of
+ *   {@link BidiClientArm}: passing the generic but omitting the value is a
+ *   compile error.
+ *
+ *   Omit the generic entirely (the default `never`) and the client is
+ *   byte-identical to a non-bidi client — no multiplexer, raw wrapper to the
+ *   link, heartbeat untouched; `clientRouter`/`clientContext` are then forbidden.
+ */
+export type OrpcWsClientOptions<TClientRouter extends AnyRouter = never> =
+  BaseOrpcWsClientOptions & BidiClientArm<TClientRouter>;
 
 /**
  * The public client object returned by `createOrpcWsClient`.
@@ -250,15 +329,47 @@ const cookieAuthProvider: TokenProvider = {
 };
 
 /**
+ * Bidi-aware `WebSocketFactory`. Identical to the base factory except it
+ * (re)builds the per-connection bidi mux + s2c host against each brand-new
+ * wrapper it creates. `WebSocketFactory.create` is the SINGLE chokepoint every
+ * new wrapper is born from (first connect + every reconnect swap), so hooking
+ * `bidi.attach` here keeps ClientLifecycle / TokenRefreshHandler untouched and
+ * the mux always tracking the live wrapper. Used only when bidi is on; a
+ * subclass (not a plain wrapper object) because `WebSocketFactory` has private
+ * fields and is therefore nominal — only a subclass is assignable to it.
+ */
+class BidiWebSocketFactory extends WebSocketFactory {
+  private readonly bidi: ClientBidi;
+
+  constructor(options: { logger?: Logger }, bidi: ClientBidi) {
+    super(options);
+    this.bidi = bidi;
+  }
+
+  override create(
+    urlProvider: UrlProvider,
+    handlers: WebSocketEventHandlers,
+    config: ReconnectConfig,
+  ): ReconnectingWebSocket {
+    const ws = super.create(urlProvider, handlers, config);
+    // (Re)attach bidi to the new wrapper. See bidi/client-bidi.ts for the
+    // dispose-previous (close-before-dispose) + rebuild semantics.
+    this.bidi.attach(ws);
+    return ws;
+  }
+}
+
+/**
  * Compose the orpc-ws client. Wires every internal class to its
  * collaborators and returns the public `OrpcWsClient` surface.
  *
  * @typeParam TContract  The consumer's contract router type. Carried
  *   end-to-end so `client.rpc.foo.bar({...})` is fully typed.
  */
-export function createOrpcWsClient<TContract extends AnyContractRouter>(
-  opts: OrpcWsClientOptions,
-): OrpcWsClient<TContract> {
+export function createOrpcWsClient<
+  TContract extends AnyContractRouter,
+  TClientRouter extends AnyRouter = never,
+>(opts: OrpcWsClientOptions<TClientRouter>): OrpcWsClient<TContract> {
   // ----- 1. Resolve config / seams -----
   const logger: Logger = opts.logger ?? noopLogger;
   const clock: Clock = opts.clock ?? systemClock;
@@ -301,15 +412,41 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
   );
   const websocketHolder = new WebSocketHolder();
 
+  // ----- 2b. Bidi coordinator (server→client RPC) — opt-in, OFF = byte-identical -----
+  // Presence of `clientRouter` is the bidi switch. When ON, the c2s RPCLink (and
+  // therefore the stealth heartbeat that rides it) binds the c2s `ChanneledSocket`
+  // facade instead of the raw wrapper, and the consumer's router is hosted on the
+  // s2c channel — see bidi/client-bidi.ts. When OFF (`null`), the LinkFactory
+  // below binds the RAW wrapper, no multiplexer is interposed, and the heartbeat
+  // path is untouched: identical to the pre-bidi client.
+  //
+  // The conditional-rest context CONTRACT was enforced at THIS factory's call
+  // site (OrpcWsClientOptions, against the concrete TClientRouter). Inside the
+  // body TClientRouter is generic, so — like the Phase-4 host's own internal
+  // widening — we forward a plain `{ context }` (the coordinator/host default a
+  // missing context to `{}`).
+  const bidi: ClientBidi | null =
+    opts.clientRouter !== undefined
+      ? createClientBidi(opts.clientRouter, logger, {
+          context: opts.clientContext,
+        })
+      : null;
+
   // ----- 3. Heartbeat (built before LinkFactory consumes it via subscriber) -----
   const heartbeatMonitor = new HeartbeatMonitor({ clock, logger });
 
   // ----- 4. Link factory + typed proxy -----
-  // `getWebSocket` is a closure over the holder — the link factory
-  // resolves the CURRENT wrapper on first `getLink()` (lazy), and
-  // any subsequent `clearLink()` + `getLink()` picks up whatever
-  // partysocket wrapper the holder currently owns.
-  const linkFactory = new LinkFactory(() => websocketHolder.get(), logger);
+  // `getWebSocket` is a closure resolving the CURRENT socket the c2s RPCLink
+  // binds to, lazily on the first `getLink()`; a `clearLink()` + `getLink()`
+  // picks up whatever that closure now yields.
+  //   - bidi OFF: the raw partysocket wrapper from the holder (pre-bidi behavior).
+  //   - bidi ON: the c2s `ChanneledSocket` facade of the CURRENT mux — so on a
+  //     wrapper swap the rebuilt mux's new facade is picked up on the next link
+  //     rebuild, exactly as the holder's wrapper would have been.
+  const linkFactory = new LinkFactory(
+    bidi ? () => bidi.c2sLinkSocket() : () => websocketHolder.get(),
+    logger,
+  );
   const rpc = createOrpcClientProxy<TContract>(linkFactory);
 
   // ----- 5. Heartbeat subscriber (needs the link factory) -----
@@ -327,7 +464,19 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
   });
 
   // ----- 6. WebSocket factory -----
-  const websocketFactory = new WebSocketFactory({ logger });
+  // When bidi is ON, every NEW wrapper (the first `connect()` AND every
+  // `swapSocket()` reconnect both route through `WebSocketFactory.create`) must
+  // (re)build the bidi mux + s2c host against it and retire the previous one.
+  // `create` is the single chokepoint where a wrapper is born, so a subclass that
+  // calls `bidi.attach(ws)` right after construction is the one place to hook it —
+  // ClientLifecycle and TokenRefreshHandler stay untouched (they only see a
+  // `WebSocketFactory`). On a swap the OLD wrapper was already closed before this
+  // `create` runs (its close fan-out aborted in-flight s2c executions), so
+  // `attach`'s dispose-previous honors close-before-dispose. When OFF, the plain
+  // factory is used — byte-identical.
+  const websocketFactory: WebSocketFactory = bidi
+    ? new BidiWebSocketFactory({ logger }, bidi)
+    : new WebSocketFactory({ logger });
 
   // ----- 6b. URL provider + lifecycle controller -----
   // Declared here, ASSIGNED in step 10 — the lifecycle controller reads it
@@ -487,7 +636,7 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
     },
     onClose: () => {
       // Per-close teardown: stop the heartbeat watchdog and subscriber.
-      // This hook runs FROM the socket's `close` event (partysocket 1.2.0
+      // This hook runs FROM the socket's `close` event (partysocket 1.3.0
       // dispatches it synchronously from `close()`), so the socket is
       // already CLOSED/CLOSING — use `drop()`, not `abort()`. orpc's own
       // wrapper close-listener (`peer.close()`) tears the heartbeat stream
@@ -642,7 +791,17 @@ export function createOrpcWsClient<TContract extends AnyContractRouter>(
       subscribe: (cb) => connectionState.subscribe(cb),
     },
     connect: lifecycle.connect,
-    dispose: lifecycle.dispose,
+    // When bidi is on, tear down the connection FIRST (ClientLifecycle.dispose
+    // closes the wrapper → the mux's synchronous close fan-out aborts in-flight
+    // hosted s2c executions / rejects pending c2s calls), THEN retire the bidi
+    // handle (deferred mux.dispose — see bidi/client-bidi.ts TEARDOWN ORDERING).
+    // Symmetric to the server disposing its connection bidi from the ws 'close'.
+    dispose: bidi
+      ? () => {
+          lifecycle.dispose();
+          bidi.dispose();
+        }
+      : lifecycle.dispose,
   };
   if (upload) {
     client.upload = upload;

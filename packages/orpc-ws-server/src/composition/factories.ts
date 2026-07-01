@@ -16,26 +16,38 @@
 // Kept OUT of index.ts to respect the ~300-LOC ceiling (index.ts is the
 // composition root and already over; CLAUDE.md "No god files").
 
+import type { AnyContractRouter } from "@orpc/contract";
 import type { WebSocket } from "ws";
 
 import { OrpcWsServer, type OrpcWsServerOptions } from "../index.js";
 import type { NoAuth } from "../state/no-auth.js";
+import type {
+  AuthlessConnection,
+  ServerConnection,
+} from "../state/connection.js";
 import type {
   AuthenticatedOrpcWsServerOptions,
   AuthlessOrpcWsServerOptions,
 } from "./server-options.js";
 
 /**
- * The authless server's public surface: the class MINUS `closeUser`.
- * Authless has no per-user identity to target, so `closeUser` is removed
- * from the returned type. `start`-equivalents (`attach`), `dispose`,
- * `getHttpHandler` (always returns `null` here), and `getUploadConfig`
- * remain.
+ * The authless server's public surface: the class MINUS `closeUser`, with
+ * `getConnection` re-typed to the user-less {@link AuthlessConnection}.
+ * Authless has no per-user identity to target, so `closeUser` is removed; and
+ * its `conn` carries no `user` (NoAuth is uninhabited), so the inherited
+ * `getConnection` (which would surface a `NoAuth` user) is overridden with the
+ * user-less handle. `attach`, `dispose`, `getHttpHandler` (always `null` here),
+ * and `getUploadConfig` remain.
  */
-export type AuthlessOrpcWsServer<TContract extends object> = Omit<
-  OrpcWsServer<NoAuth, TContract>,
-  "closeUser"
->;
+export type AuthlessOrpcWsServer<
+  TContract extends object,
+  TClientContract extends AnyContractRouter = never,
+> = Omit<
+  OrpcWsServer<NoAuth, TContract, TClientContract>,
+  "closeUser" | "getConnection"
+> & {
+  getConnection(key: string): AuthlessConnection<TClientContract> | undefined;
+};
 
 /**
  * Create an AUTHENTICATED ORPC-over-WS server. This is the everyday
@@ -46,14 +58,20 @@ export type AuthlessOrpcWsServer<TContract extends object> = Omit<
  * are structurally a subset of the class's internal options, so no
  * field-by-field remap is needed.
  */
-export function createOrpcWsServer<TUser, TContract extends object>(
-  opts: AuthenticatedOrpcWsServerOptions<TUser, TContract>,
-): OrpcWsServer<TUser, TContract> {
+export function createOrpcWsServer<
+  TUser,
+  TContract extends object,
+  TClientContract extends AnyContractRouter = never,
+>(
+  opts: AuthenticatedOrpcWsServerOptions<TUser, TContract, TClientContract>,
+): OrpcWsServer<TUser, TContract, TClientContract> {
   // The authenticated public options are assignable to the internal
   // options 1:1 (hooks shapes match; `verifyClient` is present). The cast
   // names the seam between the public and internal option identities.
-  return new OrpcWsServer<TUser, TContract>(
-    opts as OrpcWsServerOptions<TUser, TContract>,
+  // `TClientContract` is inferred from `opts.clientContract` (default `never`
+  // → bidi off) and threaded straight through.
+  return new OrpcWsServer<TUser, TContract, TClientContract>(
+    opts as OrpcWsServerOptions<TUser, TContract, TClientContract>,
   );
 }
 
@@ -69,34 +87,42 @@ export function createOrpcWsServer<TUser, TContract extends object>(
  * receives is the uninhabited `NoAuth` placeholder and is simply not
  * forwarded — the authless hook never sees it.
  */
-export function createAuthlessOrpcWsServer<TContract extends object>(
-  opts: AuthlessOrpcWsServerOptions<TContract>,
-): AuthlessOrpcWsServer<TContract> {
+export function createAuthlessOrpcWsServer<
+  TContract extends object,
+  TClientContract extends AnyContractRouter = never,
+>(
+  opts: AuthlessOrpcWsServerOptions<TContract, TClientContract>,
+): AuthlessOrpcWsServer<TContract, TClientContract> {
   const h = opts.hooks;
 
-  // Adapt the user-less authless hooks to the internal `(user, …)` shape.
-  // Each adapter ignores the `NoAuth` user (it can't be read anyway) and
-  // forwards only the user-independent args.
-  const internalHooks: OrpcWsServerOptions<NoAuth, TContract>["hooks"] = {};
+  // Adapt the user-less authless hooks to the internal `(conn, …)` shape. Each
+  // adapter strips the (uninhabited NoAuth) user from the conn, forwarding the
+  // user-less `AuthlessConnection`.
+  const internalHooks: OrpcWsServerOptions<
+    NoAuth,
+    TContract,
+    TClientContract
+  >["hooks"] = {};
   if (h?.onConnected) {
     const cb = h.onConnected;
-    internalHooks.onConnected = (_user: NoAuth, ws: WebSocket) => cb(ws);
+    internalHooks.onConnected = (conn) => cb(toAuthlessConnection(conn));
   }
   if (h?.onDisconnected) {
     const cb = h.onDisconnected;
-    internalHooks.onDisconnected = (_user: NoAuth, code: number, ws: WebSocket) =>
-      cb(code, ws);
+    internalHooks.onDisconnected = (conn, code) =>
+      cb(toAuthlessConnection(conn), code);
   }
   if (h?.onZombieTerminated) {
     const cb = h.onZombieTerminated;
     internalHooks.onZombieTerminated = () => cb();
   }
 
-  const internalOpts: OrpcWsServerOptions<NoAuth, TContract> = {
+  const internalOpts: OrpcWsServerOptions<NoAuth, TContract, TClientContract> = {
     router: opts.router,
     // No verifyClient → the class constructs in authless mode.
     hooks: internalHooks,
   };
+  if (opts.clientContract) internalOpts.clientContract = opts.clientContract;
   if (opts.connection) internalOpts.connection = opts.connection;
   if (opts.heartbeat) internalOpts.heartbeat = opts.heartbeat;
   if (opts.logger) internalOpts.logger = opts.logger;
@@ -105,7 +131,23 @@ export function createAuthlessOrpcWsServer<TContract extends object>(
   if (opts.rootInterceptors) internalOpts.rootInterceptors = opts.rootInterceptors;
 
   // The class returns the full surface; the narrowed return type hides
-  // `closeUser` from authless consumers (it would no-op anyway — no user
-  // keys exist to look up).
-  return new OrpcWsServer<NoAuth, TContract>(internalOpts);
+  // `closeUser` and re-types `getConnection` to the user-less handle.
+  return new OrpcWsServer<NoAuth, TContract, TClientContract>(
+    internalOpts,
+  ) as AuthlessOrpcWsServer<TContract, TClientContract>;
+}
+
+/**
+ * Strip the (uninhabited `NoAuth`) `user` off an authed conn to produce the
+ * user-less {@link AuthlessConnection}. The conditional public conn types make
+ * direct field access awkward, so we read through a flat record view; the
+ * result cast names the conditional-type seam.
+ */
+function toAuthlessConnection<TClientContract extends AnyContractRouter>(
+  conn: ServerConnection<NoAuth, TClientContract>,
+): AuthlessConnection<TClientContract> {
+  const c = conn as { key: string; ws: WebSocket; client?: unknown };
+  return { key: c.key, ws: c.ws, client: c.client } as AuthlessConnection<
+    TClientContract
+  >;
 }

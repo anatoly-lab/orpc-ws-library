@@ -289,7 +289,7 @@ OrpcWsModule.forRootAsync({
   useFactory: (auth: AuthService, metrics: MetricsService) => ({
     router: appRouter,
     verifyClient: async (ctx) => auth.verifyWsToken(ctx),  // <-- consumer's existing service
-    hooks: { onConnected: (u) => metrics.recordConnection(u) },
+    hooks: { onConnected: (conn) => metrics.recordConnection(conn.user) },
   }),
 });
 ```

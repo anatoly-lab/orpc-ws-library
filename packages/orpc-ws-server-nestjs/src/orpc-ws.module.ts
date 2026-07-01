@@ -13,9 +13,21 @@
 // `@nestjs/config`, `@nestjs/typeorm`, etc. when their modules are
 // considered global.
 
-import { Global, Module } from "@nestjs/common";
+import {
+  type ConfigurableModuleAsyncOptions,
+  type DynamicModule,
+  Global,
+  Module,
+} from "@nestjs/common";
 
-import { OrpcWsConfigurableModuleClass } from "./orpc-ws.module-builder.js";
+import type { AnyContractRouter } from "@orpc-ws/server";
+
+import {
+  type ORPC_WS_ASYNC_OPTIONS_TYPE,
+  type ORPC_WS_OPTIONS_TYPE,
+  OrpcWsConfigurableModuleClass,
+} from "./orpc-ws.module-builder.js";
+import type { OrpcWsModuleOptions } from "./orpc-ws.options.js";
 import { OrpcWsService } from "./orpc-ws.service.js";
 
 @Global()
@@ -23,4 +35,53 @@ import { OrpcWsService } from "./orpc-ws.service.js";
   providers: [OrpcWsService],
   exports: [OrpcWsService],
 })
-export class OrpcWsModule extends OrpcWsConfigurableModuleClass {}
+export class OrpcWsModule extends OrpcWsConfigurableModuleClass {
+  // The builder generates `forRoot` / `forRootAsync` typed against the ERASED
+  // `OrpcWsModuleOptions` (where `TClientContract` is the `never` default), so
+  // its generated signatures type `clientContract?: never` — un-passable. We
+  // re-declare both as GENERIC static overrides that surface the third
+  // (`TClientContract`) and first (`TUser`) generics, then delegate to the
+  // builder's implementation via `super`, casting back to the builder's own
+  // option-type carriers. This is the canonical Nest recipe (see the
+  // `OPTIONS_TYPE` / `ASYNC_OPTIONS_TYPE` docs in @nestjs/common).
+  //
+  // Opt-in / byte-identical-when-off: with `TClientContract` left at its
+  // `never` default the signatures collapse to exactly the prior ones, and the
+  // runtime is untouched — `super.forRoot*` is the same generated method, the
+  // options object is forwarded verbatim (the core reads `clientContract`
+  // presence itself).
+  //
+  // BIDI INFERENCE CAVEAT (forRootAsync only). `forRoot` takes the options
+  // literal directly, so `TClientContract` is inferred from the `clientContract`
+  // VALUE you pass. `forRootAsync` takes a `useFactory` instead, and TS's
+  // higher-order inference will NOT pull this third generic out of a BARE
+  // (unannotated) factory return — `forRootAsync({ useFactory: () => ({ router,
+  // clientContract, hooks }) })` infers `TClientContract = never`, so `conn.client`
+  // silently loses its typing (collapses to absent). To make the bidi generic
+  // flow, annotate the factory's RETURN type —
+  // `useFactory: (): OrpcWsModuleOptions<TUser, TContract, MyClientContract> =>
+  // ({ … })` — or pass the type args to `forRootAsync` explicitly. (Runtime is
+  // unaffected either way; this is purely about preserving `.client` typing.)
+
+  static override forRoot<
+    TUser = unknown,
+    TContract extends object = object,
+    TClientContract extends AnyContractRouter = never,
+  >(
+    options: OrpcWsModuleOptions<TUser, TContract, TClientContract>,
+  ): DynamicModule {
+    return super.forRoot(options as typeof ORPC_WS_OPTIONS_TYPE);
+  }
+
+  static override forRootAsync<
+    TUser = unknown,
+    TContract extends object = object,
+    TClientContract extends AnyContractRouter = never,
+  >(
+    options: ConfigurableModuleAsyncOptions<
+      OrpcWsModuleOptions<TUser, TContract, TClientContract>
+    >,
+  ): DynamicModule {
+    return super.forRootAsync(options as typeof ORPC_WS_ASYNC_OPTIONS_TYPE);
+  }
+}

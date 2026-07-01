@@ -2,9 +2,11 @@
 
 The typed ORPC client/server for an app that talks to its backend over
 a long-lived WebSocket. Reconnect, heartbeat, sleep detection, auth
-refresh, single-session-per-user, opt-in HTTP uploads — all extracted
-from one production app into reusable packages, with ~340 unit tests
-across the published packages and a real-Keycloak Playwright e2e on every push.
+refresh, single-session-per-user, opt-in HTTP uploads, and opt-in
+server→client RPC (the server calls procedures the client hosts, over the
+same socket) — all extracted from one production app into reusable packages,
+with ~340 unit tests across the published packages and a real-Keycloak
+Playwright e2e on every push.
 
 An optional server-side JWT verifier (`@orpc-ws/oidc-verifier-jose`) covers
 the backend-token / native path — the client sends a Bearer access token over
@@ -50,7 +52,7 @@ shape. Both parameterize on `<TContract>` and pass it through end-to-end.
 | Package | One-liner | Framework deps |
 |---|---|---|
 | [`@orpc-ws/client`](./packages/orpc-ws-client) | Browser core. Connect, reconnect, heartbeat, sleep detection, typed RPC. | none |
-| [`@orpc-ws/react`](./packages/orpc-ws-react) | The sole React adapter — WS-transport bindings (depends only on `@orpc-ws/client`). Hooks: `useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`. | `react` peer |
+| [`@orpc-ws/react`](./packages/orpc-ws-react) | The sole React adapter — WS-transport bindings (depends only on `@orpc-ws/client`). Hooks: `useConnectionState`, `useWsSubscription`, `OrpcWsProvider`, `useOrpcWs`; plus `<OrpcWs>`, a construct-and-own provider that takes a server→client `clientContract` value and lets descendants register handlers via `createServerHandlerHook` → `useServerHandler`. | `react` peer |
 | [`@orpc-ws/server`](./packages/orpc-ws-server) | Server core. Vanilla Node + `ws` + `@orpc/server`. Attach to `http.Server`. | none |
 | [`@orpc-ws/server-nestjs`](./packages/orpc-ws-server-nestjs) | NestJS adapter. `OrpcWsModule.forRootAsync({...})`, `OrpcWsService` injectable. | `@nestjs/common`, `@nestjs/core` peer |
 | [`@orpc-ws/shared`](./packages/orpc-ws-shared) | Shared seam types (Logger / Clock / Rng / heartbeat wire shape). Published — it's a runtime dependency of the cores. | none |

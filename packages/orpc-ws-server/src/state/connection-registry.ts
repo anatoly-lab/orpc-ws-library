@@ -35,6 +35,14 @@ import type { ConnectionConfig } from "../config/connection-config.js";
 interface Entry {
   ws: WebSocket;
   user: unknown;
+  /**
+   * The typed server→client caller proxy for this connection, present ONLY
+   * when the server opted into bidi (a `clientContract` was supplied). Stored
+   * as `unknown` for the same reason `user` is — the registry doesn't need to
+   * know the contract type; the composition root re-narrows it in
+   * `getConnection`. `undefined` on every non-bidi connection.
+   */
+  client?: unknown;
 }
 
 export interface ConnectionRegistryDeps {
@@ -79,7 +87,7 @@ export class ConnectionRegistry {
    * closing the old WS. Consumers that allow concurrent connections own
    * the deduplication for their broadcast paths.
    */
-  register(key: string, ws: WebSocket, user: unknown): void {
+  register(key: string, ws: WebSocket, user: unknown, client?: unknown): void {
     if (this.config.singleConnectionPerUser) {
       const existing = this.map.get(key);
       if (existing) {
@@ -109,7 +117,7 @@ export class ConnectionRegistry {
         }
       }
     }
-    this.map.set(key, { ws, user });
+    this.map.set(key, { ws, user, client });
   }
 
   /**
@@ -132,6 +140,21 @@ export class ConnectionRegistry {
    */
   get(key: string): WebSocket | undefined {
     return this.map.get(key)?.ws;
+  }
+
+  /**
+   * Full entry lookup — the live `ws`, the stored `user`, and the bidi `client`
+   * (if any). Used by `OrpcWsServer.getConnection` to assemble the public
+   * `conn` handle. Returns a fresh object so callers can't mutate the stored
+   * entry; `undefined` for an absent key. `user` / `client` stay `unknown` —
+   * the composition root re-narrows them at the typed seam.
+   */
+  getEntry(
+    key: string,
+  ): Readonly<{ ws: WebSocket; user: unknown; client: unknown }> | undefined {
+    const entry = this.map.get(key);
+    if (!entry) return undefined;
+    return { ws: entry.ws, user: entry.user, client: entry.client };
   }
 
   /** Used by tests + metrics. */
