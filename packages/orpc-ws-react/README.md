@@ -129,7 +129,11 @@ function LiveTick() {
 **Returns** `{ data, error, status }`: `data` is the **latest** event (or
 `null` before the first; it persists across reconnects), `error` is the last
 non-abort error, and `status` is `"idle"` (not subscribed — disconnected or
-disabled), `"active"`, or `"error"`.
+disabled), `"active"`, `"error"`, or `"completed"` (the stream finished —
+the server iterator returned `done`). Completion does **not** re-subscribe:
+a finished stream stays `completed` (with `data` keeping the last event)
+until the next disconnect→reconnect cycle or an `enabled` toggle re-runs
+the subscription.
 
 **The "both" shape.** The hook tracks the latest event in `data` **and**
 forwards every event to your `onEvent` callback. Use `data` for reactive
@@ -144,7 +148,14 @@ even when the WS is connected; flip it back to `true` to resume.
 is `connected` and `enabled !== false`. When the socket drops it tears down
 (abort + `consumeEventIterator`'s own cancel) and goes `idle`; when it
 reconnects it re-subscribes automatically. Aborts from teardown are
-suppressed — they never reach `error` or `onError`.
+suppressed — they never reach `error` or `onError` — and so is the
+abort-shaped rejection a connection drop itself produces on the in-flight
+stream: a mid-stream reconnect blip cycles `active → idle → active` without
+flashing `status: "error"` or firing `onError`. One narrow exception: a drop
+landing in the window between the connected render and the subscribe effect
+rejects with a non-abort "WebSocket not ready" error, so that race does
+surface one `error` flash (and `onError`) — it self-heals on the next
+reconnect (`error → idle → active`).
 
 ## Construct-and-own provider — `<OrpcWs>`
 
@@ -250,10 +261,14 @@ storm). That's the whole value proposition: a server→client call mutates the
 > and a `useServerHandler` used with **no** `clientContract` on the ancestor
 > `<OrpcWs>` throws a clear error.
 
-**`fallback`.** Rendered until the WS reaches `connected`; the children mount
-only once connected. Omit `fallback` to always render `children` (even
-pre-connect) — the connection state is still observable below via
-`useConnectionState`.
+**`fallback`.** Rendered until the WS reaches `connected` for the **first**
+time; the children mount only once connected. The gate then **latches**: on a
+later disconnect (a heartbeat blip, a reconnect cycle) the children **stay
+mounted** and the fallback does **not** re-engage — re-mounting the subtree on
+every blip would lose component state, unregister every `useServerHandler`,
+and reset subscriptions. Observe reconnect blips below via
+`useConnectionState` instead. Omit `fallback` to always render `children`
+(even pre-connect).
 
 ### Registration timing — when a handler is ready
 

@@ -58,8 +58,14 @@ export interface UseWsSubscriptionResult<TEvent> {
    *   `error` with NO automatic retry on the same connection — the hook only
    *   re-subscribes on the next disconnect→reconnect cycle (its effect deps are
    *   `[client, connected, enabled]`), which is the intended behavior.
+   * - `completed`: the stream FINISHED (the server iterator returned
+   *   `done: true`). Deliberately NO automatic re-subscribe on completion —
+   *   the effect deps are unchanged (`[client, connected, enabled]`), so a
+   *   finished stream stays `completed` until the next disconnect→reconnect
+   *   cycle or an `enabled` toggle re-runs the subscription. `data` keeps the
+   *   last event.
    */
-  status: "idle" | "active" | "error";
+  status: "idle" | "active" | "error" | "completed";
 }
 
 /**
@@ -68,9 +74,13 @@ export interface UseWsSubscriptionResult<TEvent> {
  * Owns the full lifecycle so pages don't repeat it:
  *   - only subscribes when the WS is `connected` AND `enabled !== false`;
  *   - re-subscribes automatically across disconnect→reconnect;
- *   - aborts the underlying call on cleanup/unmount, suppressing the abort;
+ *   - aborts the underlying call on cleanup/unmount, suppressing the abort
+ *     (including a connection-drop's own abort-shaped rejection — a reconnect
+ *     blip never surfaces as an error);
  *   - surfaces the latest event as `data` and forwards each to `onEvent`;
- *   - surfaces real errors via `status: "error"` + `error` + `onError`.
+ *   - surfaces real errors via `status: "error"` + `error` + `onError`;
+ *   - reports a FINISHED stream via `status: "completed"` (no automatic
+ *     re-subscribe on completion — see {@link UseWsSubscriptionResult}).
  *
  * @param client - the `OrpcWsClient` from `createOrpcWsClient`. Pass the SAME
  *   instance across renders (identity stability gates the effect).
@@ -146,10 +156,23 @@ export function useWsSubscription<
 
     // Shared error routing for BOTH the establishment path (the selector
     // promise rejecting) and the per-event path (the iterator's `.next()`
-    // rejecting). Abort is the expected outcome of OUR teardown — we own the
-    // only abort on this signal, so `ac.signal.aborted` is the primary
-    // discriminator (name-sniffing is only a fallback). Suppress it: no error
-    // state, no `onError` call.
+    // rejecting). Suppression covers TWO distinct abort sources:
+    //   1. OUR teardown — we own the only abort on `ac`, so `ac.signal.aborted`
+    //      catches it.
+    //   2. CONNECTION LOSS — on WS close, `@orpc/client`'s websocket link calls
+    //      `ClientPeer.close()` with no reason, and the peer's `AsyncIdQueue`
+    //      rejects the parked `.next()`/response pull with `@orpc/shared`'s
+    //      `AbortError` (an `Error` subclass constructed with
+    //      `name = "AbortError"`), passed through the link's error mapping
+    //      unwrapped. That is NOT our abort — `ac` is untouched — so the NAME
+    //      check below is LOAD-BEARING, not a fallback: it keeps a reconnect
+    //      blip from flashing `status: "error"` / firing `onError` while the
+    //      hook is about to re-subscribe on reconnect anyway (the disconnect
+    //      flips `connected`, the effect re-runs idle→active). We match by
+    //      name because `@orpc/client` does not re-export the `AbortError`
+    //      class (an `instanceof` against a second `@orpc/shared` copy would
+    //      also be version-skew-fragile), and the name is the standardized
+    //      JS abort discriminator (DOMException uses it too).
     const handleStreamError = (err: unknown): void => {
       if (ac.signal.aborted) return;
       if (err instanceof Error && err.name === "AbortError") return;
@@ -179,9 +202,25 @@ export function useWsSubscription<
         // consumer-facing selector stays the natural proxy shape.
         cancel = consumeEventIterator(iterable[Symbol.asyncIterator](), {
           onEvent: (event) => {
+            // A `.next()` that SETTLED before cleanup's abort still delivers
+            // its event on a later microtask — without this guard a torn-down
+            // run (unmount, disable, reconnect churn) would setState and fire
+            // the consumer's `onEvent` after cleanup. Mirrors
+            // `handleStreamError`'s abort guard.
+            if (ac.signal.aborted) return;
             setData(event);
             setStatus("active");
             optionsRef.current?.onEvent?.(event);
+          },
+          // A FINITE stream ends with `done: true`, which `consumeEventIterator`
+          // routes here (NOT to `onEvent`/`onError`) — without this the hook
+          // would stay "active" forever on a stream that finished. Abort-guarded
+          // like the other callbacks. Deliberately no re-subscribe: the effect
+          // deps are unchanged, so `completed` holds until the next
+          // disconnect→reconnect cycle or an `enabled` toggle.
+          onSuccess: () => {
+            if (ac.signal.aborted) return;
+            setStatus("completed");
           },
           // Covers per-event / `.next()` rejections once consuming has begun.
           onError: handleStreamError,
@@ -201,8 +240,11 @@ export function useWsSubscription<
       //   - `cancel()` is `consumeEventIterator`'s own graceful stop; it calls
       //     the iterator's `return?.()` to close the stream. No-ops if the
       //     selector promise had not resolved yet (`cancel` still undefined).
+      //     Swallow its rejection: a `return()` on a dead connection can
+      //     reject, and teardown has nowhere to route it but an unhandled
+      //     rejection.
       ac.abort();
-      void cancel?.();
+      void cancel?.().catch(() => {});
     };
     // Deliberately `[client, connected, enabled]` — selector/options via refs.
   }, [client, connected, enabled]);

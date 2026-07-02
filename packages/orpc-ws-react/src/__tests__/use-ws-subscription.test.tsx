@@ -366,6 +366,178 @@ describe("useWsSubscription", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("suppresses an event that settled BEFORE cleanup's abort: no onEvent after teardown", async () => {
+    // Race: a `.next()` can RESOLVE (with a real event) in the same task the
+    // component unmounts — the resolved value is then delivered on a microtask
+    // that runs AFTER cleanup aborted. Pre-fix, the onEvent wrapper had no
+    // abort guard, so the torn-down run still called setData/setStatus and the
+    // consumer's onEvent. Push + unmount in ONE synchronous block so the
+    // delivery microtask is guaranteed to run after `ac.abort()`.
+    let pushable: Pushable<TickEvent> | undefined;
+    const onEvent = vi.fn();
+    const { client } = makeStreamClient(connected(), async (signal) => {
+      pushable = makePushable<TickEvent>(signal);
+      return pushable.iterable;
+    });
+    const selector = (_rpc: unknown, signal: AbortSignal) =>
+      (client.rpc as unknown as { stream: (i: undefined, o: { signal: AbortSignal }) => Promise<AsyncIterable<TickEvent>> }).stream(undefined, { signal });
+
+    const { unmount } = render(
+      <StreamProbe client={client} selector={selector} options={{ onEvent }} />,
+    );
+    await waitFor(() => expect(pushable).toBeDefined());
+
+    act(() => {
+      pushable!.push({ tick: 1 }); // settles the parked next() with a VALUE…
+      unmount(); // …and cleanup aborts before the delivery microtask runs
+    });
+    // Drain the delivery microtask(s) that would call onEvent pre-fix.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
+  it("finite stream: done → status 'completed', data kept, no onError, NO auto-resubscribe (reconnect cycle still resubscribes)", async () => {
+    // `consumeEventIterator` routes `done: true` to onSuccess. Pre-fix the hook
+    // wired only onEvent/onError, so a finished stream ended INVISIBLY — status
+    // stuck "active" forever.
+    const runs: Pushable<TickEvent>[] = [];
+    const onError = vi.fn();
+    const { client, emit } = makeStreamClient(connected(), async (signal) => {
+      const pushable = makePushable<TickEvent>(signal);
+      runs.push(pushable);
+      return pushable.iterable;
+    });
+    const selector = (_rpc: unknown, signal: AbortSignal) =>
+      (client.rpc as unknown as { stream: (i: undefined, o: { signal: AbortSignal }) => Promise<AsyncIterable<TickEvent>> }).stream(undefined, { signal });
+
+    render(
+      <StreamProbe client={client} selector={selector} options={{ onError }} />,
+    );
+    await waitFor(() => expect(runs).toHaveLength(1));
+
+    await act(async () => {
+      runs[0]!.push({ tick: 7 });
+    });
+    await act(async () => {
+      runs[0]!.complete();
+    });
+
+    expect(screen.getByTestId("status").textContent).toBe("completed");
+    // `data` keeps the last event; completion is not an error.
+    expect(screen.getByTestId("data").textContent).toBe("tick:7");
+    expect(onError).not.toHaveBeenCalled();
+    // NO resubscribe on completion — deliberate: the effect deps are
+    // [client, connected, enabled], and completion changes none of them.
+    expect(runs).toHaveLength(1);
+
+    // A disconnect→reconnect cycle is still the documented way back to a live
+    // subscription: idle on drop, fresh run on reconnect.
+    await act(async () => {
+      emit(disconnected({ willRetry: true }));
+    });
+    expect(screen.getByTestId("status").textContent).toBe("idle");
+    await act(async () => {
+      emit(connected());
+    });
+    await waitFor(() => expect(runs).toHaveLength(2));
+    expect(screen.getByTestId("status").textContent).toBe("active");
+  });
+
+  it("PINS: a connection-drop rejection (peer-style AbortError, not ours) is suppressed — no onError, no 'error' status, normal resubscribe", async () => {
+    // Traced behavior (not a fix — pinning already-correct suppression): on a
+    // real WS close, @orpc/client's websocket link calls ClientPeer.close()
+    // with no reason, and the peer's AsyncIdQueue rejects the parked `.next()`
+    // with @orpc/shared's AbortError — an `Error` subclass constructed with
+    // name = "AbortError", passed through the link's error mapping unwrapped.
+    // The hook's own `ac` is UNTOUCHED at that point, so suppression rides on
+    // the NAME check, not the signal check. Reproduce that exact shape.
+    const peerAbort = new Error(
+      "[AsyncIdQueue] Queue[1] was closed or aborted while waiting for pulling.",
+    );
+    peerAbort.name = "AbortError";
+
+    const runs: Pushable<TickEvent>[] = [];
+    const onError = vi.fn();
+    const { client, emit } = makeStreamClient(connected(), async (signal) => {
+      const pushable = makePushable<TickEvent>(signal);
+      runs.push(pushable);
+      return pushable.iterable;
+    });
+    const selector = (_rpc: unknown, signal: AbortSignal) =>
+      (client.rpc as unknown as { stream: (i: undefined, o: { signal: AbortSignal }) => Promise<AsyncIterable<TickEvent>> }).stream(undefined, { signal });
+
+    render(
+      <StreamProbe client={client} selector={selector} options={{ onError }} />,
+    );
+    await waitFor(() => expect(runs).toHaveLength(1));
+
+    // The drop's rejection can land BEFORE the state manager reports the
+    // disconnect (listener ordering on the close event is not ours) — so fail
+    // the stream while the hook still believes it is connected.
+    await act(async () => {
+      runs[0]!.fail(peerAbort);
+    });
+    expect(screen.getByTestId("status").textContent).toBe("active"); // NOT "error"
+    expect(screen.getByTestId("error").textContent).toBe("none");
+    expect(onError).not.toHaveBeenCalled();
+
+    // Then the state manager reports the drop and the normal idle→active
+    // resubscribe flow recovers the subscription.
+    await act(async () => {
+      emit(disconnected({ willRetry: true }));
+    });
+    expect(screen.getByTestId("status").textContent).toBe("idle");
+    await act(async () => {
+      emit(connected());
+    });
+    await waitFor(() => expect(runs).toHaveLength(2));
+    expect(screen.getByTestId("status").textContent).toBe("active");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("a rejecting iterator return() during teardown is swallowed (no unhandled rejection)", async () => {
+    // cleanup runs `cancel?.()`, and consumeEventIterator's cancel is
+    // `async () => { await (await iterator)?.return?.(); }` — on a dead
+    // connection `return()` can REJECT, which pre-fix (`void cancel?.()`)
+    // escaped as an unhandled rejection.
+    const onUnhandled = vi.fn();
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const iterator: AsyncIterator<TickEvent> = {
+        next: () => new Promise(() => {}), // parked forever; never settles
+        return: () =>
+          Promise.reject(new Error("return() on a dead connection")),
+      };
+      const { client } = makeStreamClient(connected(), async () => ({
+        [Symbol.asyncIterator]: () => iterator,
+      }));
+      const selector = (_rpc: unknown, signal: AbortSignal) =>
+        (client.rpc as unknown as { stream: (i: undefined, o: { signal: AbortSignal }) => Promise<AsyncIterable<TickEvent>> }).stream(undefined, { signal });
+
+      const { unmount } = render(
+        <StreamProbe client={client} selector={selector} />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("status").textContent).toBe("active"),
+      );
+
+      await act(async () => {
+        unmount();
+      });
+      // Unhandled-rejection detection fires after the microtask queue drains,
+      // on a later macrotask — give it one.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(onUnhandled).not.toHaveBeenCalled();
+    } finally {
+      process.removeListener("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("does NOT subscribe when enabled is false, even while connected", () => {
     const selector = vi.fn();
     const { client } = makeStreamClient(

@@ -9,13 +9,13 @@
 // names-from-contract wiring + live registry are proven through the genuine
 // router accessor.
 
-import { StrictMode } from "react";
+import { StrictMode, useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 
 import { oc, type } from "@orpc/contract";
 
-import { connected, createDelegatingClientRouter } from "@orpc-ws/client";
+import { connected, disconnected, createDelegatingClientRouter } from "@orpc-ws/client";
 import type * as ClientModule from "@orpc-ws/client";
 
 import { OrpcWs } from "../orpc-ws.js";
@@ -385,6 +385,55 @@ describe("<OrpcWs> + useServerHandler — feature-local server→client handlers
     });
     expect(screen.queryByTestId("fb")).toBeNull();
     expect(screen.getByTestId("child")).toBeInTheDocument();
+  });
+
+  it("LATCHES after first connect: a reconnect blip does NOT re-engage fallback (children stay mounted)", () => {
+    // A blip that re-engaged the fallback would UNMOUNT the whole children
+    // subtree — state loss, every useServerHandler unregistered, subscriptions
+    // reset. Pin the latch: fallback shows only until the FIRST connect of the
+    // client instance; the mount-effect counter proves the child was never
+    // unmounted+remounted across the blip (presence alone can't distinguish a
+    // remount).
+    let childMounts = 0;
+    function MountProbe() {
+      useEffect(() => {
+        childMounts += 1;
+      }, []);
+      return <div data-testid="child">ready</div>;
+    }
+
+    render(
+      <OrpcWs
+        clientContract={clientContract}
+        fallback={<div data-testid="fb">loading</div>}
+      >
+        <MountProbe />
+      </OrpcWs>,
+    );
+    expect(screen.getByTestId("fb")).toBeInTheDocument();
+    expect(screen.queryByTestId("child")).toBeNull();
+
+    // First connect: fallback → children.
+    act(() => {
+      H.createdClients[0]!.emit(connected());
+    });
+    expect(screen.getByTestId("child")).toBeInTheDocument();
+    expect(childMounts).toBe(1);
+
+    // Blip: disconnected-with-retry. Children STAY mounted; fallback does NOT
+    // re-engage (consumers observe the blip via useConnectionState instead).
+    act(() => {
+      H.createdClients[0]!.emit(disconnected({ willRetry: true }));
+    });
+    expect(screen.getByTestId("child")).toBeInTheDocument();
+    expect(screen.queryByTestId("fb")).toBeNull();
+
+    // Reconnect: still the SAME mounted child — the counter never bumped.
+    act(() => {
+      H.createdClients[0]!.emit(connected());
+    });
+    expect(screen.getByTestId("child")).toBeInTheDocument();
+    expect(childMounts).toBe(1);
   });
 
   it("constructs a one-way client (no bidi router) when clientContract is omitted", () => {

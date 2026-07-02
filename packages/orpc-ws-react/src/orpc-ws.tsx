@@ -81,9 +81,13 @@ export interface OrpcWsProps<
    */
   clientContract?: TClientContract;
   /**
-   * Rendered until the WS reaches `connected`. Omit to always render
-   * `children` (even pre-connect); the connection state is still observable
-   * below via `useConnectionState`.
+   * Rendered until the WS reaches `connected` for the FIRST time on this
+   * client instance. The gate then LATCHES: children stay mounted through
+   * later disconnect blips / reconnects (a re-engaging fallback would unmount
+   * the whole subtree — losing component state, unregistering every
+   * `useServerHandler`, and resetting subscriptions — on a 1s heartbeat
+   * hiccup). Observe reconnect blips below via `useConnectionState` instead.
+   * Omit to always render `children` (even pre-connect).
    */
   fallback?: ReactNode;
   children: ReactNode;
@@ -97,6 +101,15 @@ export interface OrpcWsProps<
 interface OrpcWsInternals {
   client: OrpcWsClient<AnyContractRouter>;
   register: RegisterServerHandler | null;
+  /**
+   * Latch for the `fallback` gate: has THIS client instance ever reached
+   * `connected`? Lives in the same build-once box as the client so its
+   * lifetime is the CLIENT'S, by construction — a fresh client (only possible
+   * via a fresh component instance, since `useLazyRef` builds exactly once
+   * per mounted instance) gets a fresh `false` latch, and StrictMode's double
+   * render/mount reuses the one box, so the latch can't reset spuriously.
+   */
+  hasConnectedOnce: boolean;
 }
 
 /**
@@ -145,7 +158,10 @@ function registryToRecord(
  * Construct-and-own ORPC-WS provider. Builds the client from props ONCE,
  * connects on mount / disposes on unmount, and exposes it to descendants via
  * `<OrpcWsProvider>` (the existing hooks work unchanged below it) plus, for
- * bidi, the server→client `register` via `<ServerHandlerContext>`.
+ * bidi, the server→client `register` via `<ServerHandlerContext>`. A
+ * `fallback` gates `children` only until the FIRST connect — the gate then
+ * latches, so reconnect blips never unmount the subtree (see the `fallback`
+ * prop doc).
  *
  * The component takes a SINGLE generic — `TClientContract`, INFERRED from the
  * `clientContract` prop. The consumer's CLIENT→SERVER contract is NOT a generic
@@ -179,11 +195,12 @@ export function OrpcWs<
   // plain one-way client. Typed as `OrpcWsClient<AnyContractRouter>` — the c2s
   // contract is erased here and re-asserted at the read site by
   // `useOrpcWs<MyContract>()`.
-  const { client, register } = useLazyRef<OrpcWsInternals>(() => {
+  const internals = useLazyRef<OrpcWsInternals>(() => {
     if (!clientContract) {
       return {
         client: createOrpcWsClient<AnyContractRouter>({ ...constructionOpts }),
         register: null,
+        hasConnectedOnce: false,
       };
     }
 
@@ -252,8 +269,10 @@ export function OrpcWs<
         clientRouter: delegating,
       }),
       register,
+      hasConnectedOnce: false,
     };
   });
+  const { client, register } = internals;
 
   // Lifecycle: connect on mount, dispose on unmount — StrictMode-safe.
   //
@@ -290,10 +309,23 @@ export function OrpcWs<
     };
   }, [client]);
 
-  // Reactive gate for `fallback`. Subscribing here also means a child rendered
-  // below only mounts once connected (when a `fallback` is set).
+  // Reactive gate for `fallback` — LATCHED after the FIRST connect. Gating on
+  // the live status (`conn.status === "connected"`) would re-engage the
+  // fallback on EVERY disconnect: a 1s heartbeat blip would unmount the whole
+  // children subtree (state loss, every `useServerHandler` unregistered,
+  // subscriptions reset). Instead the fallback shows only until this client
+  // instance first reaches `connected`; after that children stay mounted
+  // through blips/reconnects (consumers observe those via
+  // `useConnectionState`). The render-phase write to the latch is safe: it is
+  // idempotent and monotonic (false→true only), and it records an external
+  // fact about the client ("has connected at least once") that stays true even
+  // if a concurrent render is discarded — so it can never diverge from the
+  // committed tree. The latch lives in `internals`, the client's own
+  // build-once box, so its lifetime is tied to the client instance (see
+  // `OrpcWsInternals.hasConnectedOnce`).
   const conn = useConnectionState(client);
-  const showChildren = conn.status === "connected" || fallback === undefined;
+  if (conn.status === "connected") internals.hasConnectedOnce = true;
+  const showChildren = internals.hasConnectedOnce || fallback === undefined;
 
   // `client` is already `OrpcWsClient<AnyContractRouter>` — the exact erased
   // contract type the context stores; `useOrpcWs<MyContract>()` re-asserts the
