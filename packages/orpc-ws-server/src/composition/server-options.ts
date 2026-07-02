@@ -150,6 +150,12 @@ export interface AuthenticatedOrpcWsServerOptions<
    * multiplexer, no `client`. The value drives type inference; it is not
    * otherwise read at runtime (the caller proxy is fully dynamic).
    *
+   * WIRE-BREAKING for existing NON-bidi clients — do not enable casually.
+   * With `clientContract` set, every inbound frame MUST be channel-tagged;
+   * an old (non-bidi) client's untagged frames are DROPPED, surfaced only
+   * in the server log, so its calls hang until its heartbeat watchdog trips
+   * and it reconnect-loops. Roll bidi out to server and clients together.
+   *
    * ALWAYS pass this VALUE and let `TClientContract` be INFERRED from it —
    * never specify the third generic explicitly. The runtime bidi switch is
    * `clientContract !== undefined`, but `conn.client`'s TYPE presence is driven
@@ -168,7 +174,13 @@ export interface AuthenticatedOrpcWsServerOptions<
   logger?: Logger;
   /** Test seam — fake clock. */
   clock?: Clock;
-  /** Opt-in HTTP transport for file uploads. */
+  /**
+   * Opt-in HTTP transport for file uploads. Note: the HTTP handler serves
+   * the SAME composed router as the WS handler ("one router, two
+   * transports"), so enabling this makes EVERY procedure — stealth
+   * heartbeat included — HTTP-callable with a valid Bearer token, not
+   * just the file-bearing ones. See the README "Uploads" section.
+   */
   uploads?: Partial<UploadHttpConfig<TUser>>;
   /**
    * ORPC handler-level interceptors, forwarded to BOTH internally-built
@@ -237,6 +249,10 @@ export interface AuthlessOrpcWsServerOptions<
    * option — its presence turns bidi on and gives every (user-less) connection
    * a typed `conn.client`. Authless supports bidi: the conn simply carries no
    * `user`.
+   *
+   * Same WIRE-BREAKING caveat as the authenticated option: with this set,
+   * an old non-bidi client's untagged frames are dropped (server log only)
+   * and its calls hang — deploy bidi to server and clients together.
    *
    * ALWAYS pass this VALUE and let `TClientContract` be INFERRED from it —
    * never specify the second generic explicitly. The runtime bidi switch is

@@ -12,6 +12,14 @@
 // re-importing `OrpcWsModule`. The same convention applies to
 // `@nestjs/config`, `@nestjs/typeorm`, etc. when their modules are
 // considered global.
+//
+// Install EXACTLY once per Nest app. Registering `forRoot`/`forRootAsync`
+// twice — or importing this module alongside one that configures it
+// internally (e.g. `CookieBffModule`) — attaches two `WebSocketServer`s
+// to the one HTTP server, and the FIRST WS connection crashes with ws's
+// "server.handleUpgrade() was called more than once". Doc-only guard on
+// purpose: a runtime static flag would false-positive across sequential
+// Nest app instances in tests.
 
 import {
   type ConfigurableModuleAsyncOptions,

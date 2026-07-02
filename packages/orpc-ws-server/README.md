@@ -394,6 +394,17 @@ uploads: {
 The HTTP route reuses the same `verifyClient` as the WS path (Bearer
 header instead of URL token).
 
+> **Enabling uploads makes the whole router HTTP-reachable.** The HTTP
+> handler is a second `RPCHandler` over the *same composed router* as the
+> WS handler — "one router, two transports" is the pinned design. So with
+> `uploads` on, **every** procedure (not just the file-bearing ones)
+> becomes callable via `POST <httpPath>/<procedure-path>` with a valid
+> Bearer token — including the library's stealth heartbeat:
+> `POST <httpPath>/__orpc_ws_lib__/heartbeat` opens a per-request event
+> stream. If a procedure must stay WS-only, enforce that inside the
+> procedure or its middleware; the transport does not partition the
+> router.
+
 ### `beforeUpload`
 
 Optional pre-body-buffer gate, also on `uploads`. Runs **after**

@@ -135,8 +135,9 @@ export class ConnectionRegistry {
   }
 
   /**
-   * Lookup. Used by `OrpcWsServer.broadcast` / `closeUser` to target a
-   * specific connection.
+   * Lookup. Used by `OrpcWsServer.closeUser` to target a specific
+   * connection. (There is no `broadcast` on the core — a consumer
+   * building one goes through `getConnection` / its own bookkeeping.)
    */
   get(key: string): WebSocket | undefined {
     return this.map.get(key)?.ws;

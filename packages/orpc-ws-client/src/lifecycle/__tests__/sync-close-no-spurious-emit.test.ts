@@ -1,5 +1,6 @@
-// partysocket 1.2.0 synchronous-close regression (SHOULD-FIX 1) at the
-// ClientLifecycle level.
+// partysocket synchronous-close regression (SHOULD-FIX 1) at the
+// ClientLifecycle level. Introduced in partysocket 1.2.0; the pinned
+// 1.3.0 keeps the same semantics.
 //
 // partysocket 1.2.0 made `ReconnectingWebSocket.close()` flip
 // `readyState`→CLOSED and dispatch `close` SYNCHRONOUSLY. So when
@@ -37,7 +38,7 @@ import type { ClientEvent } from "../../events.js";
 import { EventHandlers } from "../event-handlers.js";
 import { ClientLifecycle, type ClientLifecycleDeps } from "../client-lifecycle.js";
 
-// ---- Fake partysocket wrapper: synchronous close (partysocket 1.2.0). ----
+// ---- Fake partysocket wrapper: synchronous close (partysocket >=1.2.0). ----
 
 const CONNECTING = 0;
 const OPEN = 1;

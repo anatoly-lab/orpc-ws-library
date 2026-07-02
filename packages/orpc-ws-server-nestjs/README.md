@@ -297,6 +297,14 @@ metadata). Pass a Nest-Logger-backed implementation through
 3. **`verifyClient` runs BEFORE the Nest request pipeline.** No
    `@Req()` decorator, no guards, no interceptors. Inject your
    `AuthService` through `useFactory` and call it directly.
+4. **Install the module EXACTLY once per app.** `OrpcWsModule` owns the
+   single `@Global` WS transport. Two `forRoot`/`forRootAsync`
+   registrations — or importing it **separately alongside** a module
+   that configures it internally (e.g. `CookieBffModule`) — attach two
+   `WebSocketServer`s to the one HTTP server, and the first WS
+   connection crashes with ws's "server.handleUpgrade() was called more
+   than once". (No runtime guard is added: a static flag would
+   false-positive across sequential Nest app instances in tests.)
 
 ## See also
 

@@ -212,9 +212,10 @@ export class HeartbeatMonitor {
   }
 
   /**
-   * Single poll tick. Public ONLY for tests that prefer to drive the
-   * poll manually instead of stepping a fake clock through every 5s
-   * boundary; production callers never invoke this directly.
+   * Single poll tick. Private — the only caller is the interval that
+   * `start()` schedules; tests drive it indirectly by stepping a fake
+   * clock through the injected `pollIntervalMs` cadence (see
+   * `__tests__/monitor.test.ts`).
    */
   private poll(): void {
     if (this.intervalMs == null || this.timeoutMs == null) return;

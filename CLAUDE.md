@@ -77,10 +77,18 @@ Nine packages under `packages/` (the "Package layout (locked)" section below
 states intent; this is the current tree), plus demo apps under `apps/`. Every
 non-adapter package is framework-free; the boundary is lint-enforced.
 
-- `@orpc-ws/shared` — internal seam types only (`Logger`, `Clock`,
-  `Rng`, `HeartbeatEvent`, and the `HEARTBEAT_NAMESPACE` / `HEARTBEAT_PATH`
-  constants). Published to npm (cores pin it as an exact-version runtime
-  dependency, `"0.1.0"` — not `workspace:*`). Both cores depend on it.
+- `@orpc-ws/shared` — the internal seam types with default impls
+  (`Logger`, `Clock`, `Rng`), the heartbeat wire types (`HeartbeatEvent`,
+  `HEARTBEAT_NAMESPACE` / `HEARTBEAT_PATH`), and — since the bidi
+  feature — the framework-free socket substrate: the bidi channel codec
+  (`channel.ts`: `tagFrame` / `untagFrame`, `BIDI_C2S_CHANNEL` /
+  `BIDI_S2C_CHANNEL`) plus the `SocketMultiplexer` / `ChanneledSocket`
+  machinery over the structural `UnderlyingSocket` seam
+  (`socket-multiplexer.ts`, `channeled-socket.ts`, `socket.ts`,
+  `normalize-inbound.ts`) that lays the two logical RPC channels over one
+  socket. Published to npm (cores depend on it via `workspace:*`,
+  rewritten to the exact version at publish — see "Monorepo tooling").
+  Both cores depend on it.
 - `@orpc-ws/client` — browser core. Composition root `src/index.ts` →
   `createOrpcWsClient<TContract>(opts): OrpcWsClient`. One-concept-each
   modules: `state/`, `client/`, `lifecycle/`, `reconnect/`, `heartbeat/`,
@@ -476,8 +484,10 @@ core the single source of its own public surface.)
   any auth or router coupling.
 - **No framework lifecycle leakage.** The server core owns its own
   lifecycle (`start`, `stop`, `attach(httpServer)`). The NestJS adapter
-  *wraps* core lifecycle in `OnApplicationBootstrap` / `OnModuleDestroy`;
-  the core itself never imports Nest interfaces.
+  *wraps* core lifecycle in `OnModuleInit` (upload middleware — before
+  Nest's 404 hook lands) + `OnApplicationBootstrap` (`attach`) +
+  `BeforeApplicationShutdown` (`dispose` before HTTP teardown, so clients
+  get the close frame); the core itself never imports Nest interfaces.
 - **State contract.** The client core exposes
   `{ getState(): T; subscribe(cb: () => void): () => void }`. That same
   shape is consumed by React's `useSyncExternalStore`, Svelte's store

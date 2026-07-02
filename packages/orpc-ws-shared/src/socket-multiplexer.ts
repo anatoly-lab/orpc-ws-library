@@ -57,6 +57,15 @@ export interface SocketMultiplexerOptions {
    * EventEmitter would otherwise become an `uncaughtException` → process
    * crash). A malformed frame is still a protocol violation: it is never
    * routed to a guessed channel, just surfaced.
+   *
+   * OPERATIONAL WARNING — on Node, that deferred rethrow IS an
+   * `uncaughtException`, which by default EXITS THE PROCESS. The
+   * fail-loud default is fine in a browser (`window.onerror`, noisy but
+   * not fatal) and in tests, but on a server it turns one malformed
+   * frame from any client into a remote crash switch. ALWAYS pass
+   * `onError` in a server-side composition — this library's own server
+   * core does (see `@orpc-ws/server` `bidi/connection-bidi.ts`, which
+   * routes it to the injected logger).
    */
   readonly onError?: (error: unknown) => void;
 }
