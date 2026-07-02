@@ -101,7 +101,13 @@ global `fetch` / system clock / noop logger).
 ## Seams you implement
 
 - **`SessionStore<TUser>`** — `set(sid, data, { ttlSeconds })` / `get(sid)` /
-  `delete(sid)` / `deleteByUser(sub)`. The **library mints the `sid`** (256-bit
+  `delete(sid)` / `deleteByUser(sub)`, plus an optional
+  `touch?(sid, sessionExpiresAt, { ttlSeconds })`: an expiry-only atomic
+  update (express-session precedent) the sliding window prefers, so a slide
+  can never clobber a concurrent lazy refresh's freshly-rotated tokens.
+  Get/set-only stores fall back to a fresh get + merged set — a narrowed but
+  not eliminated race window — so implement `touch` (a one-field update on
+  Redis/SQL/KV) for full safety. The **library mints the `sid`** (256-bit
   random) and is the sole writer of `SessionData`; the store only persists by
   key, never invents ids, never mutates the value, and never inspects the
   encrypted token blob. `SessionData<TUser>` carries the enriched `user`, the
@@ -185,7 +191,10 @@ global `fetch` / system clock / noop logger).
   touch (the WS upgrade and `/auth/me`) when `slideSessionOnActivity` is `true`
   (the default), so the 30-day window rolls rather than being fixed at login.
   The slide is best-effort — a store-write failure is logged and the touch
-  still succeeds. **Known bound:** a single forever-open socket is never a
+  still succeeds. It prefers the store's optional `touch` (expiry-only, cannot
+  race the lazy refresh's token rotation); get/set-only stores get a
+  narrowed-but-not-eliminated race window instead, so implement `touch` for
+  full safety. **Known bound:** a single forever-open socket is never a
   "touch" again, so it hard-caps at the TTL from its last touch.
 
 ## `IdTokenClaims`

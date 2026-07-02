@@ -306,6 +306,14 @@ next minor.
 export interface SessionStore<TUser> {
   /** Persist by key. The library MINTS the sid; the store only stores. */
   set(sid: string, data: SessionData<TUser>, opts: { ttlSeconds: number }): Promise<void>;
+  /**
+   * OPTIONAL expiry-only re-stamp (express-session `Store.touch` precedent).
+   * Updates ONLY `sessionExpiresAt` (+ native TTL); no-op on an absent sid.
+   * Exists so the window slide cannot clobber a concurrent lazy refresh's
+   * rotated tokens (see the AS-BUILT slide note in §E.1). Implementation-
+   * defined atomicity — a single-field update on Redis/SQL/NATS-KV.
+   */
+  touch?(sid: string, sessionExpiresAt: number, opts: { ttlSeconds: number }): Promise<void>;
   get(sid: string): Promise<SessionData<TUser> | null>;
   delete(sid: string): Promise<void>;
   /** Revocation primitive — drop EVERY session for a subject. */
@@ -456,9 +464,18 @@ export async function revokeUser<TUser>(
   store: SessionStore<TUser>,
   closeUser: (connectionKey: string, code?: number, reason?: string) => void,
   sub: string,
+  logger: Logger = noopLogger,                          // optional; kick-failure log sink
 ): Promise<void> {
-  await store.deleteByUser(sub);                        // future connects/refreshes fail
-  closeUser(sub, 4001, "session invalidated");          // drop live pipe (this instance)
+  try {
+    await store.deleteByUser(sub);                      // future connects/refreshes fail
+  } finally {
+    try {
+      closeUser(sub, 4001, "session invalidated");      // drop live pipe (this instance)
+    } catch (err) {
+      // never mask a deleteByUser rejection with a kick failure
+      logger.warn("[cookie-bff] revocation kick (closeUser) failed", ...);
+    }
+  }
 }
 ```
 
@@ -466,6 +483,21 @@ export async function revokeUser<TUser>(
 `@orpc-ws/server-nestjs`. There is **no `broadcast` method** on `OrpcWsService` —
 `revokeUser` uses `closeUser`. `revokeUser` is **local only**; cross-instance
 fan-out is the consumer's job (Decision #18, §G).
+
+> **AS BUILT — the kick is guaranteed even when the store delete rejects.**
+> The `finally` above is load-bearing: a store outage must not leave a
+> just-revoked user's live authenticated socket up (the kick is the more
+> urgent of the two actions). Delete stays FIRST (kick-first would let the
+> kicked client reconnect against a still-populated store). A delete failure
+> still **rejects after the kick** — "best-effort" (Decision #17) describes
+> the local kick, not a swallowed store outage: the consumer's revocation
+> event handler needs the rejection to retry/redeliver, or the sessions
+> silently survive until their TTL. The as-built kick inside the `finally` is
+> additionally wrapped in its own try/catch (with an optional injected
+> `Logger`, noop default, as a 4th parameter): a throw escaping a `finally`
+> would MASK the delete rejection (JS semantics), so a throwing
+> consumer-supplied `closeUser` is logged instead of propagated (the
+> library's own core `closeUser` never throws).
 
 ### D.6 ADAPTER — Nest module wiring (`CookieBffModule.forRootAsync`)
 
@@ -734,7 +766,25 @@ Leave the choice to the consumer; the library does not care.
 > MAJOR finding). The slide is **best-effort**: a store-write failure is logged
 > via the injected `Logger` and the upgrade / `/me` still succeeds (it awaits the
 > write so behavior is deterministic and testable, but never throws to the
-> caller). **KNOWN BOUND (accepted):** a single socket that stays continuously
+> caller).
+>
+> **AS BUILT — the slide write prefers `store.touch` (expiry-only), NOT a full
+> `set`.** The slide can run concurrently with the lazy refresh
+> (`RefreshManager`, its own get→modify→set) for the same sid; a slide
+> implemented as a full `set` from the caller's stale snapshot could land after
+> the refresh's write and roll back the freshly-rotated `enc` +
+> `accessTokenExpiresAt` — under refresh-token rotation the rolled-back refresh
+> token is dead → the next refresh fails terminal → premature self-logout. So
+> `SessionStore` gained the OPTIONAL `touch(sid, sessionExpiresAt, {ttlSeconds})`
+> (§D.1, express-session `Store.touch` precedent): an expiry-only re-stamp that
+> cannot clobber any other field, a no-op on an absent sid. When a store does
+> not implement `touch`, the slide falls back to a **fresh `get` immediately
+> before a merged `set`** — that narrows the race window (from "since the
+> caller's read" to the get→set gap) and refuses to resurrect a
+> deleted/revoked session, but **cannot eliminate** the race; store adapters
+> wanting full safety implement `touch` (a one-field update on Redis/SQL/KV).
+>
+> **KNOWN BOUND (accepted):** a single socket that stays continuously
 > connected, never reconnects, and never lazily-refreshes has no touch point
 > after its initial upgrade, so it still hard-caps at `ttl` from that last
 > touch — a forever-open idle socket is not an observable touch. This matches the

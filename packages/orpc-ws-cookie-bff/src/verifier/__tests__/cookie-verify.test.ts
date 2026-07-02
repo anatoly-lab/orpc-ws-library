@@ -121,24 +121,28 @@ describe("createCookieVerifyClient", () => {
   });
 
   describe("session-window sliding", () => {
-    it("re-stamps sessionExpiresAt and persists via store.set on success", async () => {
+    it("re-stamps sessionExpiresAt via store.touch (expiry-only) on success", async () => {
       const { verify, store, clock } = build();
       store.map.set("sid-1", liveSession(clock.now() + 10_000));
       await verify(ctx({ cookie: `${COOKIE}=sid-1` }));
 
       const expected = clock.now() + SESSION_TTL_S * 1000;
       expect(store.map.get("sid-1")!.sessionExpiresAt).toBe(expected);
-      expect(store.setCalls.at(-1)).toEqual({
+      // Touch-capable store ⇒ the slide uses `touch` (race-free vs a
+      // concurrent lazy refresh), never a full `set` from a stale snapshot.
+      expect(store.touchCalls.at(-1)).toEqual({
         sid: "sid-1",
+        sessionExpiresAt: expected,
         ttlSeconds: SESSION_TTL_S,
       });
+      expect(store.setCalls).toHaveLength(0);
     });
 
-    it("still returns ok:true when the slide write (store.set) throws", async () => {
+    it("still returns ok:true when the slide write (store.touch) throws", async () => {
       const { verify, store, clock } = build();
       store.map.set("sid-1", liveSession(clock.now() + 10_000));
-      store.set = async () => {
-        throw new Error("store.set down");
+      store.touch = async () => {
+        throw new Error("store.touch down");
       };
       const res = await verify(ctx({ cookie: `${COOKIE}=sid-1` }));
       // A slide-write failure must NEVER fail the upgrade; returns the
@@ -156,6 +160,7 @@ describe("createCookieVerifyClient", () => {
       store.map.set("sid-1", liveSession(exp));
       const res = await verify(ctx({ cookie: `${COOKIE}=sid-1` }));
       expect(store.setCalls).toHaveLength(0);
+      expect(store.touchCalls).toHaveLength(0);
       expect(res).toMatchObject({ ok: true, expiresAt: exp });
     });
   });

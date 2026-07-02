@@ -108,6 +108,46 @@ export interface SessionStore<TUser> {
     opts: { ttlSeconds: number },
   ): Promise<void>;
 
+  /**
+   * OPTIONAL expiry-only re-stamp — update `sessionExpiresAt` (and the
+   * backend's native TTL, when it has one) for an EXISTING session, touching
+   * no other field. MUST be a no-op when `sid` is absent (never resurrect a
+   * deleted/expired session).
+   *
+   * WHY THIS EXISTS (concurrency): the session-window slide
+   * (session-slide.ts) and the lazy refresh (`RefreshManager`) can run
+   * concurrently for the same `sid`. A slide implemented as a full
+   * read-modify-write `set` from a stale snapshot can land AFTER the refresh's
+   * `set` and roll back the freshly-rotated `enc` tokens — under refresh-token
+   * rotation the rolled-back refresh token is dead, so the next refresh fails
+   * terminal (premature self-logout). `touch` closes that race by updating
+   * ONLY the expiry field. This mirrors express-session's `Store.touch(sid,
+   * session)`, which exists for exactly this reason.
+   *
+   * Atomicity is implementation-defined: a Redis/SQL/NATS-KV backend should
+   * make this a single-field update (`HSET` one field / `UPDATE … SET
+   * session_expires_at = ?` / a KV metadata re-stamp), which is atomic with
+   * respect to a concurrent full-record `set`. When `touch` is absent the
+   * library falls back to a fresh `get` immediately before a merged `set` —
+   * that NARROWS the race window but cannot eliminate it, so implementers
+   * wanting full safety should provide `touch`.
+   *
+   * `ttlSeconds` mirrors `set`'s contract: backends with native TTL (NATS KV,
+   * Redis) re-stamp it here; SQL backends can ignore it (the `expires_at`
+   * column IS `sessionExpiresAt`).
+   *
+   * Because `touch` returns void, the absent-sid no-op is SILENT: on a
+   * mid-flight deletion the slide's caller keeps an optimistically-slid
+   * in-memory copy that persisted nothing (inherent to a void-returning
+   * `touch`, same as express-session; the touch-less fallback instead sees
+   * the deletion on its `get` and bails with the un-slid original).
+   */
+  touch?(
+    sid: string,
+    sessionExpiresAt: number,
+    opts: { ttlSeconds: number },
+  ): Promise<void>;
+
   /** Look up a session by `sid`. Resolves `null` when absent or expired. */
   get(sid: string): Promise<SessionData<TUser> | null>;
 

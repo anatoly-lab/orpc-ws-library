@@ -48,6 +48,9 @@ export class CookieBffService {
       (connectionKey, code, reason) =>
         this.orpcWs.closeUser(connectionKey, code, reason),
       sub,
+      // A throwing closeUser is logged (never masks the delete rejection);
+      // omitted logger falls back to revokeUser's noop default.
+      this.options.logger,
     );
   }
 

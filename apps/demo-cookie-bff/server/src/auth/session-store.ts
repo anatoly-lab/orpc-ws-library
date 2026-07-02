@@ -63,6 +63,21 @@ export class DemoSessionStore implements SessionStore<DemoUser> {
     sids.add(sid);
   }
 
+  // Expiry-only re-stamp (the seam's optional `touch`, preferred by the
+  // library's session-window slide — it can never clobber a concurrent lazy
+  // refresh's rotated tokens). No-op on an absent OR expired sid: `touch`
+  // must never resurrect a session `get` would already report as gone.
+  async touch(
+    sid: string,
+    sessionExpiresAt: number,
+    opts: { ttlSeconds: number },
+  ): Promise<void> {
+    const entry = this.sessions.get(sid);
+    if (!entry || entry.expiresAt <= this.clock.now()) return;
+    entry.data = { ...entry.data, sessionExpiresAt };
+    entry.expiresAt = this.clock.now() + opts.ttlSeconds * 1000;
+  }
+
   async get(sid: string): Promise<SessionData<DemoUser> | null> {
     const entry = this.sessions.get(sid);
     if (!entry) return null;

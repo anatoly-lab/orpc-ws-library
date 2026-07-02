@@ -18,6 +18,24 @@
 // (noop by default) and return the (un-slid) session. We AWAIT the write (one
 // extra store write per touch is the accepted cost, §K) rather than
 // fire-and-forget, so the behavior is deterministic and testable.
+//
+// CONCURRENCY (why `store.touch` is preferred): the slide can run concurrently
+// with the lazy refresh (`RefreshManager.doRefresh`, its own get→modify→set)
+// for the same sid. A slide implemented as a full `set` from the CALLER's
+// (stale) snapshot can land after the refresh's `set` and roll back the
+// freshly-rotated `enc` + `accessTokenExpiresAt` — under refresh-token
+// rotation the rolled-back refresh token is dead → the next refresh fails
+// terminal → premature self-logout. So:
+//   - When the store provides the optional `touch` (expiry-only re-stamp,
+//     express-session precedent — see session-store.ts), we use it: it cannot
+//     clobber any other field by construction.
+//   - Otherwise we fall back to a FRESH `store.get` immediately before the
+//     merged `set`. That narrows the race window from "since the caller's
+//     read" (verifier/`/me` did their `get` several awaits ago) to the
+//     get→set gap here, but CANNOT eliminate it — a refresh landing inside
+//     that gap is still clobbered. Stores wanting full safety implement
+//     `touch`. The fallback also refuses to resurrect a session deleted
+//     (revoked / logged out) since the caller's read.
 
 import type { Clock, Logger } from "@orpc-ws/shared";
 
@@ -35,24 +53,54 @@ export interface SlideSessionInput<TUser> {
 
 /**
  * Re-stamp `sessionExpiresAt` to `now + ttl` and persist (sliding the window).
- * Returns the slid `SessionData` on success, or the original on a write
- * failure (logged, never thrown). Callers use the returned data so the
- * in-memory copy reflects what was (attempted to be) persisted.
+ * Prefers the store's expiry-only `touch` (race-free against a concurrent
+ * lazy refresh — see file header); falls back to a fresh `get` + merged `set`
+ * when `touch` is absent. Returns the slid `SessionData` on success, or the
+ * original on a write failure (logged, never thrown). Callers use the
+ * returned data so the in-memory copy reflects what was (attempted to be)
+ * persisted.
+ *
+ * HONESTY CAVEAT (touch path only): `touch` returns void and is a silent
+ * no-op on a vanished sid (express-session semantics), so the returned
+ * optimistically-slid copy may claim a slide that persisted nothing when the
+ * session was deleted mid-flight — inherent to a void-returning `touch`. The
+ * fallback tier instead observes the deletion via its `get` and bails with
+ * the un-slid original.
  */
 export async function slideSessionWindow<TUser>(
   input: SlideSessionInput<TUser>,
 ): Promise<SessionData<TUser>> {
   const { store, sid, session, sessionTtlSeconds, clock, logger } = input;
-  const slid: SessionData<TUser> = {
-    ...session,
-    sessionExpiresAt: clock.now() + sessionTtlSeconds * 1000,
-  };
+  const sessionExpiresAt = clock.now() + sessionTtlSeconds * 1000;
   try {
+    if (store.touch) {
+      // Expiry-only re-stamp — cannot clobber a concurrent refresh's `enc` /
+      // `accessTokenExpiresAt` by construction.
+      await store.touch(sid, sessionExpiresAt, {
+        ttlSeconds: sessionTtlSeconds,
+      });
+      // `touch` is void and silently no-ops on a vanished sid, so this
+      // optimistically-slid copy may claim a slide that persisted nothing if
+      // the session was deleted mid-flight (see the JSDoc caveat).
+      return { ...session, sessionExpiresAt };
+    }
+
+    // Fallback for touch-less stores: re-read IMMEDIATELY before the write so
+    // the merge starts from the freshest record (a refresh that landed since
+    // the caller's read is preserved). Narrows — does not eliminate — the
+    // race; see file header.
+    const fresh = await store.get(sid);
+    if (!fresh) {
+      // Deleted (revoked / logged out) since the caller's read — a full `set`
+      // here would RESURRECT the session. Skip the slide instead.
+      return session;
+    }
+    const slid: SessionData<TUser> = { ...fresh, sessionExpiresAt };
     await store.set(sid, slid, { ttlSeconds: sessionTtlSeconds });
     return slid;
   } catch (err) {
     logger.warn("[cookie-bff] failed to slide session window", {
-      reason: err instanceof Error ? err.message : "store.set failed",
+      reason: err instanceof Error ? err.message : "store write failed",
     });
     return session;
   }

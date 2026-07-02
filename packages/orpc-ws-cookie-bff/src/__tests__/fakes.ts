@@ -35,6 +35,11 @@ export function fakeClock(start = 1_700_000_000_000): Clock & {
 export class FakeSessionStore<TUser> implements SessionStore<TUser> {
   readonly map = new Map<string, SessionData<TUser>>();
   readonly setCalls: Array<{ sid: string; ttlSeconds: number }> = [];
+  readonly touchCalls: Array<{
+    sid: string;
+    sessionExpiresAt: number;
+    ttlSeconds: number;
+  }> = [];
   readonly deletedByUser: string[] = [];
   throwOnGet = false;
 
@@ -45,6 +50,17 @@ export class FakeSessionStore<TUser> implements SessionStore<TUser> {
   ): Promise<void> {
     this.setCalls.push({ sid, ttlSeconds: opts.ttlSeconds });
     this.map.set(sid, data);
+  }
+  // Native expiry-only re-stamp (the seam's race-free slide path). Updates
+  // ONLY `sessionExpiresAt`; a no-op on an absent sid (never resurrects).
+  async touch(
+    sid: string,
+    sessionExpiresAt: number,
+    opts: { ttlSeconds: number },
+  ): Promise<void> {
+    this.touchCalls.push({ sid, sessionExpiresAt, ttlSeconds: opts.ttlSeconds });
+    const existing = this.map.get(sid);
+    if (existing) this.map.set(sid, { ...existing, sessionExpiresAt });
   }
   async get(sid: string): Promise<SessionData<TUser> | null> {
     if (this.throwOnGet) throw new Error("store down");
