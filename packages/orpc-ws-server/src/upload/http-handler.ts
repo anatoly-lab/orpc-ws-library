@@ -33,6 +33,7 @@ import { BodyLimitPlugin, RPCHandler } from "@orpc/server/node";
 
 import { type Logger, noopLogger } from "@orpc-ws/shared";
 
+import { isWellFormedAuthResult } from "../lifecycle/auth-result.js";
 import type {
   VerifyClient,
   VerifyClientResult,
@@ -62,30 +63,17 @@ export type HttpUploadHandler = (
 ) => void;
 
 /**
- * Runtime fail-closed guards for the two consumer-supplied hook returns.
- *
- * Both `VerifyClient` and `BeforeUploadHook` are *typed* to return a
- * well-formed discriminated union, but a plain-JS consumer can violate
- * that at runtime — return `undefined`, a bare boolean, `{ ok: "yes" }` —
- * and TS cannot catch it. The hook-running helpers `await` the result; a
- * non-conforming *return* (unlike a throw) slips past their try/catch, and
- * the later `!result.ok` read then throws a TypeError inside the void-ed
- * async IIFE → unhandled rejection, no response written, request hangs.
- * These predicates narrow the runtime value so the helpers can coerce
- * anything malformed into a clean 500 reject. (`code`/`reason` are
- * required on the reject branch because the auth reject path reads them
- * without defaults, and the accept branch must carry a `user`.)
+ * Runtime fail-closed guard for the consumer's `beforeUpload` return.
+ * Sibling of `isWellFormedAuthResult` (now in `lifecycle/auth-result.ts`,
+ * shared with the WS upgrade path — see that module for the full
+ * rationale): a plain-JS hook can return a malformed value that TS can't
+ * catch; a non-conforming *return* (unlike a throw) slips past the
+ * try/catch in `runBeforeUpload`, and the later `!gate.ok` read then
+ * throws a TypeError inside the void-ed async IIFE → unhandled
+ * rejection, no response written, request hangs. This predicate narrows
+ * the runtime value so the helper can coerce anything malformed into a
+ * clean 500 reject.
  */
-function isWellFormedAuthResult(v: unknown): v is VerifyClientResult<unknown> {
-  if (typeof v !== "object" || v === null) return false;
-  const r = v as Record<string, unknown>;
-  if (r.ok === true) return "user" in r;
-  if (r.ok === false) {
-    return typeof r.code === "number" && typeof r.reason === "string";
-  }
-  return false;
-}
-
 function isWellFormedBeforeUploadResult(v: unknown): v is BeforeUploadResult {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;

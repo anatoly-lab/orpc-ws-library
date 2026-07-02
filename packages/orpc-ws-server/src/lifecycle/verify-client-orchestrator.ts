@@ -27,6 +27,7 @@ import type { IncomingMessage } from "http";
 
 import { type Logger, noopLogger } from "@orpc-ws/shared";
 
+import { isWellFormedAuthResult } from "./auth-result.js";
 import { extractClientIp, extractToken } from "./request-helpers.js";
 
 /**
@@ -218,6 +219,27 @@ export class VerifyClientOrchestrator<TUser> {
 
       pending
         .then((result) => {
+          // Fail-closed shape guard, mirroring the HTTP transport's
+          // `runVerify` (upload/http-handler.ts): the truthy `result.ok`
+          // check below would ACCEPT a malformed plain-JS return like
+          // `{ ok: "yes" }` or `{ ok: true }` with no `user` — auth
+          // fail-open. Downstream, `deriveConnectionKey` would then key
+          // the connection registry by `JSON.stringify(undefined)` (the
+          // literal `undefined`, not a string) so all such connections
+          // collide/kick each other, and procedures would run with
+          // `context.user === undefined` despite the typed contract.
+          // The guard also pins the reject arm's `code`/`reason` types,
+          // which `ws`'s abort path consumes without defaults. Same 500
+          // shape as the HTTP twin's malformed-result reject; see
+          // lifecycle/auth-result.ts for the shared rationale.
+          if (!isWellFormedAuthResult(result)) {
+            this.logger.error(
+              "verify-client: consumer verify returned a non-conforming value",
+              { clientIp },
+            );
+            callback(false, 500, "Internal server error");
+            return;
+          }
           if (result.ok) {
             this.authByReq.set(req, result);
             callback(true);
