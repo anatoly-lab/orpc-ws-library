@@ -26,6 +26,7 @@ import type { IncomingMessage } from "http";
 import type { WebSocket } from "ws";
 
 import { ConnectionHandler } from "../connection-handler.js";
+import { getConnectionWs } from "../../state/connection-identity.js";
 import {
   VerifyClientOrchestrator,
   type VerifyClientResult,
@@ -113,11 +114,17 @@ describe("ConnectionHandler — server→client bidi interposition", () => {
     expect(createBidi).toHaveBeenCalledWith(a.ws);
 
     // upgrade ran over the c2s FACADE (not the raw ws), with the empty
-    // authless context.
+    // authless context as consumers observe it (no string keys). The
+    // symbol-keyed identity stamp carries the RAW ws — NOT the facade:
+    // the raw socket is the connection's identity even under bidi.
     expect(upgrade).toHaveBeenCalledTimes(1);
     expect(upgrade.mock.calls[0]![0]).toBe(c2sFacade);
     expect(upgrade.mock.calls[0]![0]).not.toBe(a.ws);
-    expect(upgrade.mock.calls[0]![1]).toEqual({ context: {} });
+    const upCtx = (
+      upgrade.mock.calls[0]![1] as { context: Record<string, unknown> }
+    ).context;
+    expect(Object.keys(upCtx)).toEqual([]);
+    expect(getConnectionWs(upCtx)).toBe(a.ws);
 
     // The registry entry carries the typed client (what getConnection reads).
     const key = [...registry.entries()][0]!.key;

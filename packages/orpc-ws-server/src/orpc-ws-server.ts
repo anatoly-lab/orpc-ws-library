@@ -147,6 +147,14 @@ export interface OrpcWsServerOptions<
    */
   verifyClient?: VerifyClient<TUser>;
   /**
+   * Upper bound in ms on the `verifyClient` promise settling (default
+   * `30_000`; `0` disables). On timeout the upgrade fails closed (pre-101
+   * HTTP 500) and a late settlement is ignored — see
+   * `VerifyClientOrchestrator`. Ignored in authless mode (no verifier
+   * runs, so there is nothing to bound).
+   */
+  verifyTimeoutMs?: number;
+  /**
    * INTERNAL authless sub-mode switch, threaded by
    * `createAuthlessOrpcWsServer` from its public `allowConcurrentConnections`
    * option. Only meaningful in authless mode (no `verifyClient`):
@@ -331,8 +339,14 @@ export class OrpcWsServer<
     const hooks = opts.hooks ?? {};
 
     // ----- 2. Verify orchestrator (AUTHENTICATED only) -----
+    // The clock + verifyTimeoutMs feed the orchestrator's timeout race
+    // (a never-settling consumer verify fails closed instead of pinning
+    // the upgrade socket forever); the orchestrator owns the default.
     this.verifyOrchestrator = opts.verifyClient
-      ? new VerifyClientOrchestrator<TUser>(opts.verifyClient, this.logger)
+      ? new VerifyClientOrchestrator<TUser>(opts.verifyClient, this.logger, {
+          clock,
+          verifyTimeoutMs: opts.verifyTimeoutMs,
+        })
       : null;
 
     // ----- 3. Connection registry -----

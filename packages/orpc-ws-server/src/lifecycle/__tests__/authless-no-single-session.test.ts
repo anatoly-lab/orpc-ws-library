@@ -25,6 +25,7 @@ import { EventEmitter } from "events";
 import type { WebSocket } from "ws";
 
 import { ConnectionHandler } from "../connection-handler.js";
+import { getConnectionWs } from "../../state/connection-identity.js";
 import { ConnectionRegistry } from "../../state/connection-registry.js";
 import {
   createAuthlessKeyFactory,
@@ -95,11 +96,17 @@ describe("authless DEFAULT — single global connection (new kicks previous)", (
     const [, replacedBy] = onKicked.mock.calls[0]!;
     expect(replacedBy).toBe(b.ws);
 
-    // Both upgraded with the EMPTY authless context (no user/token).
+    // Both upgraded with the EMPTY authless context as consumers observe
+    // it (no user/token — no string keys at all); the only content is the
+    // symbol-keyed library-internal identity stamp carrying each
+    // connection's RAW ws (feeds the heartbeat last-wins bound).
     expect(upgrade).toHaveBeenCalledTimes(2);
-    for (const call of upgrade.mock.calls) {
-      expect(call[1]).toEqual({ context: {} });
-    }
+    const sockets = [a.ws, b.ws];
+    upgrade.mock.calls.forEach((call, i) => {
+      const ctx = (call[1] as { context: Record<string, unknown> }).context;
+      expect(Object.keys(ctx)).toEqual([]);
+      expect(getConnectionWs(ctx)).toBe(sockets[i]);
+    });
   });
 });
 
@@ -142,10 +149,15 @@ describe("authless allowConcurrentConnections opt-out — connections coexist (f
     expect(keys).toEqual(["authless#1", "authless#2"]);
     expect(new Set(keys).size).toBe(2);
 
-    // Both upgraded with the EMPTY authless context (no user/token).
+    // Both upgraded with the EMPTY authless context as consumers observe
+    // it (no string keys) + the symbol-keyed identity stamp — same
+    // contract as the single-connection default above.
     expect(upgrade).toHaveBeenCalledTimes(2);
-    for (const call of upgrade.mock.calls) {
-      expect(call[1]).toEqual({ context: {} });
-    }
+    const sockets = [a.ws, b.ws];
+    upgrade.mock.calls.forEach((call, i) => {
+      const ctx = (call[1] as { context: Record<string, unknown> }).context;
+      expect(Object.keys(ctx)).toEqual([]);
+      expect(getConnectionWs(ctx)).toBe(sockets[i]);
+    });
   });
 });

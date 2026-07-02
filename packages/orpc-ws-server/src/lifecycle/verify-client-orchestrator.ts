@@ -25,10 +25,26 @@
 
 import type { IncomingMessage } from "http";
 
-import { type Logger, noopLogger } from "@orpc-ws/shared";
+import {
+  type Clock,
+  type Logger,
+  type TimerHandle,
+  noopLogger,
+  systemClock,
+} from "@orpc-ws/shared";
 
 import { isWellFormedAuthResult } from "./auth-result.js";
 import { extractClientIp, extractToken } from "./request-helpers.js";
+
+/**
+ * Default upper bound (ms) on the consumer's verify promise. A verify
+ * that never settles (stuck JWKS fetch / DB lookup with no timeout of its
+ * own) would otherwise pin the pending upgrade socket forever — `ws`
+ * neither times the verifyClient callback out nor closes the socket while
+ * it waits. 30s is deliberately generous: it exists to reclaim sockets
+ * from a HUNG verify, not to police a slow-but-live one.
+ */
+export const DEFAULT_VERIFY_TIMEOUT_MS = 30_000;
 
 /**
  * Argument the library passes to the consumer's verify callback. The
@@ -138,6 +154,13 @@ export type WsVerifyClientFn = (
 export class VerifyClientOrchestrator<TUser> {
   private readonly verify: VerifyClient<TUser>;
   private readonly logger: Logger;
+  /** Timer seam for the verify timeout — injected, never raw setTimeout. */
+  private readonly clock: Clock;
+  /**
+   * Upper bound (ms) on the consumer's verify settling; `0` disables.
+   * See {@link DEFAULT_VERIFY_TIMEOUT_MS} for why the bound exists.
+   */
+  private readonly verifyTimeoutMs: number;
   /**
    * WeakMap so a never-completed upgrade (network drops mid-verify, or
    * the consumer's verify throws) doesn't leak memory: the
@@ -150,9 +173,15 @@ export class VerifyClientOrchestrator<TUser> {
     VerifyClientResult<TUser>
   >();
 
-  constructor(verify: VerifyClient<TUser>, logger?: Logger) {
+  constructor(
+    verify: VerifyClient<TUser>,
+    logger?: Logger,
+    opts?: { clock?: Clock; verifyTimeoutMs?: number },
+  ) {
     this.verify = verify;
     this.logger = logger ?? noopLogger;
+    this.clock = opts?.clock ?? systemClock;
+    this.verifyTimeoutMs = opts?.verifyTimeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS;
   }
 
   /**
@@ -176,6 +205,13 @@ export class VerifyClientOrchestrator<TUser> {
    * its verifyClient call site, so an unguarded sync throw would escape
    * the HTTP server's `'upgrade'` emit as an uncaughtException — an
    * attacker-triggerable process crash.
+   *
+   * The verify is additionally raced against `verifyTimeoutMs` (default
+   * {@link DEFAULT_VERIFY_TIMEOUT_MS}, `0` disables): a verify promise
+   * that never settles fails closed with the same pre-101 HTTP 500 as a
+   * thrown verify, and its eventual late settlement — resolve or reject —
+   * is ignored (the ws callback fires exactly once per upgrade, and
+   * nothing is stashed for a rejected handshake).
    */
   buildWsVerifyClient(): WsVerifyClientFn {
     return (info, callback) => {
@@ -188,15 +224,66 @@ export class VerifyClientOrchestrator<TUser> {
       const origin = info.origin ?? "";
       const secure = info.secure;
 
+      // ----- Exactly-once settle discipline -----
+      // `ws` treats a second verifyClient callback invocation as a
+      // protocol error (double abortHandshake / a 500 written onto an
+      // already-upgraded socket). EVERY exit below — sync throw, async
+      // settle, malformed result, TIMEOUT, and a LATE settlement after
+      // the timeout — funnels through `finish`, which fires the ws
+      // callback at most once and always clears the pending timeout
+      // timer (verify settling first must not leave a live timer whose
+      // later fire would be that second invocation).
+      let done = false;
+      let timer: TimerHandle | null = null;
+      const finish = (res: boolean, code?: number, message?: string): void => {
+        if (done) return;
+        done = true;
+        if (timer !== null) {
+          this.clock.clearTimeout(timer);
+          timer = null;
+        }
+        // Preserve the pre-gate callback arity: accept is `callback(true)`,
+        // reject is `callback(false, code, message)`. `ws` itself ignores
+        // trailing undefineds, but the exact arity is observable by anything
+        // wrapping the callback (and pinned by exact-arity test spies).
+        if (res) callback(true);
+        else callback(false, code, message);
+      };
+
       // Fail-closed reject, shared by the sync-throw and async-rejection
       // paths — identical wire behavior (pre-101 HTTP 500) either way.
       const failClosed = (err: unknown): void => {
+        // A rejection that arrives AFTER the timeout already failed this
+        // upgrade closed is a late settlement: ignore it entirely — no
+        // second callback (finish would no-op anyway) and no misleading
+        // "verify threw" log for an upgrade that was already rejected.
+        if (done) return;
         this.logger.error("verify-client: consumer verify threw", {
           error: err instanceof Error ? err.message : String(err),
           clientIp,
         });
-        callback(false, 500, "Internal server error");
+        finish(false, 500, "Internal server error");
       };
+
+      // Timeout race (opt-out via verifyTimeoutMs: 0). A consumer verify
+      // promise that never settles would otherwise pin this upgrade
+      // socket forever (see DEFAULT_VERIFY_TIMEOUT_MS). On fire: fail
+      // closed exactly like the thrown-verify path (pre-101 HTTP 500),
+      // with a distinct log naming the timeout. Scheduled on the injected
+      // Clock so tests drive it deterministically; scheduled BEFORE the
+      // verify invocation so every exit path (sync throw included) flows
+      // through `finish`'s timer-clearing.
+      if (this.verifyTimeoutMs > 0) {
+        timer = this.clock.setTimeout(() => {
+          timer = null;
+          if (done) return;
+          this.logger.error(
+            "verify-client: consumer verify timed out — failing closed",
+            { timeoutMs: this.verifyTimeoutMs, clientIp },
+          );
+          finish(false, 500, "Internal server error");
+        }, this.verifyTimeoutMs);
+      }
 
       // The INVOCATION is guarded, not just the returned promise: only a
       // rejection reaches `.catch`, so a sync throw from an untyped
@@ -219,6 +306,12 @@ export class VerifyClientOrchestrator<TUser> {
 
       pending
         .then((result) => {
+          // Late settlement after the timeout already failed closed:
+          // ignore ENTIRELY — no callback (exactly-once) and, critically,
+          // NO authByReq stash: the upgrade was rejected pre-101, so
+          // stashing would hand a hypothetical later 'connection' lookup
+          // an auth result the handshake never carried.
+          if (done) return;
           // Fail-closed shape guard, mirroring the HTTP transport's
           // `runVerify` (upload/http-handler.ts): the truthy `result.ok`
           // check below would ACCEPT a malformed plain-JS return like
@@ -237,12 +330,12 @@ export class VerifyClientOrchestrator<TUser> {
               "verify-client: consumer verify returned a non-conforming value",
               { clientIp },
             );
-            callback(false, 500, "Internal server error");
+            finish(false, 500, "Internal server error");
             return;
           }
           if (result.ok) {
             this.authByReq.set(req, result);
-            callback(true);
+            finish(true);
             return;
           }
           this.logger.warn("verify-client: rejected", {
@@ -250,7 +343,7 @@ export class VerifyClientOrchestrator<TUser> {
             reason: result.reason,
             clientIp,
           });
-          callback(false, result.code, result.reason);
+          finish(false, result.code, result.reason);
         })
         .catch(failClosed);
     };

@@ -45,6 +45,7 @@ import {
 } from "@orpc-ws/shared";
 
 import type { ConnectionConfig } from "../config/connection-config.js";
+import { CONNECTION_WS } from "../state/connection-identity.js";
 import type { ConnectionRegistry } from "../state/connection-registry.js";
 import type { WsPingPong } from "../heartbeat/ws-ping-pong.js";
 
@@ -61,12 +62,24 @@ import type {
  * Two shapes, one per mode:
  *   - AUTHENTICATED — `{ user, token }` (the verified principal + the raw
  *     `?token=` literal the client sent).
- *   - AUTHLESS — `Record<never, never>` (the empty object `{}`): there is
- *     no authenticated principal, so the consumer's procedures receive an
- *     empty context. See `state/no-auth.ts` for WHY there is no user.
+ *   - AUTHLESS — no string keys (the consumer's procedures observe `{}`):
+ *     there is no authenticated principal, so the consumer's procedures
+ *     receive an empty context. See `state/no-auth.ts` for WHY there is
+ *     no user.
+ *
+ * BOTH shapes additionally carry the symbol-keyed `CONNECTION_WS` identity
+ * stamp (the connection's raw `ws`) — invisible to consumer procedures
+ * (symbol keys never show in `Object.keys` / JSON / their string-keyed
+ * context types) and consumed only by the library's stealth heartbeat to
+ * bound live subscriptions to one per connection. See
+ * `state/connection-identity.ts`.
  */
-export type AuthedContext<TUser> = { user: TUser; token: string | null };
-export type AuthlessContext = Record<never, never>;
+export type AuthedContext<TUser> = {
+  user: TUser;
+  token: string | null;
+  [CONNECTION_WS]?: WebSocket;
+};
+export type AuthlessContext = { [CONNECTION_WS]?: WebSocket };
 
 /**
  * Minimal structural type for the `RPCHandler` `upgrade` method. We
@@ -282,7 +295,14 @@ export class ConnectionHandler<TUser> {
       // this handler indefinitely. The 'close' handler below takes care of
       // cleanup. The `void` discards the dangling promise for the linter's
       // peace of mind.
-      void this.rpcHandler.upgrade(c2sSocket, { context: { user, token } });
+      //
+      // [CONNECTION_WS]: the RAW `ws` (NOT the bidi c2s facade — the raw
+      // socket is the connection's identity in both modes) stamped under
+      // the library symbol so the stealth heartbeat can bound its
+      // subscriptions per connection. Invisible to consumer procedures.
+      void this.rpcHandler.upgrade(c2sSocket, {
+        context: { user, token, [CONNECTION_WS]: ws },
+      });
 
       if (this.pingPong) {
         this.pingPong.register(ws, user);
@@ -330,7 +350,9 @@ export class ConnectionHandler<TUser> {
   /**
    * AUTHLESS connection path. Mirrors `handle` but with NO auth: no
    * verify-result lookup, no token plumbing, no expiry watchdog. The
-   * ORPC context is the EMPTY object `{}` (see `state/no-auth.ts`).
+   * ORPC context is empty as far as consumers can observe — `{}` plus
+   * only the symbol-keyed connection-identity stamp (see
+   * `state/no-auth.ts` and `state/connection-identity.ts`).
    *
    * The registry key comes from the injected authless key seam. In the
    * DEFAULT single-global-connection mode that seam is CONSTANT, so a new
@@ -382,10 +404,15 @@ export class ConnectionHandler<TUser> {
     // Same registered-but-not-yet-wired leak window as `handle` — see
     // `rollbackFailedWiring`.
     try {
-      // Empty context — the consumer's procedures run with `{}`. Same
-      // non-awaited upgrade as the authed path (promise resolves on
-      // disconnect; the 'close' handler does cleanup).
-      void this.rpcHandler.upgrade(c2sSocket, { context: {} });
+      // Empty context as observed by the consumer — their procedures see
+      // `{}` (the identity stamp below is symbol-keyed, so it never shows
+      // in Object.keys / JSON / their typed context; the stealth heartbeat
+      // reads it to bound subscriptions per connection). Same non-awaited
+      // upgrade as the authed path (promise resolves on disconnect; the
+      // 'close' handler does cleanup).
+      void this.rpcHandler.upgrade(c2sSocket, {
+        context: { [CONNECTION_WS]: ws },
+      });
 
       this.pingPong.register(ws, noUser);
 

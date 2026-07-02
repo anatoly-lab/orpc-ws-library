@@ -142,6 +142,18 @@ export interface AuthenticatedOrpcWsServerOptions<
    */
   verifyClient: VerifyClient<TUser>;
   /**
+   * Upper bound in ms on the `verifyClient` promise settling. Default
+   * `30_000`; `0` (or any non-positive value) disables the bound. A verify that never settles (a
+   * stuck JWKS/DB lookup with no timeout of its own) would otherwise pin
+   * the pending upgrade socket forever — `ws` never times its
+   * verifyClient callback out. On timeout the upgrade FAILS CLOSED
+   * exactly like a thrown verify (pre-101 HTTP 500) and the eventual
+   * late settlement — resolve or reject — is ignored. Timed on the
+   * injected `clock`. Not applicable to authless mode, which runs no
+   * verifier (hence absent from `AuthlessOrpcWsServerOptions`).
+   */
+  verifyTimeoutMs?: number;
+  /**
    * Opt into server→client RPC ("bidi"). The CLIENT's contract router — the
    * set of procedures the client will answer. Its PRESENCE turns bidi on for
    * this server: every connection gets a multiplexed socket and a typed

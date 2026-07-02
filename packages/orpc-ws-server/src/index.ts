@@ -32,6 +32,7 @@ export type {
   VerifyClientContext,
   VerifyClientResult,
 } from "./lifecycle/verify-client-orchestrator.js";
+export { DEFAULT_VERIFY_TIMEOUT_MS } from "./lifecycle/verify-client-orchestrator.js";
 
 export type { HeartbeatEvent } from "@orpc-ws/shared";
 

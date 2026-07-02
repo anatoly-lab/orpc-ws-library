@@ -24,6 +24,8 @@ import {
   type HeartbeatEvent,
 } from "@orpc-ws/shared";
 
+import { getConnectionWs } from "../state/connection-identity.js";
+
 import type { HeartbeatPublisher } from "./publisher.js";
 
 /**
@@ -45,12 +47,24 @@ import type { HeartbeatPublisher } from "./publisher.js";
 export function buildSystemRouter(
   publisher: HeartbeatPublisher,
 ): Record<string, unknown> {
-  // Note: the handler receives ORPC's standard arg object. We only need
-  // `signal` for clean abort propagation; `context` is the empty record
-  // (no `$context` narrowing on this procedure).
+  // Note: the handler receives ORPC's standard arg object. `signal` gives
+  // clean abort propagation; `context` carries no consumer-visible keys on
+  // this procedure (no `$context` narrowing) but DOES carry the
+  // symbol-keyed connection identity the connection handler stamped (see
+  // `state/connection-identity.ts`). The identity feeds the publisher's
+  // last-wins bound: one live heartbeat subscription per connection. Over
+  // the HTTP upload transport the stamp is absent → `getConnectionWs`
+  // returns `undefined` → the subscription is untracked (pre-existing
+  // behavior; there is no WS connection to key on).
   const heartbeat = os.handler(
-    ({ signal }: { signal?: AbortSignal }): AsyncIterable<HeartbeatEvent> =>
-      publisher.subscribe(signal),
+    ({
+      signal,
+      context,
+    }: {
+      signal?: AbortSignal;
+      context?: unknown;
+    }): AsyncIterable<HeartbeatEvent> =>
+      publisher.subscribe(signal, getConnectionWs(context)),
   );
 
   return {
