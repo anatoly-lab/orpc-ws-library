@@ -1,5 +1,21 @@
 # @orpc-ws/server-nestjs
 
+## 0.10.0
+
+### Patch Changes
+
+- 074e1ae: Upload-route safety and comment truthfulness in the NestJS adapter:
+
+  - New boot-time detection: a consumer controller route nested under the upload `httpPath` (e.g. `@Controller("upload")` + `@Post("media/upload")`) now logs a warning naming the offending route — on Nest 11 controllers register before the upload middleware, so such routes silently shadowed RPC upload procedures. Warn, not throw: apps booting with this misconfiguration today keep booting. The exact-path collision still throws as before.
+  - The `onModuleInit` registration rationale was rewritten to the true Nest 11 mechanism (controllers register _before_ the middleware; it works because the 404 catch-all registers _after_), and the false claim that `closeUser` no-ops on an authless server was corrected (it kicks by registry key in any mode; the authless `Omit` is compile-time only).
+
+- Updated dependencies [80b5a72]
+- Updated dependencies [63d12e8]
+- Updated dependencies [ac70eb7]
+- Updated dependencies [4782cab]
+  - @orpc-ws/server@0.10.0
+  - @orpc-ws/shared@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

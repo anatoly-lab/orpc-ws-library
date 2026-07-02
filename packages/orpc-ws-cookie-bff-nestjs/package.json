@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/cookie-bff-nestjs",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "NestJS adapter for @orpc-ws/cookie-bff. Wires the cookie verifier into OrpcWsModule internally (the consumer configures cookie-BFF once) and hosts the /auth/* controller.",
   "license": "MIT",
   "repository": {

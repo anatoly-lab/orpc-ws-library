@@ -1,5 +1,29 @@
 # @orpc-ws/react
 
+## 0.10.0
+
+### Minor Changes
+
+- 8a8c2b0: React adapter fixes for reconnect blips and stream lifecycle:
+
+  - `<OrpcWs>`'s `fallback` now latches after the first successful connect: children stay mounted through reconnect blips (previously every disconnect unmounted the whole subtree, losing component state, unregistering `useServerHandler` handlers, and resetting subscriptions). Observe blips via `useConnectionState`.
+  - `useWsSubscription` gains a `"completed"` status: a finite stream ending gracefully is now observable instead of leaving `status` stuck at `"active"` forever. Sticky until the next reconnect cycle or `enabled` toggle.
+  - `useWsSubscription` hardening: a late event racing teardown can no longer corrupt `status` or reach a disabled consumer (abort guard in `onEvent`), and a rejecting iterator `return()` during teardown no longer escapes as an unhandled rejection.
+
+### Patch Changes
+
+- 80b5a72: Low-severity hardening batch:
+
+  - **client**: `upload()` now rejects before any I/O once the client is dead (disposed, terminal auth failure, or kicked) — previously a post-`dispose()` upload performed a real network call and could emit events. The bidi handle is now retired on terminal/kicked paths (was: only on `dispose()`, a memory retention). New public `LinkNotReadyError` typed error thrown by the link factory when the socket isn't open. Heartbeat subscriber no longer retains the last loop's closure.
+  - **react**: `useWsSubscription` classifies `LinkNotReadyError` as transient — the narrow drop-between-render-and-subscribe race no longer flashes `status: "error"`; it self-heals silently on reconnect.
+  - **server**: upload HTTP handler reuses the shared client-IP extraction (fixing an X-Forwarded-For empty-first-hop drift with the WS path) and restores `req.url`/`req.originalUrl` before delegating unmatched requests via `next()`. The shared verify-result guard now also rejects `{ok: true, user: undefined}` (both transports).
+  - **oidc-verifier-jose**: `jwtVerify` now pins an explicit `algorithms` allowlist. **Default-pinning behavior change**: the default set is the asymmetric algorithms `RS256/384/512, ES256/384/512, PS256/384/512, EdDSA` — symmetric (`HS*`) tokens are now rejected before key resolution (RS→HS key-confusion defense). If your IdP signs with an algorithm outside this set, pass `algorithms: [...]` explicitly. New `clockTolerance` option (exp/nbf skew), off by default.
+
+- Updated dependencies [3c4ec86]
+- Updated dependencies [1bbe790]
+- Updated dependencies [80b5a72]
+  - @orpc-ws/client@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes

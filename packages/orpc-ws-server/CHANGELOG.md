@@ -1,5 +1,31 @@
 # @orpc-ws/server
 
+## 0.10.0
+
+### Minor Changes
+
+- 63d12e8: Two hardening changes (user-approved 2026-07-02):
+
+  - **Heartbeat subscriptions are now last-wins per connection.** One socket could previously open unbounded heartbeat streams (each allocating server-side machinery freed only at disconnect — an unauthenticated memory-growth vector on authless servers). Now a new heartbeat subscription on the same connection gracefully ends the previous one, strictly bounding it at 1 per connection. The library's own client always aborts before resubscribing, so legitimate clients are unaffected. `subscriberCount()` now reports the true live-subscriber count (it previously counted distinct event names — always 0 or 1).
+  - **New `verifyTimeoutMs` option (default 30000, `0` or negative disables).** A consumer `verifyClient` promise that never settles (e.g. a stuck JWKS fetch with no timeout of its own) previously pinned the pending upgrade socket forever. The verify is now raced against a deadline on the injected `Clock`; on timeout the upgrade fails closed (pre-101 HTTP 500) and the late settlement is ignored. Not applicable to authless mode. `DEFAULT_VERIFY_TIMEOUT_MS` is exported.
+
+### Patch Changes
+
+- 80b5a72: Low-severity hardening batch:
+
+  - **client**: `upload()` now rejects before any I/O once the client is dead (disposed, terminal auth failure, or kicked) — previously a post-`dispose()` upload performed a real network call and could emit events. The bidi handle is now retired on terminal/kicked paths (was: only on `dispose()`, a memory retention). New public `LinkNotReadyError` typed error thrown by the link factory when the socket isn't open. Heartbeat subscriber no longer retains the last loop's closure.
+  - **react**: `useWsSubscription` classifies `LinkNotReadyError` as transient — the narrow drop-between-render-and-subscribe race no longer flashes `status: "error"`; it self-heals silently on reconnect.
+  - **server**: upload HTTP handler reuses the shared client-IP extraction (fixing an X-Forwarded-For empty-first-hop drift with the WS path) and restores `req.url`/`req.originalUrl` before delegating unmatched requests via `next()`. The shared verify-result guard now also rejects `{ok: true, user: undefined}` (both transports).
+  - **oidc-verifier-jose**: `jwtVerify` now pins an explicit `algorithms` allowlist. **Default-pinning behavior change**: the default set is the asymmetric algorithms `RS256/384/512, ES256/384/512, PS256/384/512, EdDSA` — symmetric (`HS*`) tokens are now rejected before key resolution (RS→HS key-confusion defense). If your IdP signs with an algorithm outside this set, pass `algorithms: [...]` explicitly. New `clockTolerance` option (exp/nbf skew), off by default.
+
+- ac70eb7: Harden the connection path against synchronous throws (fail closed instead of crashing):
+
+  - A `verifyClient` that throws synchronously (or returns a non-promise) no longer escapes the `ws` upgrade path — in authless mode a sync handler throw was a genuine `uncaughtException` (process crash, triggerable by a single bad frame/token); in authed mode the error was swallowed with a misleading log and double-fired the ws callback, writing a raw `HTTP/1.1 500` onto the already-upgraded socket. Both now fail closed (500 reject / 1011 close) with truthful logging.
+  - A synchronous throw in the connection handler after registry registration no longer leaks the registry entry: wiring failures roll back (unregister first — unskippable — then timer/ping-pong/bidi teardown) and the socket is closed 1011. The next connection under the same key, including the authless single-connection constant key, proceeds normally.
+
+- 4782cab: The WS verify path is now fail-closed on malformed `verifyClient` results, mirroring the HTTP upload transport's existing hardening (shared `isWellFormedAuthResult`, extracted so the two transports cannot drift). Previously a contract-violating verifier resolving `{ok: "yes"}` or `{ok: true}` without a `user` was accepted — connections got registered under a literal-`undefined` key (colliding/kicking each other) and procedures ran with `context.user === undefined`. A failure result missing `code`/`reason` also no longer reaches `ws` internals (which threw a `TypeError` on the missing reason); all malformed shapes now reject the upgrade with a clean 500.
+  - @orpc-ws/shared@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

@@ -1,5 +1,27 @@
 # @orpc-ws/client
 
+## 0.10.0
+
+### Minor Changes
+
+- 80b5a72: Low-severity hardening batch:
+
+  - **client**: `upload()` now rejects before any I/O once the client is dead (disposed, terminal auth failure, or kicked) — previously a post-`dispose()` upload performed a real network call and could emit events. The bidi handle is now retired on terminal/kicked paths (was: only on `dispose()`, a memory retention). New public `LinkNotReadyError` typed error thrown by the link factory when the socket isn't open. Heartbeat subscriber no longer retains the last loop's closure.
+  - **react**: `useWsSubscription` classifies `LinkNotReadyError` as transient — the narrow drop-between-render-and-subscribe race no longer flashes `status: "error"`; it self-heals silently on reconnect.
+  - **server**: upload HTTP handler reuses the shared client-IP extraction (fixing an X-Forwarded-For empty-first-hop drift with the WS path) and restores `req.url`/`req.originalUrl` before delegating unmatched requests via `next()`. The shared verify-result guard now also rejects `{ok: true, user: undefined}` (both transports).
+  - **oidc-verifier-jose**: `jwtVerify` now pins an explicit `algorithms` allowlist. **Default-pinning behavior change**: the default set is the asymmetric algorithms `RS256/384/512, ES256/384/512, PS256/384/512, EdDSA` — symmetric (`HS*`) tokens are now rejected before key resolution (RS→HS key-confusion defense). If your IdP signs with an algorithm outside this set, pass `algorithms: [...]` explicitly. New `clockTolerance` option (exp/nbf skew), off by default.
+
+### Patch Changes
+
+- 3c4ec86: A server that is merely down no longer forces a logout (token mode). Pre-open connection failures — which the browser cannot distinguish from handshake rejections — now trip the storm guard to _keep retrying with the current token_ (riding the reconnect backoff, one token refresh per 30s window) instead of firing `onTerminalAuthFailure` within ~30s of downtime. Give-up stays auth-owned: a failed/null refresh, a real post-accept auth close (1008/4001), or an upload 401 still goes terminal. Corollary (documented): a handshake-time rejection by the server is indistinguishable from downtime in the browser and also retries — servers wanting a hard client give-up must reject after accepting (1008/4001 close).
+- 1bbe790: Fix a critical reconnect bug cluster around `swapSocket`'s synchronous close (Bugs 21–24):
+
+  - `swapSocket` now follows the CLEAR-BEFORE-CLOSE discipline. partysocket ≥1.2 dispatches `close()` synchronously, so the old wrapper's synthetic pre-open close-1000 was processed as a real close → auth-recovery → storm-guard trip → spurious terminal logout after a _successful_ token refresh (cookie mode: force-logout on a routine sleep-wake).
+  - `swapSocket` re-checks `isDead()` after the close so a terminal fired mid-swap can no longer resurrect a zombie socket that flips state back to `connected`.
+  - A pre-open close 1000 carrying partysocket's connection-timeout reason (`"timeout"`) is now classified as a normal retryable disconnect instead of an auth failure.
+  - The auth-recovery decision carries its provenance (`"auth-close"` vs `"pre-open-1000"`); with no `tokenProvider` (cookie auth), a pre-open network failure is now a benign no-op — only a real auth-failure close (1008/4001) goes terminal, restoring the documented cookie-auth contract.
+  - @orpc-ws/shared@0.10.0
+
 ## 0.9.0
 
 ### Patch Changes
