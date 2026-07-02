@@ -37,6 +37,8 @@ import type {
   UrlProvider,
   WebSocketEventHandlers,
 } from "../lifecycle/types.js";
+import type { ConnectionStateManager } from "../state/connection-state.js";
+import { disconnected } from "../state/types.js";
 import type { WebSocketHolder } from "../state/websocket-holder.js";
 
 import type { TokenProvider } from "../auth/token-provider.js";
@@ -106,6 +108,19 @@ export interface TokenRefreshHandlerDeps {
    * is the last line of defense at the swap.
    */
   isDead?: () => boolean;
+  /**
+   * Connection-state manager — OPTIONAL, wired by the composition root.
+   * The Bug-21 CLEAR-BEFORE-CLOSE fix stale-drops the old wrapper's own
+   * close event, so a swap tearing down an OPENED wrapper (sleep-wake
+   * reconnect / upload-401 recovery — both can arrive while state is
+   * `connected`) would otherwise emit NO disconnected frame at all:
+   * `client.state` would keep claiming `connected` over a dead link until
+   * the NEW socket opens — indefinitely, if the server is down. swapSocket
+   * mirrors the heartbeat-timeout path (Bug 15): guarded on `connected`,
+   * it sets `disconnected({ willRetry: true })` at swap start. Optional so
+   * unit harnesses that don't observe state can omit it.
+   */
+  connectionState?: ConnectionStateManager;
   logger?: Logger;
 }
 
@@ -130,6 +145,7 @@ export class TokenRefreshHandler {
   private readonly heartbeatSubscriber: Stoppable | undefined;
   private readonly linkClearer: () => void;
   private readonly isDead: (() => boolean) | undefined;
+  private readonly connectionState: ConnectionStateManager | undefined;
   private readonly logger: Logger;
 
   /**
@@ -163,6 +179,7 @@ export class TokenRefreshHandler {
     this.heartbeatSubscriber = deps.heartbeatSubscriber;
     this.linkClearer = deps.linkClearer;
     this.isDead = deps.isDead;
+    this.connectionState = deps.connectionState;
     this.logger = deps.logger ?? noopLogger;
   }
 
@@ -263,12 +280,16 @@ export class TokenRefreshHandler {
   }
 
   /**
-   * The socket swap shared by both reconnect entry points: close the old
-   * wrapper, clear the cached link, record `token` as current, and install
-   * a fresh WS. The new WS uses a URL provider closure (NOT a static URL),
-   * so partysocket's internal reconnect loop re-reads
-   * `tokenProvider.getToken()` on every retry — this is the Bug-1
-   * (stale-token-after-sleep) mitigation.
+   * The socket swap shared by both reconnect entry points, in order: clear
+   * the cached link + holder, record `token` as current, drop a truthful
+   * `disconnected` frame if state still claims `connected` (Bug 15 parity —
+   * see `TokenRefreshHandlerDeps.connectionState`), close the old wrapper
+   * (CLEAR-BEFORE-CLOSE — see the inline comment, Bug 21), re-check
+   * deadness (Bug 22) and re-entrant-connect occupancy (Bug 13) after the
+   * synchronous close fan-out, and only then install a fresh WS. The new WS
+   * uses a URL provider closure (NOT a static URL), so partysocket's
+   * internal reconnect loop re-reads `tokenProvider.getToken()` on every
+   * retry — this is the Bug-1 (stale-token-after-sleep) mitigation.
    *
    * Mutex-protected. If called while a previous swap is still in flight,
    * the second call is dropped with a warn log.
@@ -298,18 +319,109 @@ export class TokenRefreshHandler {
       this.heartbeatSubscriber?.stop();
       this.heartbeatMonitor?.stop();
 
+      // CLEAR-BEFORE-CLOSE (Bug 21) — same discipline as
+      // `ClientLifecycle.dispose()` / `fireTerminalAuthFailure()`: capture
+      // the wrapper, null the link + holder, THEN close. partysocket 1.3.0
+      // dispatches `close` SYNCHRONOUSLY from `close()` — and for a
+      // mid-handshake wrapper it synthesizes a pre-open code-1000 close —
+      // so closing while the holder still pointed at the wrapper re-entered
+      // `handleClose` inline as the CURRENT socket: the 1000-before-open
+      // shape routed to `auth-recovery` (Bug 4 branch) → storm-guard trip →
+      // spurious terminal auth failure right after a SUCCESSFUL refresh
+      // (under cookie auth: a routine sleep-wake became a force-logout).
+      // With the holder cleared first, the re-entrant close fails the
+      // wrapper-equality check in the orchestrator (Bug 9 stale-WS guard)
+      // and is silently dropped. (A previous comment here claimed the close
+      // event fires async — false since partysocket 1.2.0.)
       const ws = this.websocketHolder.get();
-      if (ws) {
-        // Best-effort close. partysocket's `close()` is sync; the resulting
-        // close event fires async on the old wrapper and the orchestrator's
-        // stale-WS guard (Bug 9) silently drops it.
-        ws.close();
-      }
-
       // Invalidate the cached RPCLink so the next ORPC call re-creates one
       // against the new WS. Phase 1.4 implements LinkFactory.clear().
       this.linkClearer();
+      this.websocketHolder.clear();
+      // Stamp the FRESH token BEFORE the close (Bug-21 follow-up).
+      // `clear()` above resets the holder's token record, and the
+      // synchronous close fan-out below runs arbitrary listeners
+      // (orpc/bidi abort wiring, consumer code) that may read
+      // `getCurrentToken()` or re-enter `client.connect()` (see the holder
+      // re-check below) — everything inside the fan-out must see the token
+      // this swap is installing, never a null/stale one. (The re-entrant
+      // connect()'s URL itself comes from `tokenProvider.getToken()` via
+      // the composition root's urlProvider — kept in sync with the refresh
+      // result by the TokenProvider contract, Bug 1 — so its socket
+      // carries the fresh token either way; this stamp keeps the holder's
+      // bookkeeping consistent with it.)
       this.websocketHolder.setCurrentToken(token);
+
+      // State truthfulness at swap start (Bug 15 parity). The clear above
+      // makes the old wrapper's close STALE-dropped, so tearing down an
+      // OPENED wrapper (sleep-wake reconnect / upload-401 recovery arrive
+      // with state `connected`) no longer emits a disconnected frame from
+      // the close path — without this transition, `client.state` would
+      // claim `connected` over a dead link until the NEW socket opens
+      // (indefinitely, if the server is down). Guarded on `connected` —
+      // exactly like the heartbeat-timeout path — so we never clobber a
+      // truthful `disconnected({code})` frame from a real close (the
+      // auth-recovery swaps) or a `connecting` frame.
+      const stateManager = this.connectionState;
+      if (stateManager && stateManager.getState().status === "connected") {
+        stateManager.setState(disconnected({ willRetry: true }));
+      }
+
+      if (ws) {
+        try {
+          ws.close();
+        } catch (err) {
+          // Best-effort, mirroring dispose(): a wrapper already in a bad
+          // state must not abort the swap — the new socket still goes up.
+          this.logger.warn(
+            "token-refresh-handler: ws.close() during socket swap threw",
+            { error: err instanceof Error ? err.message : String(err) },
+          );
+        }
+      }
+
+      // Re-check deadness AFTER the close (Bug 22) — independent of the
+      // clear-before-close fix above, deliberately kept as defense in
+      // depth: the synchronous close fan-out runs arbitrary listeners on
+      // the wrapper (ours plus bidi/orpc/consumer wiring), any of which can
+      // dispose the client or drive it terminal/kicked while `close()` is
+      // still on the stack. The entry check at the top of this method ran
+      // BEFORE the close, so without this re-check the swap would resume,
+      // build a new socket, and `handleOpen` would flip state back to
+      // `connected` AFTER the consumer was told the client is dead
+      // (zombie-after-terminal).
+      if (this.isDead?.()) {
+        // Keep the dead client's cleared state cleared: the fresh-token
+        // stamp above existed for the fan-out's benefit; it must not
+        // survive the bail (dispose()/terminal already cleared the holder).
+        this.websocketHolder.setCurrentToken(null);
+        this.logger.warn(
+          "token-refresh-handler: client died during socket swap (disposed/terminal/kicked); refusing to create a new WebSocket",
+        );
+        return;
+      }
+
+      // Holder re-check (Bug-13 re-entrancy, re-opened by the Bug-21 fix).
+      // Between `clear()` and `set(newWs)` the holder is null, so the
+      // Bug-13 guard in `ClientLifecycle.connect()` ("a wrapper in the
+      // holder means the library already owns reconnect") PASSES for a
+      // consumer calling `client.connect()` from inside the synchronous
+      // close fan-out (orpc/bidi abort listeners run consumer code inline;
+      // dispose() and terminal have latches that block connect(), a plain
+      // swap has none). That re-entrant connect() already stood up a
+      // socket on the FRESH token (its urlProvider reads
+      // `tokenProvider.getToken()`). If we now created a SECOND socket,
+      // the re-entrant one would be orphaned in the overwritten holder
+      // slot — never closed, retrying forever — and under the server's
+      // singleConnectionPerUser the two would 4005-kick each other in a
+      // loop. The swap's goal — a live socket on the fresh token — is
+      // already met; bail instead of duplicating.
+      if (this.websocketHolder.get() !== null) {
+        this.logger.warn(
+          "token-refresh-handler: a connection was established during the socket swap (re-entrant connect()); keeping it instead of creating a duplicate",
+        );
+        return;
+      }
 
       const newWs = this.websocketFactory.create(
         this.createUrlProvider(),

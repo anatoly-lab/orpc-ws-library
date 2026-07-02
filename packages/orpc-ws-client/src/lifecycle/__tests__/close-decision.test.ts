@@ -8,8 +8,12 @@
 // The tree (in priority order):
 //   1. isStaleWs                       → ignore
 //   2. code === 4005                   → session-replaced (terminal)
-//   3. code === 1008 OR code === 4001  → auth-recovery
-//   4. code === 1000 AND !opened       → auth-recovery   (Bug 4)
+//   3. code === 1008 OR code === 4001  → auth-recovery ("auth-close")
+//   4. code === 1000 AND !opened:
+//      a. reason === "timeout"         → normal-disconnect (Bug 23 —
+//                                        see bug-23-preopen-timeout-not-auth)
+//      b. otherwise                    → auth-recovery ("pre-open-1000",
+//                                        Bug 4)
 //   5. otherwise                       → normal-disconnect
 
 import { describe, expect, it } from "vitest";
@@ -85,7 +89,7 @@ describe("decideClose — priority 3: auth-recovery on signalled auth failures",
         isStaleWs: false,
         attemptHadOpened: true,
       }),
-    ).toEqual({ kind: "auth-recovery", closeCode: 1008 });
+    ).toEqual({ kind: "auth-recovery", closeCode: 1008, trigger: "auth-close" });
   });
 
   it("code 4001 (AUTH_FAILED custom) → auth-recovery", () => {
@@ -95,7 +99,7 @@ describe("decideClose — priority 3: auth-recovery on signalled auth failures",
         isStaleWs: false,
         attemptHadOpened: true,
       }),
-    ).toEqual({ kind: "auth-recovery", closeCode: 4001 });
+    ).toEqual({ kind: "auth-recovery", closeCode: 4001, trigger: "auth-close" });
   });
 
   it("auth-recovery codes match regardless of attemptHadOpened", () => {
@@ -125,7 +129,11 @@ describe("decideClose — priority 4: Bug 4 (code 1000 before first open)", () =
         isStaleWs: false,
         attemptHadOpened: false,
       }),
-    ).toEqual({ kind: "auth-recovery", closeCode: 1000 });
+    ).toEqual({
+      kind: "auth-recovery",
+      closeCode: 1000,
+      trigger: "pre-open-1000",
+    });
   });
 
   it("code 1000 + attemptHadOpened → normal-disconnect (no Bug-4 misroute)", () => {

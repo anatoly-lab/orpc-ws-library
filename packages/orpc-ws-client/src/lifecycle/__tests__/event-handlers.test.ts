@@ -29,6 +29,7 @@ import {
 import { WebSocketHolder } from "../../state/websocket-holder.js";
 
 import { EventHandlers } from "../event-handlers.js";
+import type { AuthRecoveryTrigger } from "../close-decision.js";
 
 // Stub ReconnectingWebSocket: only the methods the handler touches need
 // to exist. We never instantiate a real one — would trigger networking.
@@ -47,7 +48,8 @@ function buildHandlers(
     overrides.initialState ?? disconnected({ willRetry: false }),
   );
   const websocketHolder = new WebSocketHolder();
-  const onAuthRecoveryNeeded = vi.fn<(code: number) => void>();
+  const onAuthRecoveryNeeded =
+    vi.fn<(code: number, trigger: AuthRecoveryTrigger) => void>();
   const logger = {
     debug: vi.fn(),
     info: vi.fn(),
@@ -142,7 +144,7 @@ describe("EventHandlers — onClose — auth-recovery routes", () => {
     await handlers.onClose({ code: 1008, reason: "", wasClean: true }, ws);
 
     expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledTimes(1);
-    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(1008);
+    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(1008, "auth-close");
     expect(ctx.connectionState.getState()).toEqual({
       status: "disconnected",
       code: 1008,
@@ -160,7 +162,7 @@ describe("EventHandlers — onClose — auth-recovery routes", () => {
 
     await handlers.onClose({ code: 4001, reason: "", wasClean: true }, ws);
 
-    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(4001);
+    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(4001, "auth-close");
     expect(ctx.connectionState.getState()).toEqual({
       status: "disconnected",
       code: 4001,
@@ -180,7 +182,10 @@ describe("EventHandlers — onClose — auth-recovery routes", () => {
 
     await handlers.onClose({ code: 1000, reason: "", wasClean: true }, ws);
 
-    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(1000);
+    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(
+      1000,
+      "pre-open-1000",
+    );
     expect(ctx.connectionState.getState()).toEqual({
       status: "disconnected",
       code: 1000,
@@ -271,7 +276,7 @@ describe("EventHandlers — onClose — normal-disconnect branches", () => {
     const buggy = { code: "close", reason: original, wasClean: true };
     await handlers.onClose(buggy, ws);
 
-    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(1008);
+    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(1008, "auth-close");
   });
 });
 
@@ -298,7 +303,10 @@ describe("EventHandlers — Bug 10 cross-instance: currentAttemptOpened reset on
     // Attempt #2: pre-open close synthesized as 1000. Bug 4 must fire.
     ctx.onAuthRecoveryNeeded.mockClear();
     await handlers.onClose({ code: 1000, reason: "", wasClean: true }, ws);
-    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(1000);
+    expect(ctx.onAuthRecoveryNeeded).toHaveBeenCalledWith(
+      1000,
+      "pre-open-1000",
+    );
   });
 
   it("stale-WS close does NOT reset the current attempt's opened flag", async () => {

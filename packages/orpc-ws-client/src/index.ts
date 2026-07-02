@@ -133,20 +133,42 @@ interface BaseOrpcWsClientOptions {
   url: string | (() => string);
   /**
    * Token producer. OPTIONAL — omit for cookie auth. When omitted, the
-   * URL never carries a `?token=` param and any auth-recovery attempt
-   * fires `onTerminalAuthFailure` immediately (the library can't refresh
-   * without the seam). CLAUDE.md "Token transport".
+   * URL never carries a `?token=` param, and only a REAL auth-failure
+   * close (1008 / 4001) fires `onTerminalAuthFailure` — a synthetic
+   * pre-open close-1000 (network failure masked by the browser) is a
+   * benign no-op that rides partysocket's retry loop (Bug 24; CLAUDE.md
+   * §"Auth flow contract", "Cookie-auth caveat"). CLAUDE.md "Token
+   * transport".
+   *
+   * COROLLARY for cookie-mode consumers: a session that dies while the
+   * client is disconnected is INVISIBLE here. The server rejects the dead
+   * `sid` at the HTTP upgrade, the WebSocket spec masks the rejection
+   * reason from the browser, and partysocket surfaces it as the same
+   * synthetic pre-open close-1000 as a down server or a network blip — so
+   * the client retries silently forever and neither
+   * `onTerminalAuthFailure` nor `onEvent` fires. Detect session death at
+   * the APPLICATION level instead: e.g. `/auth/me` returning 401, or — for
+   * a session revoked mid-connection — the server closing with 1008/4001
+   * (`closeUser` / token expiry), which DOES reach this client as a real
+   * auth-failure close.
    */
   tokenProvider?: TokenProvider;
   /**
    * Called when the library has given up on auth recovery PERMANENTLY:
    *   - `tokenProvider.refresh()` returned null, OR
    *   - the 30s storm-guard window tripped, OR
-   *   - auth-recovery was attempted with no tokenProvider configured.
+   *   - a server-signalled auth close (1008 / 4001) arrived with no
+   *     tokenProvider configured (cookie auth — nothing to refresh).
    *
    * Typical consumer wiring: redirect to /login, clear in-memory auth
    * state. The client is terminal after this fires; create a new one
    * post-re-auth to reconnect. CLAUDE.md §"Auth flow contract".
+   *
+   * Cookie-mode note: a session that dies while the client is
+   * DISCONNECTED never reaches this callback — the handshake-time
+   * rejection is masked by the WebSocket spec (see the corollary on
+   * `tokenProvider` above); rely on an application-level signal such as
+   * `/auth/me` returning 401.
    */
   onTerminalAuthFailure?: () => void;
   /**
@@ -562,6 +584,12 @@ export function createOrpcWsClient<
     heartbeatMonitor,
     heartbeatSubscriber,
     linkClearer: () => linkFactory.clearLink(),
+    // State truthfulness at swap start: the Bug-21 clear-before-close fix
+    // stale-drops the old wrapper's own close, so a swap tearing down an
+    // OPENED wrapper (sleep-wake / upload-401 while `connected`) must set
+    // `disconnected({willRetry: true})` itself — Bug 15 parity; see
+    // `TokenRefreshHandlerDeps.connectionState`.
+    connectionState,
     // Refuse the socket swap after the client is dead — disposed (Bug 12),
     // terminal (Bug 14), OR kicked (F1). The guard closes a race the
     // shared storm window (Bug 16/BUG-5) makes reachable: a reconnect()
@@ -602,12 +630,30 @@ export function createOrpcWsClient<
   eventHandlers = new EventHandlers({
     connectionState,
     websocketHolder,
-    onAuthRecoveryNeeded: (closeCode) => {
+    onAuthRecoveryNeeded: (closeCode, trigger) => {
       // If the consumer didn't supply a tokenProvider, we cannot refresh.
-      // Skip the storm-guard path; go straight to terminal so the
-      // consumer's app-level cleanup runs and we don't hand the no-op
-      // provider a `refresh()` call that would loop on null.
       if (!hasTokenProvider) {
+        // Cookie-auth caveat (CLAUDE.md §"Auth flow contract"; Bug 24):
+        // with no tokenProvider, only a REAL auth-failure close (1008 /
+        // 4001) may go terminal. A pre-open code-1000 close is
+        // partysocket's synthetic shape for EVERY pre-open failure —
+        // connection refused, DNS, TLS (the browser masks the real
+        // reason) — so under cookie auth it is a benign no-op: partysocket
+        // keeps retrying on its own backoff, and the session cookie needs
+        // no refresh from us. Pre-fix this branch went terminal here,
+        // force-logging-out a healthy cookie client on any transient
+        // pre-open network blip.
+        if (trigger === "pre-open-1000") {
+          logger.debug(
+            "orpc-ws-client: pre-open close-1000 with no tokenProvider — benign; riding partysocket's retry loop",
+            { closeCode },
+          );
+          return;
+        }
+        // A server-signalled auth close with nothing to refresh: skip the
+        // storm-guard path; go straight to terminal so the consumer's
+        // app-level cleanup runs and we don't hand the no-op provider a
+        // `refresh()` call that would loop on null.
         logger.warn(
           "orpc-ws-client: auth-recovery needed but no tokenProvider configured; firing terminal",
           { closeCode },

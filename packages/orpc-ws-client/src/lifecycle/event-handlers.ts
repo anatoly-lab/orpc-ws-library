@@ -49,7 +49,11 @@ import type { ConnectionStateManager } from "../state/connection-state.js";
 import { connected, disconnected, kicked } from "../state/types.js";
 import type { WebSocketHolder } from "../state/websocket-holder.js";
 
-import { decideClose, type CloseDecision } from "./close-decision.js";
+import {
+  decideClose,
+  type AuthRecoveryTrigger,
+  type CloseDecision,
+} from "./close-decision.js";
 import {
   normalizeCloseEvent,
   normalizeErrorEvent,
@@ -70,8 +74,17 @@ export interface EventHandlersDeps {
    * this to the storm-guard-protected refresh path owned by ReconnectManager
    * (Phase 1.3). The callback is FIRE-AND-FORGET from this class's
    * perspective; we hand off and continue (state still moves to disconnected).
+   *
+   * `trigger` forwards the decision's provenance (Bug 24): a server-signalled
+   * auth close (`"auth-close"`, 1008/4001) vs partysocket's synthetic
+   * pre-open 1000 (`"pre-open-1000"`, only a *candidate* auth failure). The
+   * composition root needs the distinction to honor the cookie-auth caveat —
+   * with no tokenProvider, only `"auth-close"` may go terminal.
    */
-  onAuthRecoveryNeeded: (closeCode: number) => void;
+  onAuthRecoveryNeeded: (
+    closeCode: number,
+    trigger: AuthRecoveryTrigger,
+  ) => void;
   /** Logger. Default: noop. */
   logger?: Logger;
   /**
@@ -108,7 +121,10 @@ export interface EventHandlersDeps {
 export class EventHandlers {
   private readonly connectionState: ConnectionStateManager;
   private readonly websocketHolder: WebSocketHolder;
-  private readonly onAuthRecoveryNeeded: (closeCode: number) => void;
+  private readonly onAuthRecoveryNeeded: (
+    closeCode: number,
+    trigger: AuthRecoveryTrigger,
+  ) => void;
   private readonly logger: Logger;
   private readonly onOpenHook: (() => void) | undefined;
   private readonly onCloseHook: (() => void) | undefined;
@@ -261,9 +277,11 @@ export class EventHandlers {
         );
         // Hand off to the composition root's storm-guard-protected refresh.
         // Errors thrown by the consumer's wiring must not propagate up
-        // into partysocket's reconnect loop.
+        // into partysocket's reconnect loop. The trigger provenance rides
+        // along so the no-tokenProvider branch can tell a real auth close
+        // from a synthetic pre-open 1000 (Bug 24).
         try {
-          this.onAuthRecoveryNeeded(decision.closeCode);
+          this.onAuthRecoveryNeeded(decision.closeCode, decision.trigger);
         } catch (err) {
           this.logger.error(
             "event-handlers: onAuthRecoveryNeeded callback threw",
