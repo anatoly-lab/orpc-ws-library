@@ -8,8 +8,8 @@
 //
 // The factories in `factories.ts` consume these and normalize them into
 // the class's internal options (`OrpcWsServerOptions`, declared in
-// index.ts) — so the public authless type can hide fields the class
-// technically accepts but authless must never expose.
+// orpc-ws-server.ts) — so the public authless type can hide fields the
+// class technically accepts but authless must never expose.
 
 import type { AnyContractRouter } from "@orpc/contract";
 import type { Clock, Logger } from "@orpc-ws/shared";
@@ -18,7 +18,7 @@ import type { WebSocket } from "ws";
 import type {
   OrpcWsInterceptors,
   OrpcWsRootInterceptors,
-} from "../index.js";
+} from "../orpc-ws-server.js";
 import type { ConnectionConfig } from "../config/connection-config.js";
 import type { HeartbeatConfig } from "../config/heartbeat-config.js";
 import type { VerifyClient } from "../lifecycle/verify-client-orchestrator.js";

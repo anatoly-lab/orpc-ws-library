@@ -68,6 +68,7 @@ import { HeartbeatSubscriber } from "./heartbeat/subscriber.js";
 import { SleepDetector } from "./sleep/sleep-detector.js";
 
 import { type ClientBidi, createClientBidi } from "./bidi/client-bidi.js";
+import { BidiWebSocketFactory } from "./bidi/bidi-websocket-factory.js";
 
 import {
   type ReconnectConfig,
@@ -80,6 +81,7 @@ import {
   PresignedUrlUploadStrategy,
 } from "./upload/orpc-http-strategy.js";
 import type { UploadStrategy, Path } from "./upload/strategy.js";
+import { createUploadMethod } from "./upload/upload-method.js";
 import type {
   UploadOptions,
   UploadResult,
@@ -349,37 +351,6 @@ const cookieAuthProvider: TokenProvider = {
   getToken: () => null,
   refresh: async () => null,
 };
-
-/**
- * Bidi-aware `WebSocketFactory`. Identical to the base factory except it
- * (re)builds the per-connection bidi mux + s2c host against each brand-new
- * wrapper it creates. `WebSocketFactory.create` is the SINGLE chokepoint every
- * new wrapper is born from (first connect + every reconnect swap), so hooking
- * `bidi.attach` here keeps ClientLifecycle / TokenRefreshHandler untouched and
- * the mux always tracking the live wrapper. Used only when bidi is on; a
- * subclass (not a plain wrapper object) because `WebSocketFactory` has private
- * fields and is therefore nominal — only a subclass is assignable to it.
- */
-class BidiWebSocketFactory extends WebSocketFactory {
-  private readonly bidi: ClientBidi;
-
-  constructor(options: { logger?: Logger }, bidi: ClientBidi) {
-    super(options);
-    this.bidi = bidi;
-  }
-
-  override create(
-    urlProvider: UrlProvider,
-    handlers: WebSocketEventHandlers,
-    config: ReconnectConfig,
-  ): ReconnectingWebSocket {
-    const ws = super.create(urlProvider, handlers, config);
-    // (Re)attach bidi to the new wrapper. See bidi/client-bidi.ts for the
-    // dispose-previous (close-before-dispose) + rebuild semantics.
-    this.bidi.attach(ws);
-    return ws;
-  }
-}
 
 /**
  * Compose the orpc-ws client. Wires every internal class to its
@@ -801,33 +772,11 @@ export function createOrpcWsClient<
   // Public upload method — present only when a strategy was wired.
   // Spread into the return object conditionally so consumers without
   // uploads don't see the property at runtime (Object.keys works as
-  // expected, JSON.stringify doesn't include it, etc.).
+  // expected, JSON.stringify doesn't include it, etc.). The
+  // public-signature → strategy-call bridge lives in
+  // `upload/upload-method.ts`.
   const upload = uploadStrategy
-    ? (
-        file: File | Blob,
-        publicOpts: {
-          procedure: Path<TContract>;
-          onProgress?: UploadOptions["onProgress"];
-          signal?: UploadOptions["signal"];
-          meta?: UploadOptions["meta"];
-        },
-      ): Promise<UploadResult> => {
-        // `Path<TContract>` is structurally a string tuple; the strategy
-        // interface takes a plain `string[]`. Spread is type-safe — the
-        // `Path` tuple narrows to a readonly array of strings.
-        const procedure = [...(publicOpts.procedure as readonly string[])];
-        const internalOpts: UploadOptions = {
-          procedure,
-          ...(publicOpts.onProgress
-            ? { onProgress: publicOpts.onProgress }
-            : {}),
-          ...(publicOpts.signal ? { signal: publicOpts.signal } : {}),
-          ...(publicOpts.meta ? { meta: publicOpts.meta } : {}),
-        };
-        // Non-null assertion is safe — we're inside the
-        // `uploadStrategy ?` branch.
-        return uploadStrategy!.upload(file, internalOpts);
-      }
+    ? createUploadMethod<TContract>(uploadStrategy)
     : undefined;
 
   const client: OrpcWsClient<TContract> = {

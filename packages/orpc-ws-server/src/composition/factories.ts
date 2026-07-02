@@ -13,13 +13,14 @@
 // each mode a clean, mode-appropriate type surface (ISP) without leaking
 // the other mode's knobs.
 //
-// Kept OUT of index.ts to respect the ~300-LOC ceiling (index.ts is the
-// composition root and already over; CLAUDE.md "No god files").
+// Kept OUT of orpc-ws-server.ts to respect the ~300-LOC ceiling (that
+// file is the composition root and already over; CLAUDE.md "No god
+// files").
 
 import type { AnyContractRouter } from "@orpc/contract";
 import type { WebSocket } from "ws";
 
-import { OrpcWsServer, type OrpcWsServerOptions } from "../index.js";
+import { OrpcWsServer, type OrpcWsServerOptions } from "../orpc-ws-server.js";
 import type { NoAuth } from "../state/no-auth.js";
 import type {
   AuthlessConnection,
