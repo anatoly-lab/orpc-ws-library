@@ -21,10 +21,12 @@
 //   5. The source had ONE method (`reconnect`) that callers always wanted.
 //      We split into:
 //        - `reconnect()`: debounce + jitter + mutex, exactly as before.
-//        - `tryAuthRecovery(closeCode)`: wraps `refreshAndReconnect` with
-//          the storm-guard gate, fires `onTerminalAuthFailure` on storm
-//          OR on `refresh()` returning null. This is what
-//          `EventHandlers.onAuthRecoveryNeeded` calls into.
+//        - `tryAuthRecovery(closeCode, trigger)`: wraps `refreshAndReconnect`
+//          with the storm-guard gate; fires `onTerminalAuthFailure` on
+//          `refresh()` returning null, or on a storm trip whose trigger is
+//          `"auth-close"` (a `"pre-open-1000"` storm trip instead rides
+//          partysocket's backoff with the current token — Bug 25). This is
+//          what `EventHandlers.onAuthRecoveryNeeded` calls into.
 //
 // The mutex (`reconnectInProgress`) and debounce timer are preserved
 // verbatim — those exist for documented race-condition reasons (see source
@@ -41,6 +43,7 @@ import {
 import type { TimerHandle } from "@orpc-ws/shared";
 
 import type { OnTerminalAuthFailure } from "../auth/types.js";
+import type { AuthRecoveryTrigger } from "../lifecycle/close-decision.js";
 
 import type { TokenRefreshHandler } from "./token-refresh-handler.js";
 
@@ -114,9 +117,11 @@ export interface ReconnectManagerDeps {
  *   - `reconnect()`: explicit "please try to reconnect" call. Debounce +
  *     jitter + mutex. Used by sleep detector, heartbeat-timeout watchdog,
  *     and any consumer-facing manual reconnect signal.
- *   - `tryAuthRecovery(closeCode)`: routed from EventHandlers'
- *     `onAuthRecoveryNeeded` callback. Storm-guard-gated; on miss, fires
- *     `onTerminalAuthFailure`. Otherwise hands off to TokenRefreshHandler.
+ *   - `tryAuthRecovery(closeCode, trigger)`: routed from EventHandlers'
+ *     `onAuthRecoveryNeeded` callback. Storm-guard-gated; a storm trip is
+ *     terminal for an `"auth-close"` trigger, reconnect-with-current-token
+ *     for `"pre-open-1000"` (Bug 25). Otherwise hands off to
+ *     TokenRefreshHandler.
  *
  * All timing state lives on the instance — there is no module-level state.
  * One instance per client. The composition root MUST call `dispose()` on
@@ -197,10 +202,12 @@ export class ReconnectManager {
    * field". Updated by BOTH refresh-driving paths — `tryAuthRecovery` and
    * `runReconnect` — immediately before calling `refreshAndReconnect`
    * (Bug 16 / BUG-5: "single window across all triggers"). A follow-up
-   * call within `minRefreshIntervalMs` short-circuits: terminal in
-   * `tryAuthRecovery` — but only when the prior stamp was itself an
-   * auth-recovery refresh, see `lastRefreshWasAuthRecovery` (F2) — and a
-   * no-refresh socket rebuild in `runReconnect` (normal churn).
+   * call within `minRefreshIntervalMs` short-circuits: in
+   * `tryAuthRecovery`, terminal for an `"auth-close"` trigger and
+   * ride-the-backoff for `"pre-open-1000"` (Bug 25) — both only when the
+   * prior stamp was itself an auth-recovery refresh, see
+   * `lastRefreshWasAuthRecovery` (F2) — and a no-refresh socket rebuild
+   * in `runReconnect` (normal churn).
    *
    * Initialized to `-Infinity` so the FIRST call always passes the guard
    * (since `now - (-Infinity)` is `Infinity`, never less than the window).
@@ -276,12 +283,25 @@ export class ReconnectManager {
    *     refresh, the swap, and terminal-on-failure; the duplicate returns
    *     without re-driving the swap (no throwaway socket).
    *   - Else if now - lastRefreshAttemptedAt < minRefreshIntervalMs AND
-   *     the prior stamp was an auth-recovery refresh: genuine storm — a
-   *     prior auth-driven refresh COMPLETED and we are auth-failing again
-   *     within the window. The refresh isn't helping (almost always a bad
-   *     refresh token or a server policy 1008-ing every reconnect).
-   *     Firing `onTerminalAuthFailure` lets the consumer redirect to
-   *     /login instead of burning Keycloak quota.
+   *     the prior stamp was an auth-recovery refresh: storm — a prior
+   *     auth-driven refresh COMPLETED and we are failing again within the
+   *     window. The OUTCOME depends on `trigger` (user-approved 2026-07-02;
+   *     "issue 1" of the parked design questions):
+   *       - `"auth-close"` (real 1008/4001, incl. the upload-401 route):
+   *         genuine auth hot loop — the refresh isn't helping (almost
+   *         always a bad refresh token or a server policy 1008-ing every
+   *         reconnect). Firing `onTerminalAuthFailure` lets the consumer
+   *         redirect to /login instead of burning Keycloak quota.
+   *       - `"pre-open-1000"` (partysocket's synthetic close for EVERY
+   *         pre-open failure — server down / connection refused / DNS /
+   *         TLS are indistinguishable from a handshake auth rejection):
+   *         NOT terminal. Reconnect-with-current-token semantics — the
+   *         same trip the routine `reconnect()` path has. See the inline
+   *         comment in the storm branch for why this is a deliberate
+   *         no-op (the failing wrapper is still auto-retrying on
+   *         partysocket's backoff with the current token) rather than a
+   *         `reconnectWithCurrentToken()` socket swap (which would defeat
+   *         that backoff and hot-loop against a down server).
    *   - Otherwise (outside the window, OR within it but the last stamp
    *     was a ROUTINE `runReconnect` refresh — the first real auth
    *     failure deserves a recovery attempt, not an instant logout):
@@ -293,8 +313,19 @@ export class ReconnectManager {
    * The `closeCode` argument is currently only used for logging (matches
    * the source — close codes are differentiated for diagnostics, but the
    * refresh path is uniform).
+   *
+   * `trigger` carries the close-decision provenance (Bug 24 discriminant,
+   * now consumed here as well as in the composition root's
+   * no-tokenProvider branch). It defaults to `"auth-close"` — the STRICT
+   * arm, preserving terminal trip semantics for any caller that does not
+   * explicitly declare its trigger ambiguous — so only the composition
+   * root's close-event wiring (which has the real `AuthRecoveryTrigger`
+   * in hand) opts into the lenient pre-open path.
    */
-  async tryAuthRecovery(closeCode: number): Promise<void> {
+  async tryAuthRecovery(
+    closeCode: number,
+    trigger: AuthRecoveryTrigger = "auth-close",
+  ): Promise<void> {
     if (this.isStopped()) {
       // Dead client — disposed (Bug 12), terminal (Bug 14), or kicked /
       // composition-terminal (F1/F3): the library must not attempt
@@ -336,11 +367,58 @@ export class ReconnectManager {
       elapsed < this.config.minRefreshIntervalMs &&
       this.lastRefreshWasAuthRecovery
     ) {
-      // Genuine storm: the prior AUTH-recovery refresh COMPLETED (not in
-      // flight — the join branch above owns that case) and auth failed
-      // again within the window. A within-window stamp from a ROUTINE
-      // refresh deliberately does NOT trip this (F2) — see
-      // `lastRefreshWasAuthRecovery`.
+      // Storm: the prior AUTH-recovery refresh COMPLETED (not in flight —
+      // the join branch above owns that case) and we failed again within
+      // the window. A within-window stamp from a ROUTINE refresh
+      // deliberately does NOT trip this (F2) — see
+      // `lastRefreshWasAuthRecovery`. What the trip MEANS depends on the
+      // trigger (user-approved 2026-07-02):
+      if (trigger === "pre-open-1000") {
+        // Bug 25: a pre-open code-1000 close is partysocket's synthetic
+        // shape for EVERY pre-open failure — a server that is merely DOWN
+        // (connection refused / unreachable) is indistinguishable from a
+        // handshake auth rejection. Two ambiguous failures within the
+        // window are NOT proof of a dead session, so this must not force
+        // a logout: pre-fix, a down server logged the user out within
+        // ~30s (first pre-open 1000 burned the window's refresh, the
+        // second tripped terminal).
+        //
+        // Trip semantics: reconnect-with-current-token, same as the
+        // routine `reconnect()` path's within-window branch. Mechanism:
+        // a deliberate NO-OP — NOT a `reconnectWithCurrentToken()` swap.
+        // The wrapper that emitted this close is the CURRENT one (stale
+        // closes were dropped upstream) and nothing has closed it, so
+        // partysocket is already auto-retrying it on its own exponential
+        // backoff (`maxRetries` is force-clamped to Infinity by
+        // `resolveReconnectConfig`, S1 — retries never exhaust, so the
+        // trigger stream that eventually re-enters this method can never
+        // dry up), and its URL-provider closure re-reads
+        // `tokenProvider.getToken()` on every attempt (Bug 1) — each
+        // retry ALREADY carries the current token. A swap here would be
+        // strictly worse: a fresh partysocket's first attempt has delay 0
+        // (`_retryCount` -1 → 0 ⇒ `_getNextDelay()` returns 0), so
+        // against a down server the cycle "swap → immediate attempt →
+        // refused (~ms) → pre-open 1000 → storm trip → swap" would spin
+        // at connection-refused latency — a genuine hot loop. Riding the
+        // existing wrapper's backoff needs no additional throttle by
+        // construction. Once the window expires, the next pre-open close
+        // takes the refresh branch below (one refresh per window while
+        // the server is down); give-up stays auth-owned — a null/thrown
+        // refresh or a real 1008/4001 storm still goes terminal.
+        this.logger.info(
+          "reconnect-manager: pre-open-1000 storm trip — riding partysocket backoff with the current token (not terminal)",
+          {
+            closeCode,
+            elapsedMs: elapsed,
+            minRefreshIntervalMs: this.config.minRefreshIntervalMs,
+          },
+        );
+        return;
+      }
+      // `"auth-close"`: the server EXPLICITLY rejected our credential
+      // twice within the window (1008/4001 close, or the upload
+      // transport's 401) despite a completed refresh. The refresh isn't
+      // helping — genuine auth hot loop, terminal.
       this.logger.warn(
         "reconnect-manager: auth-recovery storm guard tripped, treating as terminal auth failure",
         {
@@ -409,9 +487,17 @@ export class ReconnectManager {
    * (and the live WS) use the fresh credential. The synthetic `401` close
    * code is for log provenance only — the refresh path is uniform
    * (`closeCode` is logging-only in `tryAuthRecovery`).
+   *
+   * Trigger classification: `"auth-close"`, deliberately. An HTTP 401 from
+   * the upload endpoint is an EXPLICIT server-side rejection of the Bearer
+   * credential — the same evidentiary weight as a WS 1008/4001 close, with
+   * none of pre-open-1000's ambiguity (a down upload endpoint surfaces as a
+   * network error, not a 401). So it keeps the terminal storm-trip
+   * semantics: two explicit credential rejections within the window
+   * despite a completed refresh mean the refresh isn't helping.
    */
   async notifyUploadAuthFailure(): Promise<void> {
-    await this.tryAuthRecovery(401);
+    await this.tryAuthRecovery(401, "auth-close");
   }
 
   /**

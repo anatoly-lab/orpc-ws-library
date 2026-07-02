@@ -655,7 +655,12 @@ export function createOrpcWsClient<
       // refresh. Emit `refreshable: true` so the consumer can surface a
       // brief "reconnecting" toast without redirecting yet.
       emit({ type: "auth_failure", refreshable: true });
-      void reconnectManager.tryAuthRecovery(closeCode);
+      // Forward the trigger provenance (Bug 24 discriminant) into the
+      // storm guard too (Bug 25): a storm trip stays terminal for a real
+      // auth close (1008/4001) but downgrades to
+      // reconnect-with-current-token for the ambiguous pre-open 1000 —
+      // a server that is merely DOWN must not force a logout within ~30s.
+      void reconnectManager.tryAuthRecovery(closeCode, trigger);
     },
     logger,
     onOpen: () => {

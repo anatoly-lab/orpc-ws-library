@@ -58,8 +58,17 @@ timeout, jitter, debounce, storm-guard window) is freely overridable —
 > If you pass a finite `reconnect.maxRetries`, the library logs a warning
 > via the injected `logger` and ignores it, resetting it to `Infinity`.
 > The library owns "give up" itself — at the right layer (the 30 s storm
-> guard trips to terminal-auth, a `4005` close kicks the session,
-> `dispose()` tears everything down), not via a retry cap. partysocket
+> guard trips to terminal-auth on a repeated *server-signalled* auth
+> failure, a `4005` close kicks the session, `dispose()` tears everything
+> down), not via a retry cap. A server that is merely **down** never goes
+> terminal: pre-open connection failures ride partysocket's backoff
+> indefinitely with the current token — only a failed/null refresh or a
+> real auth close (`1008`/`4001`, upload `401`) gives up. (Note that a
+> handshake-time rejection — e.g. this library's own server refusing the
+> upgrade in `verifyClient` — is indistinguishable from downtime in the
+> browser and therefore also retries; a server wanting a hard client
+> give-up must reject *after* accepting, via a `1008`/`4001` close such
+> as `closeUser` or the token-expiry watchdog.) partysocket
 > emits no event when its internal retry loop exhausts, so a finite cap
 > would silently wedge `connect()` over a dead connection with no signal,
 > and the library can't detect that without reading partysocket

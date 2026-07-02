@@ -567,9 +567,23 @@ to one client object.
   of re-refreshing, and `tokenProvider.refresh()` is single-flighted
   so concurrent triggers never issue two refreshes (avoids
   refresh-token-rotation self-logout). Trip semantics differ by
-  trigger: an auth-failure close trips to *terminal*, a
-  heartbeat/sleep reconnect trips to *reconnect-with-current-token*
-  (not terminal).
+  trigger (user-approved 2026-07-02): an auth-failure close (1008/4001)
+  or an HTTP-upload 401 trips to *terminal*; a heartbeat/sleep
+  reconnect AND a pre-open-1000 (partysocket's synthetic close for
+  every pre-open failure — a server that is merely down is
+  indistinguishable from a handshake rejection) trip to
+  *reconnect-with-current-token* (not terminal — the client rides
+  partysocket's backoff indefinitely; the pre-open-1000 trip is
+  deliberately a no-op rather than a socket swap, since a fresh
+  partysocket's first attempt has zero delay and swapping per trip
+  would hot-loop against a down server). Corollary: this library's OWN
+  server rejects bad credentials at the HTTP upgrade (pre-101), which a
+  browser can only see as a pre-open failure — so a handshake-time auth
+  rejection retries like downtime (one refresh per window) rather than
+  going terminal; terminal-by-close requires a post-accept 1008/4001
+  (expiry watchdog, `closeUser`). Give-up stays auth-owned: a
+  failed/null refresh, or a real auth close, still goes terminal via
+  the existing paths.
 - **Token transport is URL query param.** `?token=` for WS,
   `Authorization: Bearer` for HTTP (when `uploads` is configured).
   `tokenProvider` is **optional** at the type level — omitting it

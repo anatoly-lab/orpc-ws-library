@@ -32,6 +32,10 @@
 //   - Bug 24 (cookie-auth pre-open-1000 force-logout) — the
 //     `trigger` discriminant on the `auth-recovery` variant, consumed by
 //     the composition root's no-tokenProvider branch.
+//   - Bug 25 (token-mode server-down force-logout) — the same `trigger`
+//     discriminant, additionally consumed by ReconnectManager's storm
+//     guard: a `"pre-open-1000"` storm trip rides partysocket's backoff
+//     with the current token instead of going terminal.
 
 import type { NormalizedCloseEvent } from "./event-normalizer.js";
 
