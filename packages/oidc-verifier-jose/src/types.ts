@@ -108,6 +108,32 @@ export interface OidcVerifierConfig {
   expectedClientId?: string;
 
   /**
+   * Allowlist of accepted JWS `alg` header values, passed to jose's
+   * `jwtVerify`. A token whose header advertises any other algorithm is
+   * rejected BEFORE key resolution.
+   *
+   * Default: the common asymmetric set —
+   * `["RS256","RS384","RS512","ES256","ES384","ES512","PS256","PS384","PS512","EdDSA"]`.
+   * Deliberately excludes symmetric (`HS*`) algorithms: an access token
+   * verified against a public JWKS must never be HMAC-signed (the classic
+   * RS→HS key-confusion downgrade). Narrow it further (e.g. `["RS256"]`)
+   * to pin exactly what your IdP issues; only widen it if your IdP uses
+   * an algorithm outside the default set.
+   */
+  algorithms?: string[];
+
+  /**
+   * Clock-skew tolerance for the `exp` / `nbf` timestamp checks,
+   * passed through to jose's `jwtVerify` when provided. Either seconds
+   * (`5`) or a jose time-span string (`"5 seconds"`, `"1 min"`).
+   *
+   * Default: unset — jose's zero-tolerance behavior (unchanged from
+   * before this option existed). Set a small value (a few seconds) when
+   * the server's and IdP's clocks can drift.
+   */
+  clockTolerance?: number | string;
+
+  /**
    * Escape hatch for additional verification (scope checks, custom
    * tenant binding, etc). Runs after the issuer / signature / boundClaim
    * checks pass. Return `false` to reject; the rejection surfaces as

@@ -61,6 +61,19 @@ export interface ClientLifecycleDeps {
   getReconnectManager: () => ReconnectManager;
   emit: (evt: ClientEvent) => void;
   onTerminalAuthFailure?: () => void;
+  /**
+   * Optional (bidi-on only): retire the bidi mux + s2c host. Invoked on
+   * EVERY death path — dispose(), terminal auth failure, kicked — after
+   * the wrapper is closed (close-before-dispose: the wrapper's synchronous
+   * close fan-out settles in-flight bidi calls first; the handle itself
+   * defers `mux.dispose()` to a microtask — see bidi/client-bidi.ts
+   * TEARDOWN ORDERING). Idempotent (flag-guarded `makeBidiDispose` +
+   * handle-nulling `disposeCurrent`), so overlapping death paths (e.g. a
+   * kick followed by dispose()) double-invoking it is safe. Without this,
+   * a terminal/kicked client retained the mux + host on the closed
+   * wrapper until dispose() or GC.
+   */
+  disposeBidi?: () => void;
   logger: Logger;
 }
 
@@ -163,6 +176,9 @@ export class ClientLifecycle {
     // close-listener has already torn the stream down framelessly. We only
     // release our references here. See HeartbeatSubscriber.drop().
     this.deps.heartbeatSubscriber.drop();
+    // Retire the bidi handle (bidi-on only) — the wrapper close above ran
+    // its synchronous fan-out, so this honors close-before-dispose.
+    this.deps.disposeBidi?.();
 
     // Terminal state BEFORE the consumer callback — the contract in
     // auth/types.ts promises the connection has already moved to a
@@ -190,14 +206,19 @@ export class ClientLifecycle {
    * MISSING was clearing the link/holder — so a late stale open from the
    * closed wrapper is dropped by the Bug 6/17 guard (holder is null) — and
    * stopping the sleep detector, so a wake on a kicked client neither emits
-   * `woke_from_sleep` nor spins up reconnect machinery. All three calls are
-   * idempotent; a later `dispose()` re-running them is safe.
+   * `woke_from_sleep` nor spins up reconnect machinery. The bidi handle is
+   * retired too (the 4005 close already ran the wrapper's fan-out, so
+   * close-before-dispose holds) — kicked is terminal, and without this the
+   * mux + s2c host stayed registered on the closed wrapper until dispose()
+   * or GC. All calls are idempotent; a later `dispose()` re-running them is
+   * safe.
    */
   handleKicked = (): void => {
     this.deps.linkFactory.clearLink();
     this.deps.websocketHolder.clear();
     const sleepDetector = this.deps.getSleepDetector();
     if (sleepDetector) sleepDetector.stop();
+    this.deps.disposeBidi?.();
   };
 
   /**
@@ -315,5 +336,10 @@ export class ClientLifecycle {
     // Terminal state. `willRetry: false` distinguishes this from partysocket's
     // auto-retry path (which would be willRetry: true).
     this.deps.connectionState.setState(disconnected({ willRetry: false }));
+
+    // Retire the bidi handle LAST (bidi-on only) — the wrapper was closed
+    // above, so close-before-dispose holds; idempotent when a terminal /
+    // kicked path already retired it.
+    this.deps.disposeBidi?.();
   };
 }

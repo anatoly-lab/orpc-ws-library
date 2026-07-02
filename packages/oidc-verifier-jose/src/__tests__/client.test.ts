@@ -419,6 +419,110 @@ describe("createOidcVerifyClient — rejection cases", () => {
   });
 });
 
+describe("createOidcVerifyClient — algorithm pinning + clockTolerance", () => {
+  it("rejects an HS256-signed token by default (symmetric algs not in the allowlist)", async () => {
+    // RS→HS key-confusion downgrade: even if key resolution could somehow
+    // yield a symmetric key, the header `alg: HS256` must be rejected UP
+    // FRONT by the algorithms allowlist. Pre-fix the rejection came later
+    // (and only incidentally) from the JWKS lookup; the pinned reason
+    // string is what proves the allowlist path fired.
+    mockOidcFetch(keys.publicJwk);
+    const secret = new TextEncoder().encode(
+      "a-32-byte-minimum-shared-secret!!",
+    );
+    const token = await new SignJWT({ azp: CLIENT_ID })
+      .setProtectedHeader({ alg: "HS256", kid: keys.publicJwk.kid })
+      .setSubject("user-1")
+      .setIssuer(ISSUER)
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(secret);
+
+    const verify = createOidcVerifyClient({
+      issuerUrl: ISSUER,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+    });
+    const result = await verify(ctx(token));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe(401);
+    // jose's JOSEAlgNotAllowed message — the allowlist, not the JWKS
+    // lookup, rejected it.
+    expect(result.reason).toContain("not allowed");
+  });
+
+  it("respects a custom algorithms list (RS256 token rejected when only ES256 is allowed)", async () => {
+    mockOidcFetch(keys.publicJwk);
+    // A perfectly VALID RS256 token — only the allowlist rejects it.
+    const token = await mint(keys.privateKey, keys.publicJwk, {
+      sub: "user-1",
+      azp: CLIENT_ID,
+    });
+
+    const verify = createOidcVerifyClient({
+      issuerUrl: ISSUER,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+      algorithms: ["ES256"],
+    });
+    const result = await verify(ctx(token));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain("not allowed");
+  });
+
+  it("still accepts a matching token under a narrowed custom list (over-reach guard)", async () => {
+    mockOidcFetch(keys.publicJwk);
+    const token = await mint(keys.privateKey, keys.publicJwk, {
+      sub: "user-1",
+      azp: CLIENT_ID,
+    });
+
+    const verify = createOidcVerifyClient({
+      issuerUrl: ISSUER,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+      algorithms: ["RS256"],
+    });
+    const result = await verify(ctx(token));
+    expect(result.ok).toBe(true);
+  });
+
+  it("clockTolerance is passed through: an expired token is accepted within the window, rejected without it", async () => {
+    mockOidcFetch(keys.publicJwk);
+    // Expired ~30s ago against the real wall clock.
+    const token = await mint(
+      keys.privateKey,
+      keys.publicJwk,
+      { sub: "user-1", azp: CLIENT_ID },
+      { exp: "30 seconds ago" },
+    );
+
+    // Default (no tolerance): expired means rejected.
+    const strict = createOidcVerifyClient({
+      issuerUrl: ISSUER,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+    });
+    const strictResult = await strict(ctx(token));
+    expect(strictResult.ok).toBe(false);
+
+    // With a 5-minute tolerance the same token verifies — the option
+    // reached jwtVerify.
+    const tolerant = createOidcVerifyClient({
+      issuerUrl: ISSUER,
+      boundClaim: "azp",
+      expectedClientId: CLIENT_ID,
+      clockTolerance: "5 minutes",
+    });
+    const tolerantResult = await tolerant(ctx(token));
+    expect(tolerantResult.ok).toBe(true);
+  });
+});
+
 describe("createOidcVerifyClient — verifyClaims callback", () => {
   it("rejects when verifyClaims returns false", async () => {
     mockOidcFetch(keys.publicJwk);

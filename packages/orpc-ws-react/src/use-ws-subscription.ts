@@ -173,9 +173,21 @@ export function useWsSubscription<
     //      class (an `instanceof` against a second `@orpc/shared` copy would
     //      also be version-skew-fragile), and the name is the standardized
     //      JS abort discriminator (DOMException uses it too).
+    //   3. ESTABLISHMENT RACE — a drop landing between the connected render
+    //      and this effect's subscribe means the selector's rpc call finds
+    //      the socket no longer OPEN, and the client core's link factory
+    //      throws its typed `LinkNotReadyError` (exported from
+    //      `@orpc-ws/client`). That's the same transient shape as (2): the
+    //      disconnect flips `connected`, the effect re-runs, and the next
+    //      connected flip re-subscribes — so it must not flash
+    //      `status: "error"` / fire `onError` either. Matched by NAME for
+    //      the same package-copy/version-skew robustness as AbortError.
+    const isTransientStreamError = (err: unknown): boolean =>
+      err instanceof Error &&
+      (err.name === "AbortError" || err.name === "LinkNotReadyError");
     const handleStreamError = (err: unknown): void => {
       if (ac.signal.aborted) return;
-      if (err instanceof Error && err.name === "AbortError") return;
+      if (isTransientStreamError(err)) return;
       setError(err);
       setStatus("error");
       optionsRef.current?.onError?.(err);

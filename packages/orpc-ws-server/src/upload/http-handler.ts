@@ -34,6 +34,7 @@ import { BodyLimitPlugin, RPCHandler } from "@orpc/server/node";
 import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 import { isWellFormedAuthResult } from "../lifecycle/auth-result.js";
+import { extractClientIp } from "../lifecycle/request-helpers.js";
 import type {
   VerifyClient,
   VerifyClientResult,
@@ -148,8 +149,13 @@ export function createHttpUploadHandler<TUser>(deps: {
    * identical `{ user, token }` context shape to the shared router (the
    * WS transport builds it in `ConnectionHandler.handle`).
    *
-   * `clientIp` mirrors the WS verifier's extraction (x-forwarded-for first
-   * hop, then socket address). `origin` / `secure` mirror the WS upgrade
+   * `clientIp` uses the SAME `extractClientIp` helper as the WS upgrade
+   * path (lifecycle/request-helpers.ts) — that module exists precisely so
+   * the two extraction sites can't drift. (An earlier inline copy here DID
+   * drift: an empty first `x-forwarded-for` hop yielded `""` on HTTP but
+   * fell back to the socket address on WS; the shared helper's
+   * fall-back-on-empty behavior is authoritative.) `origin` / `secure`
+   * mirror the WS upgrade
    * path (SEC-3): the consumer's ONE `verifyClient` sees the same context
    * shape over either transport, so an origin allowlist written for the
    * WS path gates uploads too. Origin normalizes to "" when the header is
@@ -161,11 +167,7 @@ export function createHttpUploadHandler<TUser>(deps: {
     req: IncomingMessage,
   ): Promise<{ auth: VerifyClientResult<TUser>; token: string | null }> => {
     const token = extractBearerToken(req);
-    const fwd = req.headers["x-forwarded-for"];
-    const clientIp =
-      typeof fwd === "string" && fwd.length > 0
-        ? fwd.split(",")[0]?.trim()
-        : req.socket.remoteAddress;
+    const clientIp = extractClientIp(req);
     const origin = req.headers.origin ?? "";
     // `req.socket` is a `tls.TLSSocket` (which carries `encrypted: true`)
     // when the consumer's server terminates TLS itself; plain `net.Socket`
@@ -369,6 +371,20 @@ export function createHttpUploadHandler<TUser>(deps: {
         }
         return u;
       };
+      // Capture the pre-rewrite values so every `next()` hand-off can
+      // restore them: downstream Express middleware/routes match on
+      // `req.url` / `req.originalUrl`, and handing them a silently
+      // prefix-stripped request would break that matching. Only the
+      // fields we actually mutate are restored (originalUrl is left
+      // untouched when it wasn't present — bare-Node mounts).
+      const originalReqUrl = reqMut.url;
+      const originalReqOriginalUrl = reqMut.originalUrl;
+      const restoreUrls = (): void => {
+        reqMut.url = originalReqUrl;
+        if (originalReqOriginalUrl !== undefined) {
+          reqMut.originalUrl = originalReqOriginalUrl;
+        }
+      };
       reqMut.url = stripPrefix(reqMut.url);
       if (reqMut.originalUrl !== undefined) {
         reqMut.originalUrl = stripPrefix(reqMut.originalUrl);
@@ -390,9 +406,11 @@ export function createHttpUploadHandler<TUser>(deps: {
 
         if (!result.matched) {
           // ORPC did not match the route. Delegate to `next` (Express)
-          // if available so the consumer's other routes get a shot;
-          // otherwise return 404 ourselves.
+          // if available so the consumer's other routes get a shot —
+          // restoring the URLs first so downstream matching sees the
+          // request exactly as it arrived; otherwise return 404 ourselves.
           if (next) {
+            restoreUrls();
             next();
             return;
           }
@@ -416,7 +434,12 @@ export function createHttpUploadHandler<TUser>(deps: {
             // Already ended / destroyed — fine.
           }
         }
-        if (next) next(err);
+        // Same restore discipline as the matched:false path — Express
+        // error handlers also read `req.url` / `req.originalUrl`.
+        if (next) {
+          restoreUrls();
+          next(err);
+        }
       }
     })();
   };

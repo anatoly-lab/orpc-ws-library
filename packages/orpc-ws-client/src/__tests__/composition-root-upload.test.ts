@@ -76,6 +76,41 @@ describe("createOrpcWsClient — upload composition", () => {
     client.dispose();
   });
 
+  it("upload() after dispose() rejects BEFORE any network I/O (no fetch, no events)", async () => {
+    // "After dispose() the client object is dead" (CLAUDE.md §"Client
+    // lifecycle API"). The HTTP upload strategy + its RPCLink live outside
+    // the WS teardown path, so pre-fix a post-dispose upload() performed a
+    // REAL fetch — and its 401 could emit auth_failure events post-dispose.
+    const restore = install401Fetch();
+    const onEvent = vi.fn();
+    const client = createOrpcWsClient<Record<string, never>>({
+      url: "ws://example.invalid/ws",
+      tokenProvider: { getToken: () => "tok", refresh: async () => null },
+      onEvent,
+      uploads: {
+        strategy: "orpc-http",
+        httpUrl: "https://example.invalid/upload",
+      },
+      logger: silentLogger,
+      sleepDetection: false,
+    });
+
+    client.dispose();
+
+    await expect(
+      client.upload!(new Blob(["x"]), {
+        procedure: ["media", "upload"] as never,
+      }),
+    ).rejects.toThrow(/client is dead/);
+    await flushRecovery();
+
+    // No network I/O and no post-dispose notifications.
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(onEvent).not.toHaveBeenCalled();
+
+    restore();
+  });
+
   it("exposes `upload` with 'presigned-url' strategy but it throws on call", async () => {
     const client = createOrpcWsClient<Record<string, never>>({
       url: "ws://example.invalid/ws",

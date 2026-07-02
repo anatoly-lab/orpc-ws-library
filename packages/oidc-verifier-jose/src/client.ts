@@ -46,6 +46,25 @@ import { fetchMetadata, rewriteJwksUri } from "./discovery.js";
 import { type OidcUser, type OidcVerifierConfig } from "./types.js";
 
 /**
+ * Default `alg` allowlist for `jwtVerify` — the common asymmetric set.
+ * Symmetric (`HS*`) algorithms are deliberately absent: a token verified
+ * against a public JWKS must never be HMAC-signed (the RS→HS
+ * key-confusion downgrade). Overridable via `cfg.algorithms`.
+ */
+const DEFAULT_ALGORITHMS = [
+  "RS256",
+  "RS384",
+  "RS512",
+  "ES256",
+  "ES384",
+  "ES512",
+  "PS256",
+  "PS384",
+  "PS512",
+  "EdDSA",
+];
+
+/**
  * Default mapper. Pulls the standard OIDC subject fields off the
  * payload. `preferred_username` is preserved AS-IS (not collapsed
  * into `name`) so consumers can distinguish "display name" from
@@ -147,6 +166,15 @@ export function createOidcVerifyClient<TUser = OidcUser>(
         // exact string (vs cfg's) keeps the comparison robust to a
         // consumer-side trailing slash.
         issuer: metadata.issuer,
+        // Pin the accepted `alg` header values (asymmetric-only by
+        // default) so an HS*-signed token is rejected before key
+        // resolution — see DEFAULT_ALGORITHMS.
+        algorithms: cfg.algorithms ?? DEFAULT_ALGORITHMS,
+        // Clock-skew tolerance for exp/nbf — only forwarded when the
+        // consumer set it, so the default stays jose's zero tolerance.
+        ...(cfg.clockTolerance !== undefined
+          ? { clockTolerance: cfg.clockTolerance }
+          : {}),
       });
 
       if (typeof payload.sub !== "string" || payload.sub.length === 0) {

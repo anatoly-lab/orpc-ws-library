@@ -14,6 +14,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import {
   connected,
   disconnected,
+  LinkNotReadyError,
   type ConnectionState,
 } from "@orpc-ws/client";
 import type { OrpcWsClient } from "@orpc-ws/client";
@@ -362,6 +363,58 @@ describe("useWsSubscription", () => {
     // Positive assertion (not just `not.toBe("error")`): status stays the
     // mount-time "active", proving the catch RAN and chose suppression — not
     // that the rejection merely hadn't settled yet.
+    expect(screen.getByTestId("status").textContent).toBe("active");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("suppresses the establishment race's LinkNotReadyError: no 'error' status, no onError, resubscribes on the next connected flip", async () => {
+    // A drop landing between the connected render and the subscribe effect
+    // makes the rpc call throw the client core's typed LinkNotReadyError
+    // (the socket exists but is no longer OPEN). Pre-fix that was a plain
+    // Error and surfaced as a one-render `status: "error"` flash + onError;
+    // it is now classified as transient (like AbortError) — the effect
+    // resubscribes on the next connected flip and the consumer never sees
+    // an error.
+    const onError = vi.fn();
+    let subscribeCalls = 0;
+    let pushable: Pushable<TickEvent> | undefined;
+    const { client, emit } = makeStreamClient(connected(), async (signal) => {
+      subscribeCalls += 1;
+      if (subscribeCalls === 1) {
+        // First attempt: the socket dropped under the connected render.
+        throw new LinkNotReadyError();
+      }
+      pushable = makePushable<TickEvent>(signal);
+      return pushable.iterable;
+    });
+    const selector = (_rpc: unknown, signal: AbortSignal) =>
+      (client.rpc as unknown as { stream: (i: undefined, o: { signal: AbortSignal }) => Promise<AsyncIterable<TickEvent>> }).stream(undefined, { signal });
+
+    render(
+      <StreamProbe client={client} selector={selector} options={{ onError }} />,
+    );
+    await waitFor(() => expect(subscribeCalls).toBe(1));
+    // Let the rejected selector promise settle through the catch path.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Suppressed: status stays the mount-time "active" (proving the catch
+    // RAN and chose suppression), no error, no onError.
+    expect(screen.getByTestId("status").textContent).toBe("active");
+    expect(screen.getByTestId("error").textContent).toBe("none");
+    expect(onError).not.toHaveBeenCalled();
+
+    // The race self-heals through the normal reconnect cycle.
+    await act(async () => {
+      emit(disconnected({ willRetry: true }));
+    });
+    expect(screen.getByTestId("status").textContent).toBe("idle");
+    await act(async () => {
+      emit(connected());
+    });
+    await waitFor(() => expect(subscribeCalls).toBe(2));
     expect(screen.getByTestId("status").textContent).toBe("active");
     expect(onError).not.toHaveBeenCalled();
   });

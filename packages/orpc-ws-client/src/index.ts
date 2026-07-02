@@ -109,6 +109,13 @@ export type {
 export type { Path } from "./upload/strategy.js";
 export type { ClientEvent } from "./events.js";
 
+// Typed "socket not OPEN yet" error from the link factory — PUBLIC so
+// adapters/consumers can classify the establishment race (a drop landing
+// between a `connected` observation and the actual RPC) as transient
+// instead of a real failure. `@orpc-ws/react`'s `useWsSubscription`
+// suppresses it by `name`, like an AbortError.
+export { LinkNotReadyError } from "./client/link-factory.js";
+
 // Stable delegating server→client router primitive (issue #7 Phase 1). PUBLIC
 // so the `@orpc-ws/react` adapter's `<OrpcWs>` (Phase 2) can build one identity-
 // stable `clientRouter` whose leaves delegate to per-render handlers via a ref.
@@ -510,6 +517,15 @@ export function createOrpcWsClient<
     getReconnectManager: () => reconnectManager,
     emit,
     onTerminalAuthFailure: opts.onTerminalAuthFailure,
+    // Retire the bidi mux + s2c host on EVERY death path — dispose(),
+    // terminal auth failure, kicked (4005) — not just dispose(). Each of
+    // those paths has already closed the wrapper (its synchronous close
+    // fan-out settles in-flight bidi calls) before the lifecycle invokes
+    // this, honoring close-before-dispose; `bidi.dispose` is idempotent
+    // (flag-guarded in bidi/client-bidi.ts `makeBidiDispose`, and
+    // `disposeCurrent` nulls its handle), so a later `client.dispose()`
+    // re-running it is safe.
+    ...(bidi ? { disposeBidi: bidi.dispose } : {}),
     logger,
   });
 
@@ -775,8 +791,13 @@ export function createOrpcWsClient<
   // expected, JSON.stringify doesn't include it, etc.). The
   // public-signature → strategy-call bridge lives in
   // `upload/upload-method.ts`.
+  // Gated on the lifecycle's unified dead predicate: a post-dispose (or
+  // post-terminal / post-kick) upload() must reject BEFORE any network I/O
+  // — the HTTP strategy lives outside the WS teardown path, so without the
+  // gate it would still fire a real fetch and a 401 could emit events after
+  // the client's documented death.
   const upload = uploadStrategy
-    ? createUploadMethod<TContract>(uploadStrategy)
+    ? createUploadMethod<TContract>(uploadStrategy, lifecycle.isDead)
     : undefined;
 
   const client: OrpcWsClient<TContract> = {
@@ -786,17 +807,12 @@ export function createOrpcWsClient<
       subscribe: (cb) => connectionState.subscribe(cb),
     },
     connect: lifecycle.connect,
-    // When bidi is on, tear down the connection FIRST (ClientLifecycle.dispose
-    // closes the wrapper → the mux's synchronous close fan-out aborts in-flight
-    // hosted s2c executions / rejects pending c2s calls), THEN retire the bidi
-    // handle (deferred mux.dispose — see bidi/client-bidi.ts TEARDOWN ORDERING).
-    // Symmetric to the server disposing its connection bidi from the ws 'close'.
-    dispose: bidi
-      ? () => {
-          lifecycle.dispose();
-          bidi.dispose();
-        }
-      : lifecycle.dispose,
+    // Bidi teardown rides the lifecycle's `disposeBidi` dep (wired above),
+    // which every death path — dispose(), terminal auth, kicked — invokes
+    // AFTER closing the wrapper (close-before-dispose; see
+    // bidi/client-bidi.ts TEARDOWN ORDERING). Symmetric to the server
+    // disposing its connection bidi from the ws 'close'.
+    dispose: lifecycle.dispose,
   };
   if (upload) {
     client.upload = upload;

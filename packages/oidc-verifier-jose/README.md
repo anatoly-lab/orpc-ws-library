@@ -71,6 +71,14 @@ interface OidcVerifierConfig {
                                         // (defaults to issuerUrl — see below)
   boundClaim?: BoundClaim;              // "azp" (default) | "aud" | false
   expectedClientId?: string;            // required when boundClaim != false
+  algorithms?: string[];                // accepted JWS `alg` values; default is the
+                                        // asymmetric set ["RS256","RS384","RS512",
+                                        // "ES256","ES384","ES512","PS256","PS384",
+                                        // "PS512","EdDSA"] — HS* is rejected (no RS→HS
+                                        // key-confusion downgrade); narrow to pin
+                                        // exactly what your IdP issues
+  clockTolerance?: number | string;     // exp/nbf skew tolerance (secs or "5 s");
+                                        // default: none (jose zero-tolerance)
   verifyClaims?: (payload: JWTPayload)  // escape hatch (scope/tenant/role)
     => boolean | Promise<boolean>;      // return false (or throw) to reject
 }

@@ -1,10 +1,13 @@
-// Tiny request-introspection helpers shared by `connection-handler.ts`
-// and `verify-client-orchestrator.ts`. Factored out so both files use
+// Tiny request-introspection helpers shared by `connection-handler.ts`,
+// `verify-client-orchestrator.ts`, and the HTTP upload transport
+// (`upload/http-handler.ts`). Factored out so every extraction site uses
 // the same implementation — drift between them would mean the verify-
 // time "rejected" log and the connect-time "client connected" log
-// surface inconsistent `clientIp` / `token` values for the same request.
+// surface inconsistent `clientIp` / `token` values for the same request,
+// and the consumer's ONE `verifyClient` would see a different `clientIp`
+// shape per transport.
 //
-// Stateless, no dependencies — leaf module. Both call sites import
+// Stateless, no dependencies — leaf module. All call sites import
 // these instead of mirroring the implementation inline.
 
 import type { IncomingMessage } from "http";

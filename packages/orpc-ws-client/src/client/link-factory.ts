@@ -40,6 +40,30 @@ import type ReconnectingWebSocket from "partysocket/ws";
 import { type Logger, noopLogger } from "@orpc-ws/shared";
 
 /**
+ * Thrown by `LinkFactory.getLink()` when the current WebSocket exists but
+ * has not reached `OPEN` — an RPC was attempted in the window between a
+ * connection state change and the socket actually being usable (or after
+ * a drop that the state layer hasn't reported yet).
+ *
+ * TYPED (and publicly exported from the package root) so adapters can
+ * classify it as TRANSIENT rather than a real failure: the client
+ * re-establishes the socket on its own, and the caller's next attempt
+ * after the `connected` flip succeeds. `@orpc-ws/react`'s
+ * `useWsSubscription` suppresses it the same way it suppresses
+ * `AbortError` (matching on `name` — stable across package copies /
+ * dual-format loads, same rationale as its AbortError name-match).
+ *
+ * The message is preserved verbatim from the pre-typed plain `Error` so
+ * log-grepping consumers see the same string.
+ */
+export class LinkNotReadyError extends Error {
+  constructor() {
+    super("[LinkFactory] WebSocket not ready");
+    this.name = "LinkNotReadyError";
+  }
+}
+
+/**
  * Manages lazy initialization of `RPCLink` with the current WebSocket
  * instance. Single responsibility: own the cache lifecycle (create-on-demand,
  * reuse, explicit invalidation).
@@ -79,6 +103,8 @@ export class LinkFactory {
    *   - no WebSocket has been set on the holder (composition wiring error);
    *   - the WebSocket is not in `OPEN` state (caller attempted an RPC
    *     before the open handshake — typically a race in consumer code).
+   *     This one is the typed {@link LinkNotReadyError} so callers can
+   *     classify the establishment race as transient.
    *
    * The error messages are verbatim from the source so app-level callers
    * grepping logs see the same strings after the lift.
@@ -95,7 +121,7 @@ export class LinkFactory {
       );
     }
     if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error("[LinkFactory] WebSocket not ready");
+      throw new LinkNotReadyError();
     }
 
     // Pass the partysocket wrapper, NOT ws._ws (the native socket).

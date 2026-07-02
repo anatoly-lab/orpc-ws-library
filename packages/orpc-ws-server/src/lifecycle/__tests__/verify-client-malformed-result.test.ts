@@ -93,6 +93,20 @@ describe("VerifyClientOrchestrator — malformed-result shape guard (fail-closed
     expect(orch.getAuthForRequest(req)).toBeUndefined();
   });
 
+  it("ok: true with an EXPLICITLY-undefined user: rejected 500, no stash", async () => {
+    // The `"user" in r` presence check alone accepted this shape — the
+    // property exists, but its value is `undefined`, so the literal-
+    // undefined registry key (JSON.stringify(undefined) === undefined)
+    // stayed reachable. The guard now also requires `user !== undefined`,
+    // fixing BOTH transports at once via the shared helper.
+    const orch = orchestratorResolving({ ok: true, user: undefined });
+
+    const { req, callback } = await runUpgrade(orch);
+
+    expect(callback).toHaveBeenCalledWith(false, 500, "Internal server error");
+    expect(orch.getAuthForRequest(req)).toBeUndefined();
+  });
+
   it("non-object resolved values (undefined / null / boolean): rejected 500, no stash", async () => {
     for (const value of [undefined, null, true]) {
       const orch = orchestratorResolving(value);

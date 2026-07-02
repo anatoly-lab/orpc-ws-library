@@ -23,7 +23,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type ReconnectingWebSocket from "partysocket/ws";
 
-import { LinkFactory } from "../link-factory.js";
+import { LinkFactory, LinkNotReadyError } from "../link-factory.js";
 
 // ---------- Fakes ----------
 
@@ -167,6 +167,26 @@ describe("LinkFactory — error paths", () => {
     const wrapper = makeWrapperLike({ readyState: WebSocket.CONNECTING });
     const factory = new LinkFactory(() => wrapper);
     expect(() => factory.getLink()).toThrow(/WebSocket not ready/);
+  });
+
+  it("the not-OPEN throw is the TYPED LinkNotReadyError (name-classifiable as transient)", () => {
+    // Adapters classify the establishment race by this type/name (e.g.
+    // `useWsSubscription` suppresses it like an AbortError) — pre-typing
+    // it was a plain `Error` and the race surfaced as a real failure.
+    const wrapper = makeWrapperLike({ readyState: WebSocket.CLOSING });
+    const factory = new LinkFactory(() => wrapper);
+    try {
+      factory.getLink();
+      expect.unreachable("getLink() must throw on a non-OPEN socket");
+    } catch (err) {
+      expect(err).toBeInstanceOf(LinkNotReadyError);
+      expect(err).toBeInstanceOf(Error);
+      // The NAME is the cross-package-copy-stable discriminator the react
+      // adapter matches on — pin it independently of the class identity.
+      expect((err as Error).name).toBe("LinkNotReadyError");
+      // Message preserved verbatim from the pre-typed plain Error.
+      expect((err as Error).message).toBe("[LinkFactory] WebSocket not ready");
+    }
   });
 });
 

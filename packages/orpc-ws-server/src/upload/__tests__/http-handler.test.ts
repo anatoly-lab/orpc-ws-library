@@ -14,6 +14,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage, ServerResponse } from "http";
+import { Readable } from "stream";
 import { os } from "@orpc/server";
 
 import {
@@ -333,6 +334,53 @@ describe("HTTP handler: pre-handle verifyClient", () => {
     expect(verify).toHaveBeenCalledOnce();
     expect(verify.mock.calls[0]?.[0].token).toBeNull();
     expect(written.statusCode).toBe(401);
+  });
+
+  // An unmatched request delegated to `next()` must look UNTOUCHED to
+  // downstream middleware. The handler rewrites `req.url` /
+  // `req.originalUrl` (prefix-strip) before `rpcHandler.handle`; pre-fix
+  // it called `next()` without restoring them, so Express saw a silently
+  // rewritten URL and downstream route matching broke.
+  it("restores req.url and req.originalUrl before delegating an unmatched request to next()", async () => {
+    const server = new OrpcWsServer<TestUser, { ping: unknown }>({
+      router: { ping: os.handler(async () => "pong") },
+      verifyClient: okVerify,
+      uploads: { enabled: true, httpPath: "/upload" },
+    });
+    const handler = server.getHttpHandler()!;
+
+    // A real Readable underneath so ORPC's Node adapter can treat it as an
+    // IncomingMessage; `/upload/nope` passes the prefix-strip but matches
+    // no procedure, driving the `matched: false` → next() path. Express
+    // shape: originalUrl carries the un-stripped URL too.
+    const req = Object.assign(new Readable({ read() {} }), {
+      headers: { authorization: "Bearer tok", host: "test.local" },
+      url: "/upload/nope",
+      originalUrl: "/upload/nope",
+      method: "POST",
+      socket: { remoteAddress: "127.0.0.1" },
+    }) as unknown as IncomingMessage & { originalUrl?: string };
+    const res = {
+      headersSent: false,
+      statusCode: 200,
+      setHeader: vi.fn(),
+      once: vi.fn(),
+      end: vi.fn(),
+    } as unknown as ServerResponse;
+    const next = vi.fn();
+
+    handler(req, res, next);
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    // Delegated as a clean pass-through (no error argument)…
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next.mock.calls[0]).toEqual([]);
+    // …with BOTH url fields restored to what the request arrived with.
+    expect(req.url).toBe("/upload/nope");
+    expect(req.originalUrl).toBe("/upload/nope");
+    // And no response was written by us — downstream owns it now.
+    expect(res.end).not.toHaveBeenCalled();
   });
 
   // BUG-9 — the 401 reject must tear down the inbound stream: the client

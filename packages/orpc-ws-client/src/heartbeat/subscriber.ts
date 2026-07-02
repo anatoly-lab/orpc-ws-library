@@ -523,16 +523,22 @@ export class HeartbeatSubscriber {
         }
       }
     } finally {
-      // If this loop is the active one, detach. A `subscribe()` that
-      // raced ahead of us will already have overwritten these fields,
-      // so guard the detach so we don't trample the new subscription.
+      // If this loop is still the active one, detach BOTH fields. A
+      // `subscribe()` that raced ahead of us (higher generation) already
+      // nulled/overwrote them — guard so we don't trample the new
+      // subscription. `abortController` is compared by identity;
+      // `activeLoop` can't be (a loop has no reference to its own
+      // promise), so the generation counter is its ownership check.
+      // Nulling `activeLoop` here matters beyond hygiene: an exited loop
+      // left in the field would retain its closure (link, stream refs)
+      // for the life of the subscriber. It does NOT break `subscribe()`'s
+      // await-barrier — a null field just means "no live loop to await",
+      // which is exactly true once this finally runs.
       if (this.abortController === controller) {
         this.abortController = null;
       }
-      if (this.activeLoop && this.activeLoop !== Promise.resolve()) {
-        // Best-effort detach; the only consumer of `activeLoop` is the
-        // `subscribe()` re-entry barrier, which has already awaited us
-        // by the time this finally runs.
+      if (this.generation === gen) {
+        this.activeLoop = null;
       }
     }
   }

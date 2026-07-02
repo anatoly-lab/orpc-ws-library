@@ -151,11 +151,12 @@ reconnects it re-subscribes automatically. Aborts from teardown are
 suppressed — they never reach `error` or `onError` — and so is the
 abort-shaped rejection a connection drop itself produces on the in-flight
 stream: a mid-stream reconnect blip cycles `active → idle → active` without
-flashing `status: "error"` or firing `onError`. One narrow exception: a drop
-landing in the window between the connected render and the subscribe effect
-rejects with a non-abort "WebSocket not ready" error, so that race does
-surface one `error` flash (and `onError`) — it self-heals on the next
-reconnect (`error → idle → active`).
+flashing `status: "error"` or firing `onError`. The same goes for a drop
+landing in the window between the connected render and the subscribe effect:
+the client core rejects that race with its typed `LinkNotReadyError`
+(exported from `@orpc-ws/client`), which the hook also suppresses as
+transient — no `error` flash, no `onError`; it self-heals silently on the
+next reconnect (`active → idle → active`).
 
 ## Construct-and-own provider — `<OrpcWs>`
 
