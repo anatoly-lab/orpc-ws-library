@@ -264,53 +264,67 @@ export class ConnectionHandler<TUser> {
     // Sync from here to `upgrade()` — see file header.
     this.registry.register(connectionKey, ws, user, client);
 
-    // RPCHandler.upgrade returns a Promise<unknown> that resolves on WS
-    // disconnect. We intentionally do NOT await it: doing so would block
-    // this handler indefinitely. The 'close' handler below takes care of
-    // cleanup. The `void` discards the dangling promise for the linter's
-    // peace of mind.
-    void this.rpcHandler.upgrade(c2sSocket, { context: { user, token } });
+    // `let` (not the previous `const` ternary) so the rollback in the
+    // catch below can clear a watchdog that was armed before a later
+    // step threw. Reassigned once, inside the try.
+    let clearExpiryTimer: () => void = () => {
+      // No expiry watchdog armed (yet) — nothing to clear.
+    };
+    // Everything from here to the end of `wireLifecycle` runs AFTER the
+    // registry holds this connection but BEFORE the 'close' handler that
+    // unregisters it exists — a sync throw in that window would leak the
+    // entry FOREVER. Roll back, then rethrow to the composition root's
+    // 'connection' guard (index.ts), which logs and drops the socket.
+    // See `rollbackFailedWiring` for why rollback beats reordering.
+    try {
+      // RPCHandler.upgrade returns a Promise<unknown> that resolves on WS
+      // disconnect. We intentionally do NOT await it: doing so would block
+      // this handler indefinitely. The 'close' handler below takes care of
+      // cleanup. The `void` discards the dangling promise for the linter's
+      // peace of mind.
+      void this.rpcHandler.upgrade(c2sSocket, { context: { user, token } });
 
-    if (this.pingPong) {
-      this.pingPong.register(ws, user);
+      if (this.pingPong) {
+        this.pingPong.register(ws, user);
+      }
+
+      // API-4 token-expiry watchdog (opt-in, default off). Scheduling is
+      // sync (clock.setTimeout), so the file-header sync contract holds.
+      // The verifier surfaced `expiresAt` in epoch ms (same unit as
+      // `clock.now()`); a token already past expiry gets a 0ms timer —
+      // verifyClient accepted it, so `exp` skew is the verifier's call,
+      // not ours to second-guess.
+      //
+      // `armTokenExpiryWatchdog` owns the 32-bit-ceiling re-arm logic (see
+      // that module). The canceller it returns is threaded into
+      // `wireLifecycle` as `clearExpiryTimer`, so the 'close' handler — the
+      // same teardown path that unregisters ping/pong — clears whichever
+      // (possibly re-armed) segment is currently pending. When the watchdog
+      // is off, `clearExpiryTimer` stays the no-op above.
+      if (this.enforceTokenExpiry && typeof auth.expiresAt === "number") {
+        clearExpiryTimer = armTokenExpiryWatchdog(
+          {
+            clock: this.clock,
+            authFailedCloseCode: this.authFailedCloseCode,
+            logger: this.logger,
+          },
+          { ws, expiresAt: auth.expiresAt, connectionKey },
+        );
+      }
+
+      this.wireLifecycle({
+        ws,
+        connectionKey,
+        user,
+        clientIp,
+        clearExpiryTimer,
+        client,
+        disposeBidi,
+      });
+    } catch (err) {
+      this.rollbackFailedWiring({ connectionKey, ws, clearExpiryTimer, disposeBidi });
+      throw err;
     }
-
-    // API-4 token-expiry watchdog (opt-in, default off). Scheduling is
-    // sync (clock.setTimeout), so the file-header sync contract holds.
-    // The verifier surfaced `expiresAt` in epoch ms (same unit as
-    // `clock.now()`); a token already past expiry gets a 0ms timer —
-    // verifyClient accepted it, so `exp` skew is the verifier's call,
-    // not ours to second-guess.
-    //
-    // `armTokenExpiryWatchdog` owns the 32-bit-ceiling re-arm logic (see
-    // that module). The canceller it returns is threaded into
-    // `wireLifecycle` as `clearExpiryTimer`, so the 'close' handler — the
-    // same teardown path that unregisters ping/pong — clears whichever
-    // (possibly re-armed) segment is currently pending. When the watchdog
-    // is off, `clearExpiryTimer` stays the no-op below.
-    const clearExpiryTimer =
-      this.enforceTokenExpiry && typeof auth.expiresAt === "number"
-        ? armTokenExpiryWatchdog(
-            {
-              clock: this.clock,
-              authFailedCloseCode: this.authFailedCloseCode,
-              logger: this.logger,
-            },
-            { ws, expiresAt: auth.expiresAt, connectionKey },
-          )
-        : () => {
-            // No expiry watchdog armed — nothing to clear.
-          };
-
-    this.wireLifecycle({
-      ws,
-      connectionKey,
-      user,
-      clientIp,
-      clearExpiryTimer,
-      client,
-      disposeBidi,
-    });
   }
 
   /**
@@ -360,24 +374,34 @@ export class ConnectionHandler<TUser> {
 
     this.registry.register(connectionKey, ws, noUser, client);
 
-    // Empty context — the consumer's procedures run with `{}`. Same
-    // non-awaited upgrade as the authed path (promise resolves on
-    // disconnect; the 'close' handler does cleanup).
-    void this.rpcHandler.upgrade(c2sSocket, { context: {} });
+    // No expiry watchdog in authless mode — nothing to clear. Shared by
+    // `wireLifecycle` and the rollback below.
+    const clearExpiryTimer = (): void => {
+      // no-op
+    };
+    // Same registered-but-not-yet-wired leak window as `handle` — see
+    // `rollbackFailedWiring`.
+    try {
+      // Empty context — the consumer's procedures run with `{}`. Same
+      // non-awaited upgrade as the authed path (promise resolves on
+      // disconnect; the 'close' handler does cleanup).
+      void this.rpcHandler.upgrade(c2sSocket, { context: {} });
 
-    this.pingPong.register(ws, noUser);
+      this.pingPong.register(ws, noUser);
 
-    this.wireLifecycle({
-      ws,
-      connectionKey,
-      user: noUser,
-      clientIp: undefined,
-      clearExpiryTimer: () => {
-        // No expiry watchdog in authless mode — nothing to clear.
-      },
-      client,
-      disposeBidi,
-    });
+      this.wireLifecycle({
+        ws,
+        connectionKey,
+        user: noUser,
+        clientIp: undefined,
+        clearExpiryTimer,
+        client,
+        disposeBidi,
+      });
+    } catch (err) {
+      this.rollbackFailedWiring({ connectionKey, ws, clearExpiryTimer, disposeBidi });
+      throw err;
+    }
   }
 
   /**
@@ -495,6 +519,69 @@ export class ConnectionHandler<TUser> {
         });
       }
     }
+  }
+
+  /**
+   * Roll the partially-wired connection state back when the sync
+   * pipeline throws AFTER `registry.register`. Without this, the throw
+   * would leak the registry entry permanently: the 'close' handler that
+   * normally unregisters it is attached in `wireLifecycle`, which may
+   * not have run — so nothing would EVER remove the entry (and a stale
+   * `getConnection` / `closeUser` would keep resolving a dead socket).
+   *
+   * WHY rollback rather than moving `register` to the end of the
+   * pipeline: the register step carries the session-replacement kick,
+   * and its position (step 3, before `upgrade()`) is part of the
+   * file-header sync pipeline preserved verbatim from the source
+   * gateway. Reordering would change the kick/upgrade ordering that
+   * pipeline documents for every connection just to serve a defensive
+   * failure path; rolling back keeps the happy path byte-identical.
+   *
+   * `unregisterIfSame` (identity-guarded), never a blind delete — same
+   * Bug-9 reasoning as the 'close' handler: if this socket was ALREADY
+   * replaced by a newer connection for the same key before the throw
+   * surfaced, we must not wipe the newer entry. `pingPong.unregister`
+   * and `clearExpiryTimer` are both idempotent no-ops when the step
+   * that arms them never ran. The caller rethrows; the composition
+   * root's 'connection' guard owns the socket teardown + logging.
+   *
+   * Known, accepted wrinkle: if the throw happened inside
+   * `wireLifecycle` AFTER `ws.on("close")` was attached (realistically
+   * only the injected logger's connect log throwing), the eventual
+   * close event still fires `onDisconnected` for a connection whose
+   * `onConnected` never ran. Pairing the hooks would need wired-state
+   * tracking — more machinery than this throwing-logger-only path
+   * deserves — and the close handler's teardown is harmless by then
+   * (`unregisterIfSame` is identity-guarded, the rest idempotent), so
+   * we document rather than suppress it.
+   */
+  private rollbackFailedWiring(args: {
+    connectionKey: string;
+    ws: WebSocket;
+    clearExpiryTimer: () => void;
+    disposeBidi: (() => void) | undefined;
+  }): void {
+    // Unregister FIRST: it touches only our own Map (cannot throw) and
+    // is the one step that MUST run — skipping it recreates the exact
+    // leaked-entry bug this rollback exists to fix. Every step that
+    // touches an untrusted seam comes after it.
+    this.registry.unregisterIfSame(args.connectionKey, args.ws);
+    // `clearExpiryTimer` calls the consumer-injected Clock's
+    // clearTimeout — an untrusted seam. Guard it so a throwing Clock can
+    // neither skip the remaining teardown nor mask the original pipeline
+    // error the caller is about to rethrow.
+    try {
+      args.clearExpiryTimer();
+    } catch (err) {
+      this.logger.warn(
+        "connection-handler: clearExpiryTimer threw during rollback",
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+    }
+    this.pingPong.unregister(args.ws);
+    // Mirrors the 'close' handler's bidi teardown — rejects any pending
+    // server→client calls on the mux. No-op when bidi is off.
+    args.disposeBidi?.();
   }
 
   /**

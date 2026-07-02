@@ -168,7 +168,13 @@ export class VerifyClientOrchestrator<TUser> {
    *
    * The "unexpected throw" branch maps to 500 + a non-revealing reason
    * — the consumer's verify shouldn't throw (the discriminated union is
-   * the documented contract), but a thrown error doesn't crash the server.
+   * the documented contract), but a thrown error doesn't crash the
+   * server. That promise covers BOTH escape routes: an async rejection
+   * AND a synchronous throw from a plain-JS non-async verify (e.g.
+   * `jwt.decode` throwing on a garbage `?token=`). `ws` v8 does NOT wrap
+   * its verifyClient call site, so an unguarded sync throw would escape
+   * the HTTP server's `'upgrade'` emit as an uncaughtException — an
+   * attacker-triggerable process crash.
    */
   buildWsVerifyClient(): WsVerifyClientFn {
     return (info, callback) => {
@@ -181,7 +187,36 @@ export class VerifyClientOrchestrator<TUser> {
       const origin = info.origin ?? "";
       const secure = info.secure;
 
-      this.verify({ req, token, clientIp, origin, secure })
+      // Fail-closed reject, shared by the sync-throw and async-rejection
+      // paths — identical wire behavior (pre-101 HTTP 500) either way.
+      const failClosed = (err: unknown): void => {
+        this.logger.error("verify-client: consumer verify threw", {
+          error: err instanceof Error ? err.message : String(err),
+          clientIp,
+        });
+        callback(false, 500, "Internal server error");
+      };
+
+      // The INVOCATION is guarded, not just the returned promise: only a
+      // rejection reaches `.catch`, so a sync throw from an untyped
+      // consumer's non-async verify would otherwise crash the process
+      // (see docstring).
+      let pending: Promise<VerifyClientResult<TUser>>;
+      try {
+        // Promise.resolve also legalizes a plain-JS verify returning the
+        // result object directly (non-thenable): it's treated exactly as
+        // an already-resolved promise instead of exploding on
+        // `.then is not a function`. The typed contract still promises a
+        // Promise (see VerifyClient); this is runtime hardening only.
+        pending = Promise.resolve(
+          this.verify({ req, token, clientIp, origin, secure }),
+        );
+      } catch (err) {
+        failClosed(err);
+        return;
+      }
+
+      pending
         .then((result) => {
           if (result.ok) {
             this.authByReq.set(req, result);
@@ -195,13 +230,7 @@ export class VerifyClientOrchestrator<TUser> {
           });
           callback(false, result.code, result.reason);
         })
-        .catch((err: unknown) => {
-          this.logger.error("verify-client: consumer verify threw", {
-            error: err instanceof Error ? err.message : String(err),
-            clientIp,
-          });
-          callback(false, 500, "Internal server error");
-        });
+        .catch(failClosed);
     };
   }
 

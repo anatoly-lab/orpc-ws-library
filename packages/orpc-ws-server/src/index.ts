@@ -613,7 +613,47 @@ export class OrpcWsServer<
     }
 
     this.wss.on("connection", (ws, req) => {
-      this.connectionHandler.handle(ws, req);
+      // `ws` does NOT wrap this listener — a sync throw in `handle()`
+      // (e.g. a circular `TUser` making `deriveConnectionKey`'s
+      // JSON.stringify throw, or `rpcHandler.upgrade`'s sync step)
+      // escaped, pre-fix, with a DIFFERENT failure mode per mode (traced
+      // in ws 8.21.0 dist):
+      //
+      //   - AUTHLESS: no `verifyClient`, so `completeUpgrade` — and this
+      //     'connection' emit — runs synchronously inside the HTTP
+      //     server's 'upgrade' emit. The throw surfaced as an
+      //     uncaughtException and killed the process.
+      //   - AUTHED: `completeUpgrade` is invoked from our verify callback
+      //     inside the orchestrator's `.then` continuation, so the throw
+      //     propagated into that `.then`, was swallowed by the
+      //     orchestrator's own `.catch` (logging a misleading "consumer
+      //     verify threw"), and fired the ws callback a SECOND time —
+      //     `abortHandshake` then wrote a raw `HTTP/1.1 500` onto the
+      //     already-upgraded (101) socket: protocol garbage at the
+      //     client, though not a process crash.
+      //
+      // This guard closes BOTH: log, drop this socket, keep serving
+      // everyone else. The handler rolls its own registry / ping-pong
+      // state back before rethrowing (see ConnectionHandler), so this
+      // guard owns only the socket teardown.
+      try {
+        this.connectionHandler.handle(ws, req);
+      } catch (err) {
+        this.logger.error("orpc-ws-server: connection handler threw", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        try {
+          ws.close(1011, "Internal server error");
+        } catch {
+          // close() itself can throw on a socket in a bad state —
+          // hard-drop then (same fallback as the NFI-4 shutdown path).
+          try {
+            ws.terminate();
+          } catch {
+            // best-effort
+          }
+        }
+      }
     });
 
     this.wss.on("error", (err: Error) => {
