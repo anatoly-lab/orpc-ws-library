@@ -157,6 +157,37 @@ global `fetch` / system clock / noop logger).
   are set after and **always win**, so a consumer cannot clobber the
   PKCE / state / redirect / scope params.
 
+## Multi-instance deployments: refresh is single-flighted per PROCESS
+
+> **Warning — refresh-token rotation across instances.** The lazy refresh is
+> single-flighted **per process only**: a per-`sid` in-flight promise map
+> inside the refresh manager, not a distributed lock. Two app instances
+> behind a load balancer can refresh the **same session concurrently** —
+> and with refresh-token **rotation** enabled at the IdP (e.g. Keycloak
+> `revokeRefreshToken=true`), only one rotation wins. The losing instance
+> can then persist an **already-invalidated** refresh token to your
+> `SessionStore`; the next refresh fails terminally and the user is
+> **silently logged out**.
+
+Where you stand:
+
+- **Single instance** — fine. The in-process single-flight covers every
+  concurrent caller; nothing to do.
+- **Multiple instances, rotation OFF** — fine. Concurrent refreshes both
+  succeed and the prior refresh token stays valid, so a stale write is
+  harmless.
+- **Multiple instances, rotation ON** — **you need your own cross-instance
+  coordination.** Wrap refresh in a distributed lock keyed by `sid` (Redis
+  `SET NX`, a Postgres advisory lock, …) so only one instance refreshes a
+  session at a time — or turn rotation off for this client at the IdP.
+
+The library deliberately does **not** solve this: cross-instance
+coordination is the consumer's job, the same category as revocation
+fan-out (§G of the design doc). Note this is a *different* race from the
+slide-vs-refresh clobber that `SessionStore.touch` closes — `touch` keeps
+the sliding window from rolling back a refresh's freshly-rotated tokens
+within one instance; refresh-vs-refresh across instances needs the lock.
+
 ## Security notes
 
 - **`__Host-`-prefixed session cookie.** `Secure` + `httpOnly` +

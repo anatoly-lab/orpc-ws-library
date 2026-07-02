@@ -79,6 +79,19 @@ socket) and for `closeUser()` lookups. Usually the user's `sub` claim,
 but any stable string works. Omitting it disables both features for
 that connection.
 
+### `verifyTimeoutMs`
+
+Upper bound in ms on the `verifyClient` promise settling. Default
+`30_000`; `0` (or any non-positive value) disables the bound. It exists
+because [`ws`] never times its verifyClient callback out — a verify that
+never settles (a stuck JWKS or DB lookup with no timeout of its own)
+would otherwise pin the pending upgrade socket forever. On timeout the
+upgrade **fails closed** exactly like a thrown verify (pre-101 HTTP
+500), and the eventual late settlement — resolve or reject — is
+ignored. Timed on the injected `clock`. Not applicable to
+[authless mode](#authless-mode), which runs no verifier (the option is
+absent from `AuthlessOrpcWsServerOptions`).
+
 ### Token lifetime on live connections
 
 Auth runs **once**, pre-101. By default a connection authenticated with
@@ -245,6 +258,10 @@ Library owns heartbeat via two independent paths:
 1. **ORPC stealth procedure** at `__orpc_ws_lib__.heartbeat` — server
    publishes `config` + `ping` events, client subscribes via
    `link.call`, feeds a watchdog. Catches application-layer stalls.
+   One live subscription per connection, last-wins: a second heartbeat
+   subscription on the same connection gracefully ends the first (the
+   library's own client aborts before resubscribing, so it never
+   triggers this).
 2. **WS-protocol ping/pong** — kernel-level dead-socket detection.
    Missing two pongs → terminate.
 

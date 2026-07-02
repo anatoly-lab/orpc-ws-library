@@ -879,6 +879,24 @@ consumes would cause pointless reconnect churn at scale.
 SSO-scoped (not offline), so when Keycloak's session truly ends, the next refresh
 **FAILS terminally** → our session ends. We cannot outlive or undercut Keycloak.
 
+> **AS BUILT — single-flight is per PROCESS, not per deployment.** The
+> single-flight lives in `oidc/refresh.ts` (`RefreshManager`) as a per-`sid`
+> in-flight promise map — an in-memory structure, not a distributed lock. Two
+> app instances behind a load balancer can therefore refresh the **same
+> session concurrently**, and with refresh-token **rotation** enabled at the
+> IdP the losing instance's write can persist an **already-invalidated**
+> refresh token → the next refresh fails terminal → premature silent logout.
+> (This is refresh-vs-refresh **across instances** — a different race from
+> the slide-vs-refresh clobber that `SessionStore.touch` closes in §E.1.)
+> This is **deliberately NOT fixed** in the core: cross-instance coordination
+> is the consumer's job, the same category as the revocation fan-out
+> transport in §G. For this app's realm it is moot anyway
+> (`revokeRefreshToken=false`, no rotation — see F.2). A consumer that runs
+> multi-instance **with** rotation must wrap refresh in its own distributed
+> lock keyed by `sid` (or turn rotation off); if a consumer ever needs it,
+> the natural library evolution is an **optional injectable lock seam**
+> around `RefreshManager.refresh` — purely additive, no public-API break.
+
 ### F.3 Documented fallback (NOT chosen) — `enforce-expiry`
 
 For completeness only: an app that **does** need to forward the user's access
