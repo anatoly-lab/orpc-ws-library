@@ -22,7 +22,11 @@ FROM node:22.22-alpine AS base
 # Alpine's bundled corepack predates the npm signing-key rotation and fails
 # "Cannot find matching keyid" on recent pnpm releases — update it first.
 RUN npm i -g corepack@latest && corepack enable
-RUN npm i -g turbo@2
+# Pin to the exact repo devDep version: `turbo prune` here rewrites turbo.json
+# with the resolved config (futureFlags expanded), and the builder's local turbo
+# (delegated to by the global shim) fails-closed on keys it doesn't know — an
+# unpinned `turbo@2` skews the two the day a new 2.x ships.
+RUN npm i -g turbo@2.10.4
 WORKDIR /app
 
 # ── pruner ────────────────────────────────────────────────────────────
