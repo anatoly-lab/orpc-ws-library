@@ -1,5 +1,12 @@
 # @orpc-ws/cookie-bff
 
+## 0.11.0
+
+### Patch Changes
+
+- @orpc-ws/shared@0.11.0
+- @orpc-ws/server@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes

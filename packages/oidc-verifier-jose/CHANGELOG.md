@@ -1,5 +1,11 @@
 # @orpc-ws/oidc-verifier-jose
 
+## 0.11.0
+
+### Patch Changes
+
+- @orpc-ws/server@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes
