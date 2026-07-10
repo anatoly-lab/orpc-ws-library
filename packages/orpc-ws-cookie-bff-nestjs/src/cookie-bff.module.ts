@@ -45,6 +45,7 @@ import {
   createCookieVerifyClient,
   type SessionStore,
 } from "@orpc-ws/cookie-bff";
+import type { AnyContractRouter } from "@orpc-ws/server";
 import { OrpcWsModule, type OrpcWsModuleOptions } from "@orpc-ws/server-nestjs";
 
 import { CookieBffAuthController } from "./auth.controller.js";
@@ -53,19 +54,29 @@ import { COOKIE_BFF_CORE, COOKIE_BFF_OPTIONS } from "./cookie-bff.tokens.js";
 import type { CookieBffModuleOptions } from "./cookie-bff.options.js";
 
 /** `forRootAsync` arg — mirrors Nest's async-options convention. */
-export interface CookieBffModuleAsyncOptions<TUser = unknown> {
+export interface CookieBffModuleAsyncOptions<
+  TUser = unknown,
+  TContract extends object = object,
+  TClientContract extends AnyContractRouter = never,
+> {
   imports?: DynamicModule["imports"];
   inject?: ReadonlyArray<unknown>;
   useFactory: (
     ...args: never[]
-  ) => CookieBffModuleOptions<TUser> | Promise<CookieBffModuleOptions<TUser>>;
+  ) =>
+    | CookieBffModuleOptions<TUser, TContract, TClientContract>
+    | Promise<CookieBffModuleOptions<TUser, TContract, TClientContract>>;
 }
 
 @Module({})
 export class CookieBffModule {
   /** Synchronous config — a literal options object (rare; async is primary). */
-  static forRoot<TUser = unknown>(
-    options: CookieBffModuleOptions<TUser>,
+  static forRoot<
+    TUser = unknown,
+    TContract extends object = object,
+    TClientContract extends AnyContractRouter = never,
+  >(
+    options: CookieBffModuleOptions<TUser, TContract, TClientContract>,
   ): DynamicModule {
     const optionsModule = makeOptionsModule({
       providers: [{ provide: COOKIE_BFF_OPTIONS, useValue: options }],
@@ -78,8 +89,12 @@ export class CookieBffModule {
    * store / config. The factory's resolved options drive BOTH the `/auth/*`
    * core AND the internal `OrpcWsModule` verifier bridge.
    */
-  static forRootAsync<TUser = unknown>(
-    async: CookieBffModuleAsyncOptions<TUser>,
+  static forRootAsync<
+    TUser = unknown,
+    TContract extends object = object,
+    TClientContract extends AnyContractRouter = never,
+  >(
+    async: CookieBffModuleAsyncOptions<TUser, TContract, TClientContract>,
   ): DynamicModule {
     const optionsModule = makeOptionsModule({
       imports: async.imports ?? [],
@@ -180,6 +195,9 @@ function toOrpcWsOptions(opts: CookieBffModuleOptions): OrpcWsModuleOptions {
     verifyClient,
     // enforceTokenExpiry stays OFF (the WS pipe follows the SESSION window,
     // not the access token — §F.1). We never set it here.
+    // Server→client RPC ("bidi"): forward the client contract VALUE unchanged.
+    // Its PRESENCE (not its type) is what flips bidi on in the core factory.
+    ...(opts.clientContract ? { clientContract: opts.clientContract } : {}),
     ...(opts.connection ? { connection: opts.connection } : {}),
     ...(opts.heartbeat ? { heartbeat: opts.heartbeat } : {}),
     ...(opts.interceptors ? { interceptors: opts.interceptors } : {}),

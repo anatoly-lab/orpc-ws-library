@@ -498,7 +498,13 @@ importers:
       '@nestjs/testing':
         specifier: 11.1.27
         version: 11.1.27(@nestjs/common@11.1.27(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.27)(@nestjs/platform-express@11.1.27)
+      '@orpc-ws/client':
+        specifier: workspace:*
+        version: link:../orpc-ws-client
       '@orpc/client':
+        specifier: 1.14.6
+        version: 1.14.6
+      '@orpc/contract':
         specifier: 1.14.6
         version: 1.14.6
       '@orpc/server':

@@ -19,6 +19,13 @@ export { CookieBffAuthController } from "./auth.controller.js";
 export { COOKIE_BFF_OPTIONS, COOKIE_BFF_CORE } from "./cookie-bff.tokens.js";
 export type { CookieBffModuleOptions } from "./cookie-bff.options.js";
 
+// Bidi (server→client RPC) contract constraint — re-exported so a bidi
+// consumer can annotate `CookieBffModuleOptions<TUser, TContract,
+// TClientContract>` / their `forRootAsync` factory return type without a
+// separate `@orpc-ws/server` import (same convenience the server-nestjs
+// adapter's index provides).
+export type { AnyContractRouter } from "@orpc-ws/server";
+
 // ── Re-exports from the core (§C.1 "adapter re-exports") ──
 export {
   createCookieBffCore,

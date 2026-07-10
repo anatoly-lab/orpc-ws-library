@@ -97,6 +97,96 @@ export class RevocationHandler {
 A sync `forRoot({...})` is also exported for the rare case where options need
 no Nest providers.
 
+## Server→client RPC (bidirectional)
+
+Opt in to the **reverse** direction — the server calls procedures the
+**client** hosts, over the same cookie-authed socket. It's additive: omit
+`clientContract` and the module is byte-identical to a one-way cookie-BFF
+server (no `conn.client`).
+
+Pass a `clientContract` (the client's contract router — what the client agrees
+to answer) and surface the third `TClientContract` generic on
+`CookieBffModuleOptions<TUser, TContract, TClientContract>`. The adapter
+forwards the value unchanged to the internal `OrpcWsModule`; its presence
+flips bidi on and gives every cookie-authed connection a typed `conn.client`
+caller:
+
+```ts
+import {
+  CookieBffModule,
+  type CookieBffModuleOptions,
+} from "@orpc-ws/cookie-bff-nestjs";
+import { clientContract, type ClientContract } from "./client-contract";
+import { appRouter } from "./router";
+
+CookieBffModule.forRootAsync({
+  inject: [SessionStore],
+  // ⚠️ ANNOTATE THE RETURN TYPE — see the caveat below. Without it the bidi
+  // generic collapses to `never` and `conn.client` silently disappears.
+  useFactory: (
+    sessionStore: SessionStore,
+  ): CookieBffModuleOptions<EnrichedUser, typeof appRouter, ClientContract> => ({
+    router: appRouter,
+    /* …the cookie/OIDC/session options from the Quickstart… */
+    clientContract,            // ← presence turns bidi on; drives `conn.client`'s type
+    hooks: {
+      onConnected: (conn) => {
+        // conn.client is the typed server→client caller.
+        void conn.client.showToast({ text: "Welcome!" });
+      },
+    },
+  }),
+});
+```
+
+Call it out-of-band later via the internal `OrpcWsModule`'s injectable
+`OrpcWsService` (its module is `@Global`, so the service resolves anywhere in
+the app; the `TClientContract` is supplied at the call site, since the
+injected provider is type-erased). The cookie verifier files each connection
+under `connectionKey = session.sub`, so the lookup key is the user's `sub`:
+
+```ts
+import { OrpcWsService } from "@orpc-ws/server-nestjs";
+
+@Injectable()
+export class BuildNotifier {
+  constructor(private readonly ws: OrpcWsService) {}
+  notify(sub: string): void {
+    void this.ws
+      .getConnection<ClientContract>(sub)
+      ?.client.showToast({ text: "Build done" });
+  }
+}
+```
+
+Browser-side, the counterpart is the React adapter's
+[`<OrpcWs clientContract>`](../orpc-ws-react/README.md) — pass the same
+contract's router value and the client hosts the answering procedures (bidi
+turns on iff the prop is present; no explicit generic).
+
+### Caveat — `forRootAsync` needs an annotated `useFactory` return type
+
+This bites **`forRootAsync` only** (same footgun as `OrpcWsModule`). `forRoot`
+takes the options literal directly, so `TClientContract` infers from the
+`clientContract` value you pass. `forRootAsync` takes a `useFactory` instead,
+and TypeScript's higher-order inference will **not** pull the third generic
+out of a bare (unannotated) factory return — it collapses `TClientContract` to
+`never`, so `conn.client` silently loses its typing (the property disappears)
+even though the runtime still wires bidi up. Annotate the factory's return
+type to make the generic flow:
+
+```ts
+useFactory: (): CookieBffModuleOptions<TUser, TContract, MyClientContract> => ({
+  /* … */
+});
+```
+
+(Runtime is unaffected either way; this is purely about preserving `.client`
+typing.) For the full bidi contract — including the trust-inversion threat
+model of letting the server invoke a client-hosted router — see
+[`@orpc-ws/server-nestjs` → Server→client RPC (bidirectional)](../orpc-ws-server-nestjs/README.md#serverclient-rpc-bidirectional)
+and [`@orpc-ws/server` → Server→client RPC (bidirectional)](../orpc-ws-server/README.md#serverclient-rpc-bidirectional).
+
 ## What the module wires
 
 `CookieBffModule` is the only module you install. Internally it:
@@ -105,8 +195,9 @@ no Nest providers.
 2. Configures `OrpcWsModule` from the **same** options, constructing the cookie
    `VerifyClient` (`createCookieVerifyClient`) and forwarding `router` plus the
    WS `connection` / `heartbeat` / `interceptors` / `rootInterceptors` /
-   `logger` passthroughs — and an optional `hooks?: AuthenticatedHooks<TUser>`
-   (WS connection-lifecycle hooks `onConnected` / `onDisconnected` / `onKicked`
+   `logger` passthroughs — and the optional `clientContract` (bidi, above) and
+   `hooks?: AuthenticatedHooks<TUser, TClientContract>` (WS
+   connection-lifecycle hooks `onConnected` / `onDisconnected` / `onKicked`
    / `onZombieTerminated`), forwarded verbatim to the internal `OrpcWsModule`.
    **This is the bridge** — the consumer never wires the WS verifier
    (Decision #23). If the adapter merely exported the verifier, every consumer

@@ -14,6 +14,7 @@
 
 import type { CookieBffOptions, EndpointOptions } from "@orpc-ws/cookie-bff";
 import type {
+  AnyContractRouter,
   AuthenticatedHooks,
   ConnectionConfig,
   HeartbeatConfig,
@@ -30,15 +31,23 @@ import type { Logger } from "@orpc-ws/shared";
  * `slideSessionOnActivity`, `resolveUser`, `spaRedirectUri`, `pkceStore?`,
  * etc. — all forwarded to `createCookieBffCore` unchanged. The fields below
  * are the adapter's additions, forwarded to the internal `OrpcWsModule`.
+ *
+ * The generic parameters mirror `OrpcWsModuleOptions<TUser, TContract,
+ * TClientContract>` from `@orpc-ws/server-nestjs`. All default so existing
+ * one-way consumers compile unchanged; `TClientContract` defaults to `never`
+ * (bidi OFF).
  */
-export interface CookieBffModuleOptions<TUser = unknown>
-  extends CookieBffOptions<TUser> {
+export interface CookieBffModuleOptions<
+  TUser = unknown,
+  TContract extends object = object,
+  TClientContract extends AnyContractRouter = never,
+> extends CookieBffOptions<TUser> {
   /**
    * The consumer's ORPC router — forwarded to `OrpcWsModule` (the cookie-BFF
    * adapter never has its own router; it owns only auth + the verifier
    * bridge). The library spreads its stealth heartbeat sub-router into it.
    */
-  router: object;
+  router: TContract;
 
   /**
    * Endpoint paths (`basePath`, `ws`). CURRENTLY IGNORED BY THIS ADAPTER —
@@ -64,9 +73,32 @@ export interface CookieBffModuleOptions<TUser = unknown>
    * WS connection-lifecycle hooks (`onConnected` / `onDisconnected` /
    * `onKicked` / `onZombieTerminated`) — forwarded to `OrpcWsModule`. These are
    * the WS-server hooks (NOT the `/auth/*`-flow `authEvents` on the core
-   * options); use them for connection-level observability in cookie-BFF.
+   * options); use them for connection-level observability in cookie-BFF. The
+   * hooks' `conn` carries a typed `client` server→client caller exactly when
+   * `clientContract` is supplied.
    */
-  hooks?: AuthenticatedHooks<TUser>;
+  hooks?: AuthenticatedHooks<TUser, TClientContract>;
+
+  /**
+   * Server→client RPC ("bidi") contract — the CLIENT's contract router (the
+   * procedures the browser agrees to answer). Forwarded UNCHANGED to the
+   * internal `OrpcWsModule`; its PRESENCE flips bidi on and gives every
+   * cookie-authed connection a typed `conn.client` caller (in `hooks` and via
+   * `OrpcWsService.getConnection(key)?.client`). Omit it and the module is
+   * byte-identical to a one-way cookie-BFF server (no `conn.client`).
+   *
+   * FOOTGUN (same as the core): the runtime switch is `clientContract`'s
+   * truthy presence (the adapter's forward and the core factory both gate on
+   * truthiness), while `conn.client`'s TYPE presence rides the
+   * `TClientContract` generic — the two are independent and TS can't bind
+   * them. Pass the VALUE
+   * and let the generic infer from it; never write the generic without also
+   * passing the value. On `forRootAsync`, ANNOTATE the `useFactory` return type
+   * (`CookieBffModuleOptions<TUser, TContract, ClientContract>`) or higher-order
+   * inference collapses `TClientContract` to `never` and `conn.client` silently
+   * disappears (runtime still wires bidi up).
+   */
+  clientContract?: TClientContract;
 
   /**
    * Logger seam. Forwarded to BOTH the core (`createCookieBffCore`, for the

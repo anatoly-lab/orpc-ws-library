@@ -36,7 +36,7 @@
   "scripts": {
     "build": "tshy",
     "prepublishOnly": "tshy",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test-types.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
@@ -57,7 +57,9 @@
     "@nestjs/core": "11.1.27",
     "@nestjs/platform-express": "11.1.27",
     "@nestjs/testing": "11.1.27",
+    "@orpc-ws/client": "workspace:*",
     "@orpc/client": "1.14.6",
+    "@orpc/contract": "1.14.6",
     "@orpc/server": "1.14.6",
     "@swc/core": "1.15.43",
     "@types/express": "5.0.6",
