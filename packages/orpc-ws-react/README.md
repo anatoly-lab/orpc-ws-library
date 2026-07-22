@@ -14,10 +14,11 @@ pass it to these hooks — this package imports nothing auth-related.
 ## Install
 
 ```bash
-npm install @orpc-ws/react @orpc-ws/client
+npm install @orpc-ws/react @orpc-ws/client @orpc/client @orpc/contract
 ```
 
-`react` (>=18) is a peer dependency.
+`react` (>=18) is a peer dependency, as are `@orpc/client` and
+`@orpc/contract` (`>=1.14.8 <2`).
 
 ```ts
 import { createOrpcWsClient, consoleLogger } from "@orpc-ws/client";

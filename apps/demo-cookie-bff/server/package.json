@@ -22,6 +22,8 @@
     "@orpc-ws/cookie-bff-nestjs": "workspace:*",
     "@orpc-ws/server-nestjs": "workspace:*",
     "@orpc-ws/shared": "workspace:*",
+    "@orpc/client": "1.14.8",
+    "@orpc/contract": "1.14.8",
     "@orpc/server": "1.14.8",
     "express": "5.2.1",
     "reflect-metadata": "0.2.2"

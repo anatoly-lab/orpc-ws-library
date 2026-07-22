@@ -16,6 +16,9 @@
     "@demo/authless-contract": "workspace:*",
     "@orpc-ws/client": "workspace:*",
     "@orpc-ws/react": "workspace:*",
+    "@orpc/client": "1.14.8",
+    "@orpc/contract": "1.14.8",
+    "@orpc/server": "1.14.8",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

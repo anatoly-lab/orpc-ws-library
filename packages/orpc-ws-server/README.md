@@ -9,11 +9,12 @@ instead — it wraps this core in Nest's lifecycle.
 ## Install
 
 ```bash
-npm install @orpc-ws/server
+npm install @orpc-ws/server @orpc/client @orpc/contract @orpc/server
 ```
 
-`ws` and `@orpc/server` are direct dependencies. You bring your own
-`http.Server`.
+`ws` is a direct dependency. `@orpc/client`, `@orpc/contract`, and
+`@orpc/server` are peer dependencies (`>=1.14.8 <2`) — you declare and
+install them yourself. You bring your own `http.Server`.
 
 ## Quickstart
 

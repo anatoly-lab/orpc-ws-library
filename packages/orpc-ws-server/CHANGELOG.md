@@ -1,5 +1,16 @@
 # @orpc-ws/server
 
+## 0.12.0
+
+### Minor Changes
+
+- BREAKING: `@orpc/client`, `@orpc/contract`, and `@orpc/server` are now peerDependencies (range `>=1.14.8 <2`) instead of dependencies. Consumers must declare these `@orpc/*` packages as direct dependencies at `>=1.14.8 <2`. This prevents two @orpc copies in one process — ORPC's version-keyed cross-copy `instanceof` shim would otherwise degrade typed ORPCErrors to a generic "Internal server error" when the consumer's @orpc version differs from the library's.
+
+### Patch Changes
+
+- Updated dependencies
+  - @orpc-ws/shared@0.12.0
+
 ## 0.11.1
 
 ### Patch Changes

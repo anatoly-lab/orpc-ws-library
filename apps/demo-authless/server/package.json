@@ -19,6 +19,8 @@
     "@nestjs/core": "11.1.28",
     "@nestjs/platform-express": "11.1.28",
     "@orpc-ws/server-nestjs": "workspace:*",
+    "@orpc/client": "1.14.8",
+    "@orpc/contract": "1.14.8",
     "@orpc/server": "1.14.8",
     "express": "5.2.1",
     "reflect-metadata": "0.2.2"

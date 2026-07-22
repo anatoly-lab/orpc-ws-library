@@ -17,6 +17,7 @@
   "devDependencies": {
     "@orpc-ws/client": "workspace:*",
     "@orpc-ws/server": "workspace:*",
+    "@orpc/client": "1.14.8",
     "@orpc/contract": "1.14.8",
     "@orpc/server": "1.14.8",
     "@playwright/test": "1.61.1",

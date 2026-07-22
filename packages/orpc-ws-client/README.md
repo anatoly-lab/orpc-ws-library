@@ -8,11 +8,14 @@ wrappers around a generic state contract.
 ## Install
 
 ```bash
-npm install @orpc-ws/client
+npm install @orpc-ws/client @orpc/client @orpc/contract @orpc/server
 ```
 
-This core has no framework dependency. For React bindings, install the
-sibling [`@orpc-ws/react`](../orpc-ws-react) adapter.
+`@orpc/client`, `@orpc/contract`, and `@orpc/server` are peer dependencies
+(`>=1.14.8 <2`) you must provide — this avoids two `@orpc` copies existing
+in one process, which would break typed error propagation. This core has
+no framework dependency. For React bindings, install the sibling
+[`@orpc-ws/react`](../orpc-ws-react) adapter.
 
 ## Quickstart
 
