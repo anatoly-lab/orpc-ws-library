@@ -1,5 +1,13 @@
 # @orpc-ws/oidc-verifier-jose
 
+## 0.11.1
+
+### Patch Changes
+
+- chore: upgrade dependencies (no public API changes)
+- Updated dependencies
+  - @orpc-ws/server@0.11.1
+
 ## 0.11.0
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/cookie-bff",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Framework-free cookie-BFF core for ORPC-over-WebSocket: server-side session store seam, at-rest token encryption, and hardened cookie/CSRF helpers. Tokens never reach the browser. NestJS wiring lives in @orpc-ws/cookie-bff-nestjs.",
   "license": "MIT",
   "repository": {
@@ -46,10 +46,10 @@
     "@orpc-ws/shared": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "26.0.1",
+    "@types/node": "26.1.1",
     "rimraf": "6.1.3",
     "typescript": "6.0.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "type": "module",
   "exports": {

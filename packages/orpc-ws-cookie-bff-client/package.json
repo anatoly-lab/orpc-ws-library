@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/cookie-bff-client",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Framework-free browser core for the cookie-BFF /auth/* control plane: the typed /auth/me fetch, the in-memory synchronizer-CSRF token, a CSRF-aware mutate() wrapper, the login-URL builder, and a logout that returns where to navigate. No window/navigation, no WS coupling.",
   "license": "MIT",
   "repository": {
@@ -40,11 +40,11 @@
     "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },
   "devDependencies": {
-    "@types/node": "26.0.1",
-    "happy-dom": "20.10.6",
+    "@types/node": "26.1.1",
+    "happy-dom": "20.11.0",
     "rimraf": "6.1.3",
     "typescript": "6.0.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "type": "module",
   "exports": {

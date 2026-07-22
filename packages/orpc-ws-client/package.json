@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/client",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Framework-free ORPC-over-WebSocket client core. Vanilla TS — reconnect, heartbeat, sleep detection, uploads. WS React bindings live in @orpc-ws/react.",
   "license": "MIT",
   "repository": {
@@ -43,18 +43,18 @@
   },
   "dependencies": {
     "@orpc-ws/shared": "workspace:*",
-    "@orpc/client": "1.14.6",
-    "@orpc/contract": "1.14.6",
-    "@orpc/server": "1.14.6",
+    "@orpc/client": "1.14.8",
+    "@orpc/contract": "1.14.8",
+    "@orpc/server": "1.14.8",
     "partysocket": "1.3.0"
   },
   "devDependencies": {
     "@types/ws": "8.18.1",
-    "happy-dom": "20.10.6",
+    "happy-dom": "20.11.0",
     "rimraf": "6.1.3",
     "typescript": "6.0.3",
-    "vitest": "4.1.9",
-    "ws": "8.21.0"
+    "vitest": "4.1.10",
+    "ws": "8.21.1"
   },
   "type": "module",
   "exports": {
