@@ -1,5 +1,11 @@
 # @orpc-ws/shared
 
+## 0.12.3
+
+### Patch Changes
+
+- chore: build with TypeScript 7 (Go-native compiler). Shipped declarations verified byte-identical to the TS 6 build — no public API or behavior changes.
+
 ## 0.12.2
 
 ### Patch Changes

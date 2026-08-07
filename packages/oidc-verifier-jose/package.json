@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/oidc-verifier-jose",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "Server-side OIDC token verifier (Discovery + JWKS via jose). Produces a VerifyClient compatible with @orpc-ws/server. Node-only.",
   "license": "MIT",
   "repository": {

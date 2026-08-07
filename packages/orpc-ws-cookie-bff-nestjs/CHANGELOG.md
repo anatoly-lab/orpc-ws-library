@@ -1,5 +1,16 @@
 # @orpc-ws/cookie-bff-nestjs
 
+## 0.12.3
+
+### Patch Changes
+
+- chore: build with TypeScript 7 (Go-native compiler). Shipped declarations verified byte-identical to the TS 6 build — no public API or behavior changes.
+- Updated dependencies
+  - @orpc-ws/shared@0.12.3
+  - @orpc-ws/server@0.12.3
+  - @orpc-ws/server-nestjs@0.12.3
+  - @orpc-ws/cookie-bff@0.12.3
+
 ## 0.12.2
 
 ### Patch Changes
