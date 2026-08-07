@@ -1,5 +1,11 @@
 # @orpc-ws/shared
 
+## 0.12.1
+
+### Patch Changes
+
+- chore: upgrade dependencies (no public API changes)
+
 ## 0.12.0
 
 ### Minor Changes

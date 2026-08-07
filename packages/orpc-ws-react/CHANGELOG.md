@@ -1,5 +1,13 @@
 # @orpc-ws/react
 
+## 0.12.1
+
+### Patch Changes
+
+- chore: upgrade dependencies (no public API changes)
+- Updated dependencies
+  - @orpc-ws/client@0.12.1
+
 ## 0.12.0
 
 ### Minor Changes

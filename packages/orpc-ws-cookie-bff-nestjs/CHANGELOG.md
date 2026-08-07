@@ -1,5 +1,16 @@
 # @orpc-ws/cookie-bff-nestjs
 
+## 0.12.1
+
+### Patch Changes
+
+- chore: upgrade dependencies (no public API changes)
+- Updated dependencies
+  - @orpc-ws/shared@0.12.1
+  - @orpc-ws/server@0.12.1
+  - @orpc-ws/server-nestjs@0.12.1
+  - @orpc-ws/cookie-bff@0.12.1
+
 ## 0.12.0
 
 ### Minor Changes
