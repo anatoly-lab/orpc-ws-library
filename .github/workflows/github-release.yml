@@ -1,0 +1,46 @@
+# Tag-triggered GitHub Release for the @orpc-ws/* family.
+#
+# Deliberately a SEPARATE workflow from npm-publish.yml: the npm publish is
+# auth-sensitive (OIDC trusted publishing is bound to that exact filename and
+# needs id-token: write), while this one only decorates the tag with a Release
+# entry on github.com/.../releases — different concern, different permissions
+# (contents: write here, contents: read there). Either can fail/re-run without
+# touching the other.
+#
+# Fires on the same `v*` tag push that publishes to npm. Notes are
+# auto-generated from the commits/PRs since the previous release; edit the
+# release afterwards on GitHub if a release deserves curated notes (the
+# hand-written style of v0.12.0 and earlier).
+
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write # create the release object
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout needed: `gh` talks to the API via -R; --generate-notes is
+      # computed server-side from the tag range.
+      - name: Create GitHub Release for the pushed tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Re-pushing an existing tag is a safe no-op (mirrors npm-publish.yml's
+        # "already on the registry" semantics): skip if the release exists.
+        run: |
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists — skipping."
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --latest \
+            --generate-notes
