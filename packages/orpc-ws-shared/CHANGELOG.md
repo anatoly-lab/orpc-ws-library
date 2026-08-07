@@ -1,5 +1,11 @@
 # @orpc-ws/shared
 
+## 0.12.2
+
+### Patch Changes
+
+- chore: migrate lint tooling from ESLint to Biome (type-import style normalization only — no public API or behavior changes)
+
 ## 0.12.1
 
 ### Patch Changes

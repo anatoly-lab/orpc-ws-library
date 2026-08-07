@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/cookie-bff-client",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "Framework-free browser core for the cookie-BFF /auth/* control plane: the typed /auth/me fetch, the in-memory synchronizer-CSRF token, a CSRF-aware mutate() wrapper, the login-URL builder, and a logout that returns where to navigate. No window/navigation, no WS coupling.",
   "license": "MIT",
   "repository": {
