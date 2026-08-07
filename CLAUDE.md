@@ -22,7 +22,7 @@ All tasks run through Turborepo from the repo root. First-time setup:
 |---|---|---|
 | Build all | `pnpm build` | **tshy** (emits dual ESM/CJS into `dist/esm` + `dist/commonjs`) for the eight non-adapter library packages; plain `tsc` for the sole React adapter `@orpc-ws/react` (ESM-only — a module-level React `createContext` makes a dual ESM/CJS build a dual-package-identity hazard; see README "Module formats") and the demo apps (three self-contained apps, each contract/server/client). Topo-ordered via `^build`. |
 | Typecheck all | `pnpm typecheck` | `tsc --noEmit`. **The only check the AI assistant may run.** |
-| Lint all | `pnpm lint` | ESLint flat config; enforces framework-free cores. Note: `lint` `dependsOn: ["build"]` in `turbo.json` — tshy writes a temporary `package.json` mid-build that the ESLint import resolver would otherwise race (commit `edec802`). |
+| Lint all | `pnpm lint` | **Biome** (`biome.jsonc` at the root; root-only devDep, per-package script is `biome lint .`). Lint ONLY — the formatter and assist are disabled on purpose. Enforces framework-free cores via `style/noRestrictedImports` in per-package `overrides`. Note: `lint` still `dependsOn: ["build"]` in `turbo.json`, now because tshy drops a transient `src/package.json` (no dependency sections) mid-build that `correctness/noUndeclaredDependencies` would otherwise resolve against — see the comment in `turbo.json`. |
 | Unit tests all | `pnpm test` | Vitest, per package. **User runs tests — assistant does not.** |
 | Full CI gate | `pnpm ci` | lint → typecheck → test → build. |
 | Clean | `pnpm clean` | wipes `dist`, `.turbo`, root `node_modules`. |
@@ -474,14 +474,23 @@ core the single source of its own public surface.)
 
 ### Discipline that enforces "framework-free core"
 
-- **Lint rule** (`eslint-plugin-import/no-restricted-paths` or equivalent):
-  `@orpc-ws/client` and `@orpc-ws/server` source must not
-  import from `react`, `@nestjs/*`, `vue`, `svelte`, `solid-js`,
-  `express`, `fastify`. CI fails on violation. The React adapter is
-  also lint-scoped: `@orpc-ws/react` (browser-only, WS-transport only) is
-  additionally forbidden from importing any auth core, `react-router`,
-  server cores, Node-only deps, and other UI frameworks — keeping it free of
-  any auth or router coupling.
+- **Lint rule** — Biome's `style/noRestrictedImports`, applied per package
+  through `overrides[].includes` globs in the root `biome.jsonc`. Each zone
+  lists the forbidden specifiers twice: under `paths` (the bare specifier,
+  with the zone's message) and under `patterns[].group` (`react/*`,
+  `@nestjs/common/*`, … — the subpaths). `@orpc-ws/client` and
+  `@orpc-ws/server` source must not import from `react`, `@nestjs/*`,
+  `vue`, `svelte`, `solid-js`, `express`, `fastify`. CI fails on violation.
+  The same mechanism scopes `@orpc-ws/cookie-bff` (server-core list) and
+  `@orpc-ws/cookie-bff-client` (browser-only: also no server core, no
+  `jose`, no `ws`). The React adapter is lint-scoped too: `@orpc-ws/react`
+  (browser-only, WS-transport only) is additionally forbidden from importing
+  any auth core, `react-router-dom`, server cores, Node-only deps, and other
+  UI frameworks — keeping it free of any auth or router coupling.
+  (This section previously described `eslint-plugin-import/no-restricted-paths`;
+  that was already stale — the ESLint implementation used core
+  `no-restricted-imports` — and ESLint is gone entirely as of the Biome
+  migration.)
 - **No framework lifecycle leakage.** The server core owns its own
   lifecycle (`start`, `stop`, `attach(httpServer)`). The NestJS adapter
   *wraps* core lifecycle in `OnModuleInit` (upload middleware — before
@@ -852,13 +861,18 @@ Details of the setup:
 - **Remote cache: not configured initially.** Local cache only. Add
   remote cache later if CI gets slow and the team is OK with a Vercel
   dependency (or self-host).
-- **Lint still enforces no-phantom-imports:** `eslint-plugin-import` with
-  `no-extraneous-dependencies`. pnpm's isolated `node_modules` already
-  prevents most phantom-dep *access* at runtime, so the old "npm is
-  looser, lint compensates" framing no longer applies — but the lint rule
-  stays valuable: it catches a missing `package.json` declaration at lint
-  time (a clearer failure than a runtime/resolution error) and keeps each
-  package's declared deps honest.
+- **Lint still enforces no-phantom-imports:** Biome's
+  `correctness/noUndeclaredDependencies` (the replacement for
+  `eslint-plugin-import`'s `no-extraneous-dependencies`). pnpm's isolated
+  `node_modules` already prevents most phantom-dep *access* at runtime, so
+  the old "npm is looser, lint compensates" framing no longer applies — but
+  the lint rule stays valuable: it catches a missing `package.json`
+  declaration at lint time (a clearer failure than a runtime/resolution
+  error) and keeps each package's declared deps honest. Note the Biome rule
+  resolves against the **closest** `package.json` only and never falls back
+  to the monorepo root, so it is *stricter* here than the ESLint rule was;
+  test/config files are allowed to reach for devDependencies via the rule's
+  `devDependencies` glob list in `biome.jsonc`.
 
 Rationale: a 4-package library that may grow to 8+ as framework
 adapters land. Turborepo's filter and caching pay off as soon as the

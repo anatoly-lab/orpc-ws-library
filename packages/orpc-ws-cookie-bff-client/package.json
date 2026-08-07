@@ -36,7 +36,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint .",
+    "lint": "biome lint --error-on-warnings .",
     "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },
   "devDependencies": {

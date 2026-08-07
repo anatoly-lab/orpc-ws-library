@@ -22,10 +22,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  type Clock,
-  type HeartbeatEvent,
-  type TimerHandle,
+import type {
+  Clock,
+  HeartbeatEvent,
+  TimerHandle,
 } from "@orpc-ws/shared";
 
 import { HeartbeatPublisher } from "../publisher.js";

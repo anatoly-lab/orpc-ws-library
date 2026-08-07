@@ -37,7 +37,7 @@
     "build": "tshy",
     "prepublishOnly": "tshy",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test-types.json --noEmit",
-    "lint": "eslint .",
+    "lint": "biome lint --error-on-warnings .",
     "test": "vitest run",
     "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },

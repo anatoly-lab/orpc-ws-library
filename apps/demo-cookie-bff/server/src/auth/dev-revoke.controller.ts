@@ -12,6 +12,11 @@
 // NOT for production — a real app removes this and wires the event bus instead.
 
 import { Body, Controller, Post } from "@nestjs/common";
+// `CookieBffService` is injected by Nest through `design:paramtypes`
+// (emitDecoratorMetadata). Under `verbatimModuleSyntax` an `import type` is
+// erased outright, leaving no runtime class reference for Nest's DI lookup —
+// the constructor below would then resolve to `undefined` at runtime.
+// biome-ignore lint/style/useImportType: must stay a VALUE import for Nest DI metadata; see above
 import { CookieBffService } from "@orpc-ws/cookie-bff-nestjs";
 
 interface RevokeBody {

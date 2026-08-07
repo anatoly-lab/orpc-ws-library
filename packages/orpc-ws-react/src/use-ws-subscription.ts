@@ -256,6 +256,7 @@ export function useWsSubscription<
       //     reject, and teardown has nowhere to route it but an unhandled
       //     rejection.
       ac.abort();
+      // biome-ignore lint/suspicious/noEmptyBlockStatements: swallowing IS the intent; see the comment above
       void cancel?.().catch(() => {});
     };
     // Deliberately `[client, connected, enabled]` — selector/options via refs.

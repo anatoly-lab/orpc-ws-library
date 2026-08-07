@@ -135,7 +135,7 @@ packages/oidc-core/
     "build": "tshy", "prepublishOnly": "tshy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run", "test:watch": "vitest",
-    "lint": "eslint .", "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
+    "lint": "biome lint .", "clean": "rimraf dist .turbo .tshy-build .tsbuildinfo *.tsbuildinfo"
   },
   "devDependencies": { "@types/node": "26.0.0", "happy-dom": "20.10.6", "rimraf": "6.1.3", "typescript": "6.0.3", "vitest": "4.1.9" },
   "type": "module",

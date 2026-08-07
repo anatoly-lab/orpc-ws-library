@@ -3,7 +3,7 @@
   "ui": "stream",
   "globalDependencies": [
     "tsconfig.base.json",
-    "eslint.config.js",
+    "biome.jsonc",
     "vitest.config.base.ts",
     "vitest.config.nestjs.ts"
   ],
@@ -45,13 +45,29 @@
       "outputs": []
     },
     "lint": {
+      // `dependsOn: ["build"]` SURVIVES the ESLint→Biome migration, for a
+      // NEW reason. It originally existed because
+      // eslint-import-resolver-typescript raced the temporary package.json
+      // tshy writes mid-build (commit edec802). Biome has no import resolver
+      // — but `correctness/noUndeclaredDependencies` resolves imports against
+      // the CLOSEST package.json, and tshy's `setFolderDialect("src", …)`
+      // drops a transient `src/package.json` (only `{type, sideEffects,
+      // imports}` — NO dependency sections) for the duration of the build.
+      // While it exists, every import under `src/` looks undeclared:
+      // reproduced at 141 spurious errors in @orpc-ws/client alone. Neither
+      // a `files.includes` force-ignore nor `vcs.useIgnoreFile` suppresses it
+      // — Biome's project scanner ingests manifests regardless. So the build
+      // barrier stays until either tshy stops writing that file or the rule
+      // gains a workspace-aware resolution mode.
+      //
+      // No explicit `inputs`: `biome lint .` lints the WHOLE package dir, not
+      // just `src/**`. The old `["src/**", …]` list silently under-keyed the
+      // cache for packages whose sources live elsewhere (tests-e2e keeps its
+      // code in fixtures/ pages/ setup/ workflows/), which could serve a stale
+      // green. Turbo's default — every non-gitignored file in the package —
+      // is the correct key here; `biome.jsonc` is covered by
+      // `globalDependencies`.
       "dependsOn": ["build"],
-      "inputs": [
-        "src/**",
-        "eslint.config.js",
-        "../../eslint.config.js",
-        "package.json"
-      ],
       "outputs": []
     },
     "test": {

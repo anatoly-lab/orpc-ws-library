@@ -225,8 +225,8 @@ describe("createCookieBffAuthClient — loginUrl()", () => {
 // The module must never reference `window` (navigation stays in the app). We
 // can't easily assert "never imported" at runtime, but we CAN assert the public
 // surface performs no navigation: logout/me/mutate return values / Promises and
-// touching window.location is not part of any path. (The eslint browser-only
-// zone + code review enforce the no-window rule structurally.)
+// touching window.location is not part of any path. (The Biome browser-only
+// zone in biome.jsonc + code review enforce the no-window rule structurally.)
 describe("no navigation side-effects", () => {
   it("logout resolves a value and does not assign window.location", async () => {
     const before = globalThis.location?.href;

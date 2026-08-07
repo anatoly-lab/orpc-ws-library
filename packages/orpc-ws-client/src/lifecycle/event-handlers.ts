@@ -306,6 +306,11 @@ export class EventHandlers {
         // Exhaustiveness guard. If a new CloseDecision variant is added
         // and not handled here, TypeScript will flag this assignment.
         const _exhaustive: never = decision;
+        // Returning the `never` is the standard exhaustiveness guard: the
+        // branch is unreachable and TypeScript accepts it because `never` is
+        // assignable to everything. Dropping the `return` would discard the
+        // compile-time check this block exists for.
+        // biome-ignore lint/correctness/noVoidTypeReturn: `never` return is the exhaustiveness guard; see above
         return _exhaustive;
       }
     }

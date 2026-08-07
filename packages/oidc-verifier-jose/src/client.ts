@@ -43,7 +43,7 @@ import {
 import type { VerifyClient } from "@orpc-ws/server";
 
 import { fetchMetadata, rewriteJwksUri } from "./discovery.js";
-import { type OidcUser, type OidcVerifierConfig } from "./types.js";
+import type { OidcUser, OidcVerifierConfig } from "./types.js";
 
 /**
  * Default `alg` allowlist for `jwtVerify` — the common asymmetric set.

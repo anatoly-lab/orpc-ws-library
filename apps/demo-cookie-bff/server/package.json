@@ -10,7 +10,7 @@
     "dev": "node --env-file-if-exists=.env --watch --import tsx src/main.ts",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint .",
+    "lint": "biome lint --error-on-warnings .",
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {

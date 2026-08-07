@@ -1,0 +1,667 @@
+{
+  // Biome — the repo's ONLY lint stack (replaced ESLint + typescript-eslint +
+  // eslint-plugin-import in the TS-7-readiness migration).
+  //
+  // WHY Biome: typescript-eslint is built on the TypeScript JS API, which
+  // TS 7 (the Go port) no longer ships. Biome's analyzer is written in Rust
+  // with zero TS-API dependency, so the lint stack survives the TS 7 bump.
+  //
+  // SCOPE: LINT ONLY. `formatter` and `assist` are deliberately disabled —
+  // adopting Biome's formatter (and its import-sorting assist) is a separate
+  // decision, and turning either on here would rewrite the whole codebase.
+  //
+  // This config enforces the "framework-free core" discipline from CLAUDE.md
+  // via `style/noRestrictedImports` in per-package `overrides`:
+  //   - packages/orpc-ws-client/src            — no react/vue/svelte/solid/nest
+  //   - packages/orpc-ws-server/src            — no nest/express/fastify
+  //   - packages/orpc-ws-cookie-bff/src        — no nest/express/fastify
+  //   - packages/orpc-ws-cookie-bff-client/src — browser-only: no UI framework,
+  //                                              no server core, no jose/ws
+  //   - packages/orpc-ws-react/src             — react allowed (it IS the
+  //                                              adapter), everything else no
+  //   - packages/orpc-ws-server-nestjs/src     — nest allowed (it's the adapter)
+  //
+  // Each zone mirrors, one-for-one, the `no-restricted-imports` zone that used
+  // to live in eslint.config.js: `paths` blocks the bare specifier, `patterns`
+  // blocks its subpaths (`react/jsx-runtime`, `@nestjs/common/foo`, …) — the
+  // same two-pronged shape the ESLint rule used.
+  //
+  // ---------------------------------------------------------------------------
+  // ACCEPTED PARITY GAPS — rules the old stack enforced that Biome cannot
+  // express. Recorded here so nobody has to re-derive them. Each was checked
+  // against the full 530-rule Biome 2.5 list, not just biomejs.dev's
+  // rules-sources page (that page is INCOMPLETE — it claims no equivalent for
+  // `prefer-spread`, `no-constant-binary-expression` and
+  // `no-unused-expressions`, all three of which do exist).
+  //
+  //  1. `@typescript-eslint/triple-slash-reference` — NO Biome rule.
+  //     `/// <reference types="…" />` in a source file is now unflagged. Low
+  //     risk here: `tsconfig.base.json` uses NodeNext + explicit `types`, so a
+  //     stray triple-slash would be redundant rather than harmful.
+  //
+  //  2. `@typescript-eslint/ban-ts-comment`, the `@ts-nocheck` arm — PARTIAL.
+  //     Biome's `suspicious/noTsIgnore` covers `@ts-ignore` ONLY. This is the
+  //     sharpest gap: a file-level `// @ts-nocheck` silently disables BOTH tsc
+  //     and (because the file stops type-checking) any downstream signal, and
+  //     nothing in the toolchain will now object. `@ts-expect-error` — the form
+  //     this repo actually uses, in `*-types.test.ts` — is unaffected, since it
+  //     fails loudly when the error goes away. If `@ts-nocheck` ever shows up,
+  //     catch it in review or with a grep in CI.
+  //
+  //  3. `no-useless-assignment` — NO Biome rule. Dead stores go unflagged.
+  //     `noUnusedVariables` still catches the common case (a binding nobody
+  //     reads); only "assigned twice, first value never read" slips through.
+  //
+  //  4. `no-invalid-regexp` — NO Biome LINT rule, but largely covered: Biome's
+  //     parser rejects a malformed regex LITERAL as a syntax error. Only
+  //     `new RegExp("…")` built from a bad string literal escapes.
+  //
+  //  5. `no-unexpected-multiline` — NO Biome rule (`style/noMultilineString`
+  //     is a different rule). This is an ASI-hazard rule; the repo is
+  //     semicolon-terminated throughout, so the hazard needs a deliberate
+  //     effort to hit.
+  //
+  //  6. `consistent-type-imports`' `fixStyle: "inline-type-imports"` — NOT
+  //     violation-identical: Biome's `auto` additionally flags an ALL-type
+  //     inline import (`import { type T } from …`), the exact shape ESLint's
+  //     `inline-type-imports` accepted (mixed `import { v, type T }` is fine
+  //     under both). 7 files were normalized to `import type { T }` in the
+  //     migration for this reason. Both forms erase identically under
+  //     `verbatimModuleSyntax`, so no runtime difference. See the rule's own
+  //     note below.
+  //
+  // Deliberately NOT enabled (STRICTER than the old stack, not a restoration):
+  //  - `style/useErrorCause`. ESLint 10's `preserve-caught-error` was
+  //     error-enforced and passed clean on this repo; the Biome rule flags 2
+  //     extra sites in `oidc-verifier-jose/src/discovery.ts` that fold the
+  //     caught error's message into the message string but do not set `cause`.
+  //     Verified with a real ESLint 10.8.0 run: 0 problems there. Adopting it
+  //     is a behavior change to a published package's error shape — its own PR.
+  // ---------------------------------------------------------------------------
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "root": true,
+
+  // Biome does NOT read .gitignore unless told to; we spell the ignores out in
+  // `files.includes` so a checkout without git history behaves identically.
+  "vcs": {
+    "enabled": false,
+    "clientKind": "git",
+    "useIgnoreFile": false
+  },
+
+  "files": {
+    // First entry must be a positive pattern (see `noBiomeFirstException`);
+    // everything after it is a force-ignore. Mirrors the old flat-config
+    // `ignores` block verbatim — including the Playwright outputs, which live
+    // in tests-e2e/ but are not gitignored and whose bundled trace/HTML JS
+    // produces hundreds of false positives.
+    // Since Biome 2.2 a folder ignore is spelled WITHOUT a trailing `/**`
+    // (see the `useBiomeIgnoreFolder` rule).
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/.turbo",
+      "!**/coverage",
+      "!**/*.tsbuildinfo",
+      "!**/playwright-report",
+      "!**/test-results",
+      // tshy writes these transient ESM/CJS staging trees during `build`.
+      "!**/.tshy",
+      "!**/.tshy-build"
+    ]
+  },
+
+  // LINT ONLY — see "SCOPE" above.
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+
+  "javascript": {
+    "parser": {
+      // NestJS constructor injection uses PARAMETER decorators
+      // (`constructor(@Inject(TOKEN) private readonly x: T)`), which are the
+      // legacy (Stage-2) decorator proposal. Biome parks that syntax behind
+      // this flag; without it every Nest controller/service/module is a hard
+      // parse error and the whole file goes unlinted (and its constructor
+      // params look "unused"). tsconfig.base.json already sets
+      // `experimentalDecorators`, so this only teaches Biome what tsc
+      // already compiles.
+      "unsafeParameterDecoratorsEnabled": true
+    }
+  },
+
+  "linter": {
+    "enabled": true,
+    "rules": {
+      // Biome's recommended set stands in for `js.configs.recommended` +
+      // `tseslint.configs.recommended`. The overlap is close but not exact;
+      // the rules the old config enabled EXPLICITLY are re-stated below so
+      // they keep firing at `error` regardless of Biome's default severity
+      // (several of them default to `warn`, which would not fail CI).
+      "preset": "recommended",
+
+      // Biome's recommended set is BROADER than what ESLint enforced here.
+      // The rules turned off below are ones that fire on this codebase but
+      // were never enforced before; each is a deliberate, revisitable
+      // decision rather than a silent behavior change smuggled in with a
+      // tooling swap. Turning any of them back on is a code-cleanup PR of
+      // its own, not part of the lint migration.
+      //
+      // a11y: this repo never had eslint-plugin-jsx-a11y. The only JSX lives
+      // in the three demo SPAs, which are wiring demonstrations, not
+      // accessible product UI. (12 findings, all `useButtonType`.)
+      "a11y": "off",
+
+      "suspicious": {
+        // was: @typescript-eslint/no-explicit-any ("error")
+        "noExplicitAny": "error",
+
+        // NEW/off: `void | Promise<unknown>` is a deliberate sync-or-async
+        // handler return type; Biome's suggested `undefined` is not the same
+        // type. 1 site (server/lifecycle/connection-handler.ts).
+        "noConfusingVoidType": "off",
+
+        // PARITY: `@typescript-eslint/no-unused-expressions` is in tseslint's
+        // `recommended` but the Biome twin is NOT in Biome's recommended set.
+        // Enabled explicitly so nothing silently stops being checked. Fires 0
+        // findings today. (Off again for `*-types.test.ts` — see overrides.)
+        "noUnusedExpressions": "error",
+
+        // PARITY (all four): these were error-enforced by
+        // `js.configs.recommended` / `tseslint.configs.recommended` but their
+        // Biome twins are NOT in Biome's recommended set, so they would have
+        // silently stopped being checked. All four fire 0 findings today.
+        //   no-var                      -> noVar
+        //   no-constant-binary-expression -> noConstantBinaryExpressions
+        //   no-unassigned-vars          -> noUnassignedVariables
+        "noVar": "error",
+        "noConstantBinaryExpressions": "error",
+        "noUnassignedVariables": "error",
+
+        // PARITY, with a CAVEAT. `no-empty` (+ `no-empty-static-block`) were
+        // error-enforced; the Biome twin is not recommended, so it is enabled
+        // here. But Biome's rule is BROADER: it also flags empty FUNCTION
+        // bodies, i.e. ESLint's separate `no-empty-function`, which this repo
+        // never enabled. Verified by running ESLint 10.8.0 with the old
+        // recommended configs against the affected files: 0 problems.
+        // 104 findings total, 99 of them no-op stubs in test doubles — hence
+        // the `off` in the test override below. The 5 remaining sites
+        // (`noopLogger`, one deliberate `.catch(() => {})`) carry targeted
+        // `biome-ignore` comments.
+        "noEmptyBlockStatements": "error"
+      },
+
+      "complexity": {
+        // NEW/off: NestJS `DynamicModule` idiom. `@Module({}) class X {
+        // static forRoot() {…} }` is THE Nest configurable-module pattern
+        // (and `super.forRoot()` inside it is what `ConfigurableModuleBuilder`
+        // generates). Both rules fight the framework, not the code.
+        "noStaticOnlyClass": "off",
+        "noThisInStatic": "off",
+
+        // NEW/off: `obj["some-claim"]` vs `obj.someClaim`. The findings are
+        // JWT/OIDC claim reads where the string key IS the wire name.
+        // Info-severity style preference, never enforced before. (12 sites.)
+        "useLiteralKeys": "off",
+
+        // NEW/off: `let x = undefined` in test setup. Info-severity style
+        // preference, all findings are in test files. (8 sites.)
+        "noUselessUndefinedInitialization": "off"
+      },
+
+      "correctness": {
+        // was: @typescript-eslint/no-unused-vars with
+        //   { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }.
+        // Biome hard-codes the leading-underscore exemption (it is not
+        // configurable), which is exactly the convention those two patterns
+        // encoded. Biome splits the ESLint rule three ways — variables,
+        // imports, function parameters — so all three are enabled to keep
+        // coverage identical.
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUnusedFunctionParameters": "error",
+
+        // was: import/no-extraneous-dependencies (with devDependencies globs).
+        // Catches phantom imports — keeps each package's declared deps honest
+        // (CLAUDE.md "Monorepo tooling", the no-phantom-imports note). pnpm's
+        // isolated node_modules already blocks most phantom-dep access at
+        // runtime; this surfaces a missing package.json declaration at lint
+        // time, a clearer failure.
+        //
+        // SEMANTIC DIFFERENCE vs the ESLint rule: Biome resolves against the
+        // CLOSEST package.json only and never consults the monorepo root, so
+        // a root-only devDependency used inside a package is a finding here
+        // that ESLint let pass. The `devDependencies` globs below list the
+        // file kinds that are allowed to reach for devDependencies (test
+        // files, config files, the e2e suite) — the union of the two
+        // devDependencies lists the old config carried, plus the paths the
+        // old config exempted wholesale.
+        "noUndeclaredDependencies": {
+          "level": "error",
+          "options": {
+            "devDependencies": [
+              "**/*.test.ts",
+              "**/*.test.tsx",
+              "**/*.spec.ts",
+              "**/*.spec.tsx",
+              "**/__tests__/**",
+              "**/*.config.ts",
+              "**/*.config.mts",
+              "**/*.config.js",
+              "**/*.config.mjs",
+              "**/*.config.cjs",
+              // Root-level shared vitest configs (`vitest.config.base.ts`,
+              // `vitest.config.nestjs.ts`) — not caught by `*.config.ts`.
+              // NOTE: these globs are matched against the FULL path, so every
+              // entry needs a leading `**/` (a bare `tests-e2e/**` matches
+              // nothing).
+              "**/vitest.config.*",
+              "**/vite.config.*",
+              "**/playwright.config.*",
+              // The Playwright e2e suite is 100% devDependencies by design —
+              // the old config never applied the rule to it at all.
+              "**/tests-e2e/**"
+            ]
+          }
+        }
+      },
+
+      "style": {
+        // was: @typescript-eslint/consistent-type-imports with
+        //   { prefer: "type-imports", fixStyle: "inline-type-imports" }.
+        // Biome's `style: "auto"` (the default) enforces: separated
+        // `import type { T }` when ALL specifiers are types (it flags the
+        // all-type inline form ESLint accepted — 7 files were normalized for
+        // this), inline `import { v, type T }` when values ride along.
+        // `inlineType` would instead REWRITE all ~360 separated imports,
+        // which is a formatting decision, not a lint one — see "SCOPE" above.
+        "useImportType": "error",
+
+        // NEW/off: `!` non-null assertions. `@typescript-eslint/
+        // no-non-null-assertion` lives in tseslint's STRICT preset, not
+        // `recommended`, so it was never on here — and the codebase leans on
+        // `!` deliberately (177 sites, largely in tests and after explicit
+        // guards). Removing them is a typing refactor, not a lint migration.
+        "noNonNullAssertion": "off",
+
+        // NEW/off: `import "crypto"` → `import "node:crypto"`. A genuine
+        // improvement, but it rewrites 59 import specifiers across nine
+        // PUBLISHED packages and can shift bundler/browser resolution.
+        // Deliberately deferred to its own PR.
+        "useNodejsImportProtocol": "off",
+
+        // PARITY (all three): tseslint's `recommended` carried
+        // `prefer-as-const`, `no-namespace` and `no-require-imports`, but the
+        // Biome equivalents are NOT in Biome's recommended set. Enabled
+        // explicitly so the migration doesn't quietly drop three checks. All
+        // three fire 0 findings today.
+        "useAsConstAssertion": "error",
+        "noNamespace": "error",
+        "noCommonJs": "error",
+
+        // PARITY: `prefer-spread` (pulled in by tseslint's `recommended` via
+        // its eslint-recommended overlay) -> `useSpreadOverApply`. NOTE:
+        // biomejs.dev/linter/rules-sources lists `prefer-spread` as having no
+        // Biome equivalent; that page is incomplete — `biome explain
+        // useSpreadOverApply` reads "Enforce the use of the spread operator
+        // over `.apply()`", which is exactly the ESLint rule. Fires 0 findings.
+        "useSpreadOverApply": "error"
+      }
+    }
+  },
+
+  "overrides": [
+    // ---- Library sources: forbid console.* --------------------------------
+    //
+    // was: `no-console: "error"` scoped to packages/*/src/**.
+    // CLAUDE.md: "Zero console.log" — library internals log through the
+    // injected `Logger` seam, never the global console. Demo apps, the e2e
+    // suite and root config files are deliberately NOT covered (they log
+    // freely), which matches the old scoping exactly.
+    {
+      "includes": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": { "noConsole": "error" }
+        }
+      }
+    },
+
+    // ---- Client core: framework-free --------------------------------------
+    //
+    // The React bindings live in `@orpc-ws/react`, so there is no `src/react/`
+    // exemption — the WHOLE client core src must obey this rule.
+    {
+      "includes": [
+        "packages/orpc-ws-client/src/**/*.ts",
+        "packages/orpc-ws-client/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "react-dom": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "vue": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "svelte": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "solid-js": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "@nestjs/common": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "@nestjs/core": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "@nestjs/platform-express": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.).",
+                  "reflect-metadata": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.)."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "react/*",
+                      "react-dom/*",
+                      "vue/*",
+                      "svelte/*",
+                      "solid-js/*",
+                      "@nestjs/common/*",
+                      "@nestjs/core/*",
+                      "@nestjs/platform-express/*",
+                      "reflect-metadata/*"
+                    ],
+                    "message": "Client core must remain framework-free; framework code lives in adapters (orpc-ws-react, etc.)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+
+    // ---- Server core: framework-free --------------------------------------
+    {
+      "includes": [
+        "packages/orpc-ws-server/src/**/*.ts",
+        "packages/orpc-ws-server/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@nestjs/common": "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.).",
+                  "@nestjs/core": "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.).",
+                  "@nestjs/platform-express": "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.).",
+                  "express": "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.).",
+                  "fastify": "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.).",
+                  "reflect-metadata": "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.)."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "@nestjs/common/*",
+                      "@nestjs/core/*",
+                      "@nestjs/platform-express/*",
+                      "express/*",
+                      "fastify/*",
+                      "reflect-metadata/*"
+                    ],
+                    "message": "Server core must remain framework-free; framework code lives in adapters (orpc-ws-server-nestjs, etc.)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+
+    // ---- Cookie-BFF core: framework-free ----------------------------------
+    //
+    // Same framework-free discipline as the WS server core (identical package
+    // list): `@orpc-ws/cookie-bff` is the framework-agnostic cookie-BFF core
+    // (session-store seam, token encryption, cookie/CSRF helpers). Its NestJS
+    // wiring lives in the sibling `@orpc-ws/cookie-bff-nestjs` adapter.
+    {
+      "includes": [
+        "packages/orpc-ws-cookie-bff/src/**/*.ts",
+        "packages/orpc-ws-cookie-bff/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@nestjs/common": "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.).",
+                  "@nestjs/core": "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.).",
+                  "@nestjs/platform-express": "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.).",
+                  "express": "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.).",
+                  "fastify": "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.).",
+                  "reflect-metadata": "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.)."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "@nestjs/common/*",
+                      "@nestjs/core/*",
+                      "@nestjs/platform-express/*",
+                      "express/*",
+                      "fastify/*",
+                      "reflect-metadata/*"
+                    ],
+                    "message": "Cookie-BFF core must remain framework-free; framework code lives in adapters (orpc-ws-cookie-bff-nestjs, etc.)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+
+    // ---- Cookie-BFF client core: browser-only, framework-free -------------
+    //
+    // `@orpc-ws/cookie-bff-client` is the browser `/auth/*` control-plane core
+    // (typed /auth/me, in-memory synchronizer-CSRF token, mutate() wrapper,
+    // login-URL builder). Like the WS client core it must stay UI-framework-
+    // free, and additionally must never reach a server core / Node-only dep /
+    // `jose` / `ws` — it's a pure browser HTTP client over global `fetch`.
+    {
+      "includes": [
+        "packages/orpc-ws-cookie-bff-client/src/**/*.ts",
+        "packages/orpc-ws-cookie-bff-client/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "react-dom": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "vue": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "svelte": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "solid-js": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@nestjs/common": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@nestjs/core": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@nestjs/platform-express": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "reflect-metadata": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "express": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "fastify": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "ws": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "jose": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@orpc-ws/server": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@orpc-ws/server-nestjs": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@orpc-ws/cookie-bff": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@orpc-ws/cookie-bff-nestjs": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws.",
+                  "@orpc-ws/oidc-verifier-jose": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "react/*",
+                      "react-dom/*",
+                      "vue/*",
+                      "svelte/*",
+                      "solid-js/*",
+                      "@nestjs/common/*",
+                      "@nestjs/core/*",
+                      "@nestjs/platform-express/*",
+                      "reflect-metadata/*",
+                      "express/*",
+                      "fastify/*",
+                      "ws/*",
+                      "jose/*",
+                      "@orpc-ws/server/*",
+                      "@orpc-ws/server-nestjs/*",
+                      "@orpc-ws/cookie-bff/*",
+                      "@orpc-ws/cookie-bff-nestjs/*",
+                      "@orpc-ws/oidc-verifier-jose/*"
+                    ],
+                    "message": "The cookie-BFF client core is browser-only and framework-free; do not import UI frameworks, server cores, Node-only deps, jose, or ws."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+
+    // ---- WS React adapter: browser-only, WS-transport ONLY ----------------
+    //
+    // `@orpc-ws/react` binds the WS transport core to React — the sole React
+    // adapter in the library. It may use react / react-dom plus the
+    // browser-safe cores (@orpc-ws/client, @orpc/contract, @orpc/client), but
+    // must not reach into the router surface (`react-router-dom`) or any
+    // server / Node-only / non-React-UI package.
+    {
+      "includes": [
+        "packages/orpc-ws-react/src/**/*.ts",
+        "packages/orpc-ws-react/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@nestjs/common": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "@nestjs/core": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "@nestjs/platform-express": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "reflect-metadata": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "@orpc-ws/server": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "@orpc-ws/server-nestjs": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "@orpc-ws/oidc-verifier-jose": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "jose": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "ws": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "express": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "fastify": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "vue": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "svelte": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "solid-js": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom.",
+                  "react-router-dom": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "@nestjs/common/*",
+                      "@nestjs/core/*",
+                      "@nestjs/platform-express/*",
+                      "reflect-metadata/*",
+                      "@orpc-ws/server/*",
+                      "@orpc-ws/server-nestjs/*",
+                      "@orpc-ws/oidc-verifier-jose/*",
+                      "jose/*",
+                      "ws/*",
+                      "express/*",
+                      "fastify/*",
+                      "vue/*",
+                      "svelte/*",
+                      "solid-js/*",
+                      "react-router-dom/*"
+                    ],
+                    "message": "The WS React adapter is browser-only and WS-transport only; do not import server cores, Node-only deps, other UI frameworks, the OIDC auth core, or react-router-dom."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+
+    // ---- Test files: relax a couple of rules ------------------------------
+    //
+    // was: the `files: ["**/__tests__/**", "**/*.test.*"]` block that turned
+    // off `@typescript-eslint/no-explicit-any` and `no-console`. Fakes and
+    // type-level assertions legitimately need `any`; tests log freely.
+    {
+      "includes": [
+        "**/__tests__/**/*.ts",
+        "**/__tests__/**/*.tsx",
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noConsole": "off",
+            // NEW/off (tests only): fake event targets fan out with
+            // `listeners.forEach((l) => l(event))`. The concise arrow
+            // "returns" the listener's return value, which the rule dislikes;
+            // in a hand-rolled test double it is meaningless. 6 sites.
+            "useIterableCallbackReturn": "off",
+            // NEW/off (tests only): fixtures assert on literal `"${…}"`
+            // strings (URL templates, error-message shapes), which the rule
+            // reads as a botched template literal. 2 sites.
+            "noTemplateCurlyInString": "off",
+            // Off (tests only): Biome's `noEmptyBlockStatements` also covers
+            // empty FUNCTION bodies (ESLint's `no-empty-function`, never
+            // enabled here — see the rule's note above). Test doubles are
+            // built out of `() => {}` no-op stubs: 99 of the 104 findings are
+            // exactly that. The rule stays ON for library code, where a real
+            // empty `if`/`catch` block is what `no-empty` was guarding.
+            "noEmptyBlockStatements": "off"
+          }
+        }
+      }
+    },
+
+    // ---- Type-level test files -------------------------------------------
+    //
+    // `*-types.test.ts` files exist to be TYPECHECKED, not executed: they
+    // declare bindings purely so `tsc` can assert an inferred type (and so
+    // `@ts-expect-error` fires on regressions). Every such binding is
+    // "unused" by definition.
+    //
+    // NOTE: `noUnusedVariables` is deliberately NOT disabled here — every
+    // binding in these files is `_`-prefixed and so already exempt via
+    // Biome's hard-coded underscore rule. Turning it off would be strictly
+    // broader than needed and would hide a genuinely unused non-`_` binding.
+    //
+    // `useHookAtTopLevel` IS off: the React adapter's type test calls
+    // `useServerHandler(...)` from a plain helper purely so tsc can check the
+    // inferred handler signature. Nothing renders.
+    {
+      "includes": ["**/*-types.test.ts"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useHookAtTopLevel": "off"
+          },
+          // Same reason: a bare `expectTypeOf<X>()` / `handler satisfies Y`
+          // line IS the assertion. Under ESLint these files repeatedly
+          // tripped `@typescript-eslint/no-unused-expressions`; scoping the
+          // Biome twin off here retires that recurring papercut.
+          "suspicious": { "noUnusedExpressions": "off" }
+        }
+      }
+    }
+  ]
+}

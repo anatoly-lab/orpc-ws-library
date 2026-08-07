@@ -97,7 +97,7 @@ export class ContainerLogBuffer {
       // memory budget. Keeps stack traces intact up to MAX_LINE_BYTES.
       const safe =
         Buffer.byteLength(line, "utf8") > MAX_LINE_BYTES
-          ? line.slice(0, MAX_LINE_BYTES) + " [truncated]"
+          ? `${line.slice(0, MAX_LINE_BYTES)} [truncated]`
           : line;
 
       this.lines.push(safe);

@@ -27,7 +27,7 @@ interface Fixtures {
 }
 
 export const test = base.extend<Fixtures>({
-  // eslint-disable-next-line no-empty-pattern
+  // biome-ignore lint/correctness/noEmptyPattern: Playwright's fixture API requires the destructured first argument even when no fixture is consumed
   keycloakUser: async ({}, use) => {
     await use(KNOWN_TEST_USERS.free);
   },

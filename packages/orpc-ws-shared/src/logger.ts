@@ -16,12 +16,14 @@ export interface Logger {
  * console on its own (see CLAUDE.md "Zero console.log"). Consumers opt in
  * to logging by passing their own implementation.
  */
+// biome-ignore-start lint/suspicious/noEmptyBlockStatements: doing nothing IS this logger
 export const noopLogger: Logger = {
   debug: () => {},
   info: () => {},
   warn: () => {},
   error: () => {},
 };
+// biome-ignore-end lint/suspicious/noEmptyBlockStatements: doing nothing IS this logger
 
 // ---------------------------------------------------------------------------
 // Logger bridges
@@ -46,14 +48,14 @@ export const noopLogger: Logger = {
  */
 export function consoleLogger(prefix?: string): Logger {
   const tag = prefix ? `[${prefix}] ` : "";
-  /* eslint-disable no-console -- this IS the console bridge */
+  // biome-ignore-start lint/suspicious/noConsole: this IS the console bridge
   return {
     debug: (msg, meta) => console.debug(tag + msg, meta ?? ""),
     info: (msg, meta) => console.info(tag + msg, meta ?? ""),
     warn: (msg, meta) => console.warn(tag + msg, meta ?? ""),
     error: (msg, meta) => console.error(tag + msg, meta ?? ""),
   };
-  /* eslint-enable no-console */
+  // biome-ignore-end lint/suspicious/noConsole: this IS the console bridge
 }
 
 /**

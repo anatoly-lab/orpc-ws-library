@@ -17,7 +17,7 @@
 // `ClientContract`). Handlers are defined in render (fresh closure each time)
 // and read through a render-updated ref, so the client is never rebuilt.
 
-import { type ReactElement } from "react";
+import type { ReactElement } from "react";
 
 import { consoleLogger } from "@orpc-ws/client";
 import { OrpcWs } from "@orpc-ws/react";

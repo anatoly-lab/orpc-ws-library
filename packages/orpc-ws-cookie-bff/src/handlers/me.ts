@@ -31,6 +31,11 @@ export async function handleMe<TUser>(
   const sid = parseCookie(req.cookieHeader, ctx.cookies.sessionCookieName);
   if (!sid) return unauthenticated;
 
+  // TypeScript's "evolving let" analysis infers `SessionData<TUser> | null`
+  // from the assignments below, so this is fully typed under tsc (`strict` is
+  // on). Biome does not model evolving-any; annotating here would only
+  // duplicate the store's return type.
+  // biome-ignore lint/suspicious/noImplicitAnyLet: tsc's evolving-let analysis types this; see above
   let session;
   try {
     session = await ctx.store.get(sid);

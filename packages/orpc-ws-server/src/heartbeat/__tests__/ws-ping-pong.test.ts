@@ -10,9 +10,9 @@ import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "events";
 import type { WebSocket } from "ws";
 
-import {
-  type Clock,
-  type TimerHandle,
+import type {
+  Clock,
+  TimerHandle,
 } from "@orpc-ws/shared";
 
 import { WsPingPong } from "../ws-ping-pong.js";

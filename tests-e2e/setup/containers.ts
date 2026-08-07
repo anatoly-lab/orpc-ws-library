@@ -421,8 +421,10 @@ async function safeStop(parts: {
   server?: StartedTestContainer;
   spa?: StartedTestContainer;
 }): Promise<void> {
+  // biome-ignore-start lint/suspicious/noEmptyBlockStatements: swallowing per-step stop errors IS this function, per the doc comment above
   await parts.spa?.stop().catch(() => {});
   await parts.server?.stop().catch(() => {});
   await parts.keycloak?.stop().catch(() => {});
   await parts.network?.stop().catch(() => {});
+  // biome-ignore-end lint/suspicious/noEmptyBlockStatements: swallowing per-step stop errors IS this function
 }
