@@ -44,10 +44,10 @@
   },
   "dependencies": {
     "@orpc-ws/server": "workspace:*",
-    "jose": "6.2.3"
+    "jose": "6.2.8"
   },
   "devDependencies": {
-    "@types/node": "26.1.1",
+    "@types/node": "26.1.2",
     "rimraf": "6.1.3",
     "typescript": "6.0.3",
     "vitest": "4.1.10"

@@ -22,7 +22,7 @@
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
-    "@orpc/contract": "1.14.8",
+    "@orpc/contract": "1.14.14",
     "zod": "4.4.3"
   },
   "devDependencies": {
