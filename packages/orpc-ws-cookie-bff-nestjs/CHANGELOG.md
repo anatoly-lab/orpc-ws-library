@@ -1,5 +1,41 @@
 # @orpc-ws/cookie-bff-nestjs
 
+## 0.13.0
+
+### Minor Changes
+
+- Add two optional verifier-tuning options to `CookieBffModule`.
+
+  `verifyTimeoutMs` is now forwarded to the internal `OrpcWsModule` (it was
+  accepted by the core but never threaded through this adapter). It bounds the
+  whole cookie verify — the session-store `get` AND the session-window slide —
+  and defaults to the core's 30000; `0` disables it. A timeout fails closed
+  pre-101 (HTTP 500), which a browser sees only as a pre-open failure, so the
+  client retries rather than going terminal.
+
+  `verifierSessionStore` lets the WS handshake read a different `SessionStore`
+  than the `/auth/*` core does — e.g. a cheap single-hop store for the upgrade
+  while `/auth/me` keeps a richer one. Defaults to `sessionStore`. It is NOT a
+  read-only seam: the verifier also slides the session window on success, so it
+  must be a full `SessionStore` writing to the SAME backing records.
+
+  Both are additive — omit them and the produced WS options are byte-identical
+  to before.
+
+  Inherited from `@orpc-ws/cookie-bff` in this release: the WS-upgrade reject
+  status the module's verifier sends is now HTTP `401` (was the WS close code
+  `4001`, written verbatim as a malformed status line). The module does not
+  expose `authFailedCloseCode`, so it always follows the core default. Browsers
+  cannot observe a pre-101 status — no behavior change for browser clients.
+
+### Patch Changes
+
+- Updated dependencies
+  - @orpc-ws/cookie-bff@0.13.0
+  - @orpc-ws/shared@0.13.0
+  - @orpc-ws/server@0.13.0
+  - @orpc-ws/server-nestjs@0.13.0
+
 ## 0.12.3
 
 ### Patch Changes

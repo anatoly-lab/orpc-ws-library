@@ -1,5 +1,34 @@
 # @orpc-ws/cookie-bff
 
+## 0.13.0
+
+### Minor Changes
+
+- Cookie WS verifier: the reject arm now defaults to HTTP **401**
+
+  `createCookieVerifyClient`'s reject path runs pre-101, so its `code` is the
+  HTTP status `ws` writes on the aborted handshake — not a WS close code. It
+  previously defaulted to `4001` (a WS close code), which went out verbatim as
+  the malformed status line `HTTP/1.1 4001 undefined`. The default is now `401`.
+
+  Compatibility:
+
+  - **Browsers are unaffected** — a browser cannot observe a pre-101 status at
+    all (a failed upgrade is an opaque error; the client retries on its backoff).
+  - **Non-browser clients** — which the Origin allowlist rejects anyway — now get
+    a well-formed `401` instead of a malformed status line.
+  - Consumers who set `authFailedCloseCode` explicitly keep their value. The
+    option name is unchanged (historical); its docstring now describes it as the
+    pre-101 reject status.
+  - Real post-accept `4001` closes (revocation kicks, the token-expiry watchdog,
+    `closeUser`) are untouched — those are correct uses of a close code on an
+    open socket.
+
+### Patch Changes
+
+- @orpc-ws/shared@0.13.0
+- @orpc-ws/server@0.13.0
+
 ## 0.12.3
 
 ### Patch Changes

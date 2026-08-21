@@ -86,6 +86,15 @@ export class ConnectionRegistry {
    * When the switch is off, we just overwrite the map entry without
    * closing the old WS. Consumers that allow concurrent connections own
    * the deduplication for their broadcast paths.
+   *
+   * "Last wins" here means last to reach `'connection'`, and that is safe
+   * WITHOUT a handshake-ordering guard: a slow `verifyClient` whose client
+   * abandoned the upgrade mid-verify never gets this far. Every abandonment
+   * shape (FIN, RST, a browser `close()` while CONNECTING) flips the upgrade
+   * socket's `readable` before the late verify resolves, and `ws`'s
+   * `completeUpgrade` destroys a non-readable/non-writable socket instead of
+   * emitting `'connection'` — measured against ws 8.21 / Node 22, 2026-08.
+   * So a late verify cannot evict a newer live connection for the same key.
    */
   register(key: string, ws: WebSocket, user: unknown, client?: unknown): void {
     if (this.config.singleConnectionPerUser) {

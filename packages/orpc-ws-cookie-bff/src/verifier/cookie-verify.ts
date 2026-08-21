@@ -46,9 +46,18 @@ export interface CookieVerifyOptions {
    */
   originAllowlist: string[];
   /**
-   * Close code for every reject path. The library has no `WS_CLOSE_CODES`
-   * enum — this is a plain numeric field. Defaults to 4001 (the server core's
-   * `authFailedCloseCode` default).
+   * HTTP status written on the pre-101 reject response line for every reject
+   * path (the reject happens at the upgrade, so `ws` aborts the handshake with
+   * this status — it is NOT a WS close code). Defaults to 401.
+   *
+   * Browsers cannot observe a pre-101 status at all — a failed upgrade surfaces
+   * as an opaque error and the client just retries on its backoff — so this
+   * exists for server logs and non-browser clients.
+   *
+   * The NAME is historical: earlier versions defaulted to the WS close code
+   * 4001, which `ws` wrote verbatim as the malformed status line
+   * `HTTP/1.1 4001 undefined`. Kept as-is because renaming a value no browser
+   * sees isn't worth a deprecation cycle.
    */
   authFailedCloseCode?: number;
   /**
@@ -63,7 +72,7 @@ export interface CookieVerifyOptions {
   logger?: Logger;
 }
 
-const DEFAULT_AUTH_FAILED_CLOSE_CODE = 4001;
+const DEFAULT_REJECT_STATUS = 401;
 
 /**
  * Build the cookie-reading `VerifyClient` (§D.3). `store` is the injected
@@ -73,7 +82,7 @@ export function createCookieVerifyClient<TUser>(
   store: SessionStore<TUser>,
   opts: CookieVerifyOptions,
 ): VerifyClient<TUser> {
-  const code = opts.authFailedCloseCode ?? DEFAULT_AUTH_FAILED_CLOSE_CODE;
+  const code = opts.authFailedCloseCode ?? DEFAULT_REJECT_STATUS;
   const clock = opts.clock ?? systemClock;
   const logger = opts.logger ?? noopLogger;
   const slide = opts.slideSessionOnActivity ?? true;

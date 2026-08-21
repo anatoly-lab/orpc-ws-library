@@ -178,17 +178,20 @@ function toOrpcWsOptions(opts: CookieBffModuleOptions): OrpcWsModuleOptions {
   const cookieName = opts.cookies?.sessionCookieName ?? "__Host-sid";
   const sessionTtlSeconds = opts.sessionTtlSeconds ?? 60 * 60 * 24 * 30;
 
-  const verifyClient = createCookieVerifyClient(
-    opts.sessionStore as SessionStore<unknown>,
-    {
-      cookieName,
-      originAllowlist: opts.originAllowlist,
-      slideSessionOnActivity: opts.slideSessionOnActivity ?? true,
-      sessionTtlSeconds,
-      ...(opts.clock ? { clock: opts.clock } : {}),
-      ...(opts.logger ? { logger: opts.logger } : {}),
-    },
-  );
+  // The verifier MAY read a different store than the /auth/* core (a cheap
+  // single-hop one for the handshake). It still WRITES — the slide — so both
+  // must back the same records; see `verifierSessionStore`'s doc.
+  const verifierStore = (opts.verifierSessionStore ??
+    opts.sessionStore) as SessionStore<unknown>;
+
+  const verifyClient = createCookieVerifyClient(verifierStore, {
+    cookieName,
+    originAllowlist: opts.originAllowlist,
+    slideSessionOnActivity: opts.slideSessionOnActivity ?? true,
+    sessionTtlSeconds,
+    ...(opts.clock ? { clock: opts.clock } : {}),
+    ...(opts.logger ? { logger: opts.logger } : {}),
+  });
 
   return {
     router: opts.router,
@@ -198,6 +201,9 @@ function toOrpcWsOptions(opts: CookieBffModuleOptions): OrpcWsModuleOptions {
     // Server→client RPC ("bidi"): forward the client contract VALUE unchanged.
     // Its PRESENCE (not its type) is what flips bidi on in the core factory.
     ...(opts.clientContract ? { clientContract: opts.clientContract } : {}),
+    ...(opts.verifyTimeoutMs !== undefined
+      ? { verifyTimeoutMs: opts.verifyTimeoutMs }
+      : {}),
     ...(opts.connection ? { connection: opts.connection } : {}),
     ...(opts.heartbeat ? { heartbeat: opts.heartbeat } : {}),
     ...(opts.interceptors ? { interceptors: opts.interceptors } : {}),

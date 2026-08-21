@@ -18,6 +18,7 @@
     "test": "turbo run test",
     "test:unit": "turbo run test",
     "test:e2e": "pnpm --filter @repo/tests-e2e run test:e2e",
+    "verify:all": "turbo run test --force && pnpm run test:e2e",
     "ci": "turbo run lint typecheck test build",
     "ci-cacheless": "turbo run lint typecheck test build --force",
     "clean": "turbo run clean && rimraf .turbo node_modules",

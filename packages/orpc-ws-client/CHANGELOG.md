@@ -1,5 +1,11 @@
 # @orpc-ws/client
 
+## 0.13.0
+
+### Patch Changes
+
+- @orpc-ws/shared@0.13.0
+
 ## 0.12.3
 
 ### Patch Changes

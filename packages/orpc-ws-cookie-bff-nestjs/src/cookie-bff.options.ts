@@ -12,7 +12,11 @@
 // `forRootAsync` `useFactory` can return `CookieBffModuleOptions` without a
 // type arg during composition.
 
-import type { CookieBffOptions, EndpointOptions } from "@orpc-ws/cookie-bff";
+import type {
+  CookieBffOptions,
+  EndpointOptions,
+  SessionStore,
+} from "@orpc-ws/cookie-bff";
 import type {
   AnyContractRouter,
   AuthenticatedHooks,
@@ -60,6 +64,46 @@ export interface CookieBffModuleOptions<
    * `connection: { path: "..." }`.
    */
   endpoints?: EndpointOptions;
+
+  /**
+   * Upper bound in ms on the cookie verify settling — forwarded to
+   * `OrpcWsModule` as the core's `verifyTimeoutMs`. Defaults to the core's
+   * 30000; `0` (or any non-positive value) disables the bound. The bounded
+   * work is the WHOLE cookie verify: the session-store `get` AND the
+   * session-window slide (`touch`, or the fallback `get` + merged `set`) —
+   * so a store that does remote hops is inside this budget twice.
+   *
+   * A timeout fails closed like a thrown verify: pre-101 HTTP 500, which a
+   * browser can only observe as a pre-open failure — so the client RETRIES on
+   * its backoff; it is never a terminal auth failure.
+   *
+   * The core default is deliberately generous (it reclaims sockets from a
+   * HUNG verify, not from a slow-but-live one). A consumer whose store does
+   * remote hops may still want this BELOW the client's `connectionTimeout`
+   * (default 5000), so a slow verify fails closed on the server before the
+   * client abandons the handshake and leaves the upgrade pending server-side.
+   */
+  verifyTimeoutMs?: number;
+
+  /**
+   * Session store used ONLY by the WS-upgrade cookie verifier. Defaults to
+   * `sessionStore` — omit it and behavior is byte-identical.
+   *
+   * WHY: the handshake and `/auth/me` have different cost profiles. This lets
+   * the WS upgrade read a cheap single-hop store while the core's `/auth/*`
+   * handlers keep a richer one (e.g. a store whose `get` also refreshes roles
+   * via an extra RPC), instead of paying the richer store's cost on every
+   * reconnect.
+   *
+   * CAVEAT — this is NOT a read-only seam. On success the verifier SLIDES the
+   * session window (`store.touch`, or the fallback `get` + merged `set` — see
+   * the core's `session-slide.ts`) unless `slideSessionOnActivity: false`. So
+   * it must be a FULL `SessionStore` writing to the SAME backing records as
+   * `sessionStore`; point it at a different backing store and the rolling
+   * window is re-stamped in the wrong place (the real session still expires
+   * on its original schedule).
+   */
+  verifierSessionStore?: SessionStore<TUser>;
 
   /** Partial WS connection config overlay — forwarded to `OrpcWsModule`. */
   connection?: Partial<ConnectionConfig>;

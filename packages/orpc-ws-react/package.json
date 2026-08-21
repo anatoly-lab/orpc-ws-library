@@ -1,6 +1,6 @@
 {
   "name": "@orpc-ws/react",
-  "version": "0.12.3",
+  "version": "0.13.0",
   "description": "React bindings for the @orpc-ws/client WebSocket transport: useConnectionState, useWsSubscription, OrpcWsProvider, useOrpcWs. Does not re-export the core.",
   "license": "MIT",
   "repository": {

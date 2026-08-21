@@ -210,6 +210,37 @@ and [`@orpc-ws/server` → Server→client RPC (bidirectional)](../orpc-ws-serve
 `enforceTokenExpiry` is deliberately **left OFF** — the WS connection lifetime
 follows the **session** window (`sessionExpiresAt`), not the access-token `exp`.
 
+### Verifier tuning
+
+Two optional options shape the WS-upgrade verify. Both are additive — omit
+them and the wiring is byte-identical to the defaults.
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `verifyTimeoutMs` | `30000` (core default) | Upper bound in ms on the cookie verify settling, forwarded to `OrpcWsModule`. `0` disables the bound. |
+| `verifierSessionStore` | `sessionStore` | The `SessionStore` the **verifier** uses, independent of the one the `/auth/*` core uses. |
+
+`verifyTimeoutMs` bounds the **whole** verify — the session-store `get` **and**
+the session-window slide (`touch`, or the fallback `get` + merged `set`) — so a
+store doing remote hops sits inside the budget twice. On timeout the upgrade
+fails closed exactly like a thrown verify: pre-101 HTTP 500, which a browser
+can only observe as a *pre-open failure*, so the client retries on its backoff
+— never a terminal auth failure. The core default is deliberately generous (it
+exists to reclaim sockets from a **hung** verify, not to police a slow-but-live
+one); if your store does remote hops, consider setting this **below** the
+client's `connectionTimeout` (default `5000`) so a slow verify fails closed
+server-side before the client abandons the handshake.
+
+`verifierSessionStore` exists because the handshake and `/auth/me` have
+different cost profiles: it lets the WS upgrade read a cheap single-hop store
+while the core keeps a richer one (e.g. one whose `get` also refreshes roles via
+an extra RPC), instead of paying that cost on every reconnect. **Caveat — this
+is not a read-only seam.** On success the verifier *slides* the session window
+(unless `slideSessionOnActivity: false`), so it must be a **full**
+`SessionStore` writing to the **same backing records** as `sessionStore`. Point
+it at a different backing store and the rolling window is re-stamped in the
+wrong place — the real session still expires on its original schedule.
+
 For single-import convenience the adapter **re-exports** the core's
 `createCookieBffCore` / `createCookieVerifyClient` / `revokeUser` plus the core
 types (`SessionStore`, `SessionData`, `CookieBffOptions`, `AuthInstruction`,

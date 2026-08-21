@@ -57,19 +57,19 @@ describe("createCookieVerifyClient", () => {
   it("rejects an Origin not on the allowlist", async () => {
     const { verify } = build();
     const res = await verify(ctx({ origin: "https://evil.example" }));
-    expect(res).toEqual({ ok: false, code: 4001, reason: "Origin not allowed" });
+    expect(res).toEqual({ ok: false, code: 401, reason: "Origin not allowed" });
   });
 
   it("rejects an empty Origin (fail-closed)", async () => {
     const { verify } = build();
     const res = await verify(ctx({ origin: "" }));
-    expect(res).toMatchObject({ ok: false, code: 4001 });
+    expect(res).toMatchObject({ ok: false, code: 401 });
   });
 
   it("rejects when there is no session cookie", async () => {
     const { verify } = build();
     const res = await verify(ctx({}));
-    expect(res).toEqual({ ok: false, code: 4001, reason: "No session cookie" });
+    expect(res).toEqual({ ok: false, code: 401, reason: "No session cookie" });
   });
 
   it("FAILS CLOSED when the store throws", async () => {
@@ -78,7 +78,7 @@ describe("createCookieVerifyClient", () => {
     const res = await verify(ctx({ cookie: `${COOKIE}=sid-1` }));
     expect(res).toEqual({
       ok: false,
-      code: 4001,
+      code: 401,
       reason: "Session store unavailable",
     });
   });
@@ -114,10 +114,10 @@ describe("createCookieVerifyClient", () => {
     const verify = createCookieVerifyClient(store, {
       cookieName: COOKIE,
       originAllowlist: [ORIGIN],
-      authFailedCloseCode: 4010,
+      authFailedCloseCode: 403,
     });
     const res = await verify(ctx({ origin: "https://evil.example" }));
-    expect(res).toMatchObject({ ok: false, code: 4010 });
+    expect(res).toMatchObject({ ok: false, code: 403 });
   });
 
   describe("session-window sliding", () => {

@@ -152,7 +152,7 @@ WS UPGRADE
   browser → wss://api.ankimcp.ai/ws        (cookie __Host-sid auto-sent; NO ?token=)
   server  → verifier reads ctx.req.headers.cookie → sid → sessionStore.get(sid)
           → check Origin allowlist (cross-site WS hijack defense)
-          → fail closed if store unreachable; reject if missing/expired (4001)
+          → fail closed if store unreachable; reject if missing/expired (HTTP 401)
           → { ok, user: <enriched>, connectionKey: sub, expiresAt: SESSION window (up to 30d) }
           → door opens
 
@@ -354,20 +354,20 @@ export function createCookieVerifyClient<TUser>(
 // behavior sketch:
 async (ctx) => {
   if (!originAllowed(ctx.origin, opts.originAllowlist))
-    return { ok: false, code: 4001, reason: "Origin not allowed" };
+    return { ok: false, code: 401, reason: "Origin not allowed" };
 
   const sid = parseCookie(ctx.req.headers.cookie, opts.cookieName);
-  if (!sid) return { ok: false, code: 4001, reason: "No session cookie" };
+  if (!sid) return { ok: false, code: 401, reason: "No session cookie" };
 
   let session: SessionData<TUser> | null;
   try {
     session = await store.get(sid);
   } catch {
-    return { ok: false, code: 4001, reason: "Session store unavailable" }; // FAIL CLOSED — client retries
+    return { ok: false, code: 401, reason: "Session store unavailable" }; // FAIL CLOSED — client retries
   }
-  if (!session) return { ok: false, code: 4001, reason: "Unknown session" };
+  if (!session) return { ok: false, code: 401, reason: "Unknown session" };
   if (session.sessionExpiresAt <= Date.now())
-    return { ok: false, code: 4001, reason: "Session expired" };
+    return { ok: false, code: 401, reason: "Session expired" };
 
   return {
     ok: true,
@@ -381,8 +381,11 @@ async (ctx) => {
 > **Close codes.** The library has **no `WS_CLOSE_CODES` enum** — the codes are
 > numeric configurable fields on `ConnectionConfig` (`authFailedCloseCode`
 > default **4001**, `sessionReplacedCloseCode` default **4005**,
-> `shutdownCloseCode` default **4009**). The verifier reject path uses
-> `authFailedCloseCode` (4001). There is **no public `cookieAuthProvider`
+> `shutdownCloseCode` default **4009**). The verifier reject path is NOT one of
+> them: it happens pre-101, so its `code` is the **HTTP status** `ws` writes on
+> the aborted handshake — default **401** (the option is still named
+> `authFailedCloseCode`, historically, from when it defaulted to 4001).
+> There is **no public `cookieAuthProvider`
 > export** — the client simply omits `tokenProvider`.
 
 > **AS BUILT — the verifier slides the session window on a successful upgrade.**
@@ -395,7 +398,7 @@ async (ctx) => {
 > The verifier `opts` accordingly carry `slideSessionOnActivity?`,
 > `sessionTtlSeconds?`, `clock?`, `logger?` beyond the `cookieName` /
 > `originAllowlist` shown in the sketch above, plus an optional
-> `authFailedCloseCode?` (default 4001).
+> `authFailedCloseCode?` (the pre-101 reject HTTP status, default 401).
 
 ### D.4 CORE — framework-agnostic `/auth/*` handlers
 
@@ -945,7 +948,7 @@ subject), which lines up with `keycloakId` — good — but the new consumer is
 | Behavior | Decision | Source |
 | --- | --- | --- |
 | Two tabs / two devices | **Last-wins** — new connection kicks the previous (4005). Stays current behavior. | `singleConnectionPerUser` (default `true`) keyed on `connectionKey=sub` + `onKicked` — **free** from `@orpc-ws/server`. Decision #19. |
-| Session store unreachable on connect | **Fail closed** — refuse the upgrade (4001), signal client to retry. Never hang. | Verifier `catch` → `{ ok:false, code:4001 }` (§D.3). Decision #21. |
+| Session store unreachable on connect | **Fail closed** — refuse the upgrade (HTTP 401), signal client to retry. Never hang. | Verifier `catch` → `{ ok:false, code:401 }` (§D.3). Decision #21. |
 | User object (role + DB id) | **Enriched user stored in the session** at `/callback` via `resolveUser` (= `findOrCreateUser`). Verifier + `/auth/me` read it back. No data lost. | §D.2, §D.7. Decision #22. |
 | Tokens at rest | **Encrypted** (AES-256-GCM) with consumer key. | §E.3. Decision #22. |
 | Kick | **Best-effort** — `deleteByUser` + `closeUser` + consumer broadcast. Accepted reconnect race; no kick-wins handling. | §G. Decision #17/#18. |

@@ -9,7 +9,7 @@
 import type { IncomingMessage } from "node:http";
 
 import { describe, expect, it, vi } from "vitest";
-import { Test } from "@nestjs/testing";
+import { Test, type TestingModule } from "@nestjs/testing";
 import { HttpAdapterHost } from "@nestjs/core";
 import { Injectable, Module } from "@nestjs/common";
 import { ORPC_WS_OPTIONS, type OrpcWsModuleOptions } from "@orpc-ws/server-nestjs";
@@ -293,6 +293,114 @@ describe("CookieBffModule single-resolution invariant", () => {
       secure: true,
     });
     expect(result).toMatchObject({ ok: true, connectionKey: "kc-1" });
+
+    await moduleRef.close();
+  });
+});
+
+// The two verifier-tuning passthroughs. Both are additive: absent ⇒ the
+// produced WS options / verifier store are exactly what they were before.
+describe("CookieBffModule verifier options", () => {
+  /** Compile with `extra` merged over the base options for `store`. */
+  async function compileWith(
+    store: FakeSessionStore,
+    extra: Partial<CookieBffModuleOptions<TestUser>>,
+  ) {
+    return Test.createTestingModule({
+      imports: [
+        CookieBffModule.forRootAsync<TestUser>({
+          useFactory: () => ({ ...options(store), ...extra }),
+        }),
+      ],
+    })
+      .overrideProvider(HttpAdapterHost)
+      .useValue(stubHttpAdapterHost)
+      .compile();
+  }
+
+  function wsOptionsOf(moduleRef: TestingModule) {
+    const wsOptions = moduleRef.get<OrpcWsModuleOptions<TestUser>>(
+      ORPC_WS_OPTIONS,
+      { strict: false },
+    );
+    if (wsOptions.mode === "authless") throw new Error("expected authed arm");
+    return wsOptions;
+  }
+
+  it("forwards `verifyTimeoutMs` to the internal OrpcWsModule", async () => {
+    const moduleRef = await compileWith(new FakeSessionStore(), {
+      verifyTimeoutMs: 2_000,
+    });
+
+    expect(wsOptionsOf(moduleRef).verifyTimeoutMs).toBe(2_000);
+
+    await moduleRef.close();
+  });
+
+  // `0` is the "disable the bound" value, so it must survive the forward —
+  // a truthiness-gated spread would silently drop it back to the 30s default.
+  it("forwards a `verifyTimeoutMs` of 0 (disables the bound)", async () => {
+    const moduleRef = await compileWith(new FakeSessionStore(), {
+      verifyTimeoutMs: 0,
+    });
+
+    expect(wsOptionsOf(moduleRef).verifyTimeoutMs).toBe(0);
+
+    await moduleRef.close();
+  });
+
+  it("omits `verifyTimeoutMs` entirely when unset (core default applies)", async () => {
+    const moduleRef = await compileWith(new FakeSessionStore(), {});
+
+    expect(wsOptionsOf(moduleRef)).not.toHaveProperty("verifyTimeoutMs");
+
+    await moduleRef.close();
+  });
+
+  it("`verifierSessionStore` is the store the WS verifier reads", async () => {
+    const coreStore = new FakeSessionStore();
+    const verifierStore = new FakeSessionStore();
+    verifierStore.map.set("sid-1", liveSession("kc-1"));
+    const coreGet = vi.spyOn(coreStore, "get");
+    const verifierGet = vi.spyOn(verifierStore, "get");
+
+    const moduleRef = await compileWith(coreStore, {
+      verifierSessionStore: verifierStore,
+    });
+
+    const result = await wsOptionsOf(moduleRef).verifyClient({
+      req: { headers: { cookie: "__Host-sid=sid-1" } } as IncomingMessage,
+      token: null,
+      clientIp: "1.2.3.4",
+      origin: ORIGIN,
+      secure: true,
+    });
+
+    expect(result).toMatchObject({ ok: true, connectionKey: "kc-1" });
+    expect(verifierGet).toHaveBeenCalledWith("sid-1");
+    // The /auth/* core's store is untouched by the handshake.
+    expect(coreGet).not.toHaveBeenCalled();
+
+    await moduleRef.close();
+  });
+
+  it("falls back to `sessionStore` when `verifierSessionStore` is absent", async () => {
+    const coreStore = new FakeSessionStore();
+    coreStore.map.set("sid-1", liveSession("kc-1"));
+    const coreGet = vi.spyOn(coreStore, "get");
+
+    const moduleRef = await compileWith(coreStore, {});
+
+    const result = await wsOptionsOf(moduleRef).verifyClient({
+      req: { headers: { cookie: "__Host-sid=sid-1" } } as IncomingMessage,
+      token: null,
+      clientIp: "1.2.3.4",
+      origin: ORIGIN,
+      secure: true,
+    });
+
+    expect(result).toMatchObject({ ok: true, connectionKey: "kc-1" });
+    expect(coreGet).toHaveBeenCalledWith("sid-1");
 
     await moduleRef.close();
   });
